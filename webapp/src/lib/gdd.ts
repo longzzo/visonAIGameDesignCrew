@@ -1,18 +1,63 @@
-// 마스터 GDD 마크다운 섹션 조작 + 로컬 API(/api/gdd) 입출력
+// 마스터 GDD 마크다운 섹션 조작 + 로컬 API(/api/gdd, /api/projects) 입출력
 
 export interface GddState {
   markdown: string;
   mtime: number;
 }
 
-export async function fetchGdd(): Promise<GddState> {
-  const r = await fetch("/api/gdd");
+export interface ProjectInfo {
+  id: string;
+  name: string;
+  createdAt: number;
+  mtime: number;
+}
+
+/* ── 프로젝트 CRUD ─────────────────────────────────── */
+
+export async function listProjects(): Promise<ProjectInfo[]> {
+  const r = await fetch("/api/projects");
+  if (!r.ok) throw new Error(`프로젝트 목록 실패 (${r.status})`);
+  const j = await r.json();
+  return (j.projects ?? []) as ProjectInfo[];
+}
+
+export async function createProject(name: string): Promise<string> {
+  const r = await fetch("/api/projects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  const j = await r.json();
+  if (!r.ok || !j.ok) throw new Error(j.error || "프로젝트 생성 실패");
+  return j.id as string;
+}
+
+export async function renameProject(id: string, name: string): Promise<void> {
+  const r = await fetch("/api/projects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, name }),
+  });
+  const j = await r.json();
+  if (!r.ok || !j.ok) throw new Error(j.error || "이름 변경 실패");
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  const r = await fetch(`/api/projects?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+  const j = await r.json();
+  if (!r.ok || !j.ok) throw new Error(j.error || "프로젝트 삭제 실패");
+}
+
+/* ── GDD 읽기/쓰기 (프로젝트별) ─────────────────────── */
+
+export async function fetchGdd(project: string): Promise<GddState> {
+  const r = await fetch(`/api/gdd?project=${encodeURIComponent(project)}`);
   if (!r.ok) throw new Error(`GDD 읽기 실패 (${r.status})`);
   return (await r.json()) as GddState;
 }
 
-export async function saveGdd(markdown: string): Promise<number> {
-  const r = await fetch("/api/gdd", {
+export async function saveGdd(project: string, markdown: string): Promise<number> {
+  const r = await fetch(`/api/gdd?project=${encodeURIComponent(project)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ markdown }),
@@ -21,6 +66,8 @@ export async function saveGdd(markdown: string): Promise<number> {
   if (!r.ok || !j.ok) throw new Error(j.error || `GDD 저장 실패 (${r.status})`);
   return j.mtime as number;
 }
+
+/* ── 마크다운 섹션 조작 ─────────────────────────────── */
 
 /**
  * headingPrefix(예: "## 3.")로 시작하는 섹션의 본문을 newBody로 교체한다.

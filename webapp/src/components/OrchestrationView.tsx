@@ -129,6 +129,12 @@ export function OrchestrationView() {
                 </span>
                 <Elapsed from={c.startedAt} to={c.endedAt} />
               </div>
+              {c.instruction && c.state !== "queued" && c.state !== "pending" && (
+                <details className="card-inst">
+                  <summary>📨 PM의 지시 보기</summary>
+                  <pre>{c.instruction}</pre>
+                </details>
+              )}
               {c.state === "done" && (
                 <>
                   <details className="card-output" open={false}>

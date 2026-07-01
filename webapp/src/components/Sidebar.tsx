@@ -9,7 +9,21 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export function Sidebar() {
-  const { agentStatus, activeAgent, selectAgent, view, conn, connDetail, reconnect } = useVE();
+  const {
+    agentStatus,
+    activeAgent,
+    selectAgent,
+    view,
+    conn,
+    connDetail,
+    reconnect,
+    agentHealth,
+    healthRunning,
+    healthCheck,
+  } = useVE();
+
+  const healthDone = Object.keys(agentHealth).length;
+  const healthOk = Object.values(agentHealth).filter((h) => h.ok).length;
 
   return (
     <aside className="sidebar">
@@ -18,6 +32,7 @@ export function Sidebar() {
         {AGENTS.map((a) => {
           const st = agentStatus[a.id] ?? "idle";
           const active = view === "chat" && activeAgent === a.id;
+          const health = agentHealth[a.id];
           return (
             <li
               key={a.id}
@@ -32,12 +47,31 @@ export function Sidebar() {
                 <span className="agent-name">{a.name}</span>
                 <span className="agent-role">{a.role}</span>
               </span>
+              {health && (
+                <span
+                  className={`health-mark ${health.ok ? "ok" : "bad"}`}
+                  title={health.ok ? `응답 ${Math.round(health.ms / 1000)}초: ${health.reply ?? ""}` : health.error}
+                >
+                  {health.ok ? "✓" : "✗"}
+                </span>
+              )}
               <span className={`status-dot st-${st}`} title={STATUS_LABEL[st]} />
             </li>
           );
         })}
       </ul>
       <div className="sidebar-foot">
+        <button className="btn small" onClick={() => void healthCheck()} disabled={healthRunning}>
+          {healthRunning ? (
+            <>
+              <span className="spinner" /> 점검 중… ({healthDone}/{AGENTS.length})
+            </>
+          ) : healthDone > 0 ? (
+            `🩺 전원 점검 (${healthOk}/${healthDone} 정상) — 다시`
+          ) : (
+            "🩺 에이전트 전원 점검"
+          )}
+        </button>
         {conn !== "connected" && (
           <button className="btn small" onClick={() => void reconnect()}>
             🔌 게이트웨이 재연결

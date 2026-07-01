@@ -250,3 +250,70 @@ button { font-family: inherit; }
   .app-body { grid-template-columns: 210px 1fr 320px; }
   .project-name { width: 140px; }
 }
+
+/* ── 프로젝트 선택기 (상단 바) ──────────────────────── */
+.project-ctl { display: flex; align-items: center; gap: 4px; }
+.project-ctl select {
+  background: var(--panel); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 8px; font-size: 13px; max-width: 210px; font-family: inherit;
+}
+.project-ctl select:focus { outline: none; border-color: var(--accent); }
+.btn.danger-hover:hover:not(:disabled) { border-color: var(--err); color: var(--err); }
+
+/* ── 에이전트 헬스체크 ─────────────────────────────── */
+.health-mark { font-size: 12px; font-weight: 700; flex-shrink: 0; }
+.health-mark.ok { color: var(--ok); }
+.health-mark.bad { color: var(--err); }
+.sidebar-foot .btn { display: flex; align-items: center; gap: 6px; justify-content: center; }
+
+/* ── PM 지시 전문 (오케스트레이션 카드) ─────────────── */
+.card-inst summary { cursor: pointer; font-size: 12px; color: var(--text-dim); }
+.card-inst pre {
+  margin: 6px 0 2px; font-size: 11.5px; white-space: pre-wrap; color: var(--text-dim);
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; max-height: 180px; overflow-y: auto;
+}
+
+/* ── 모바일 반응형 (≤900px: 패널 탭 전환) ───────────── */
+.mobile-tabs { display: none; }
+@media (max-width: 900px) {
+  :root { font-size: 15px; }
+  .app { height: 100dvh; }
+  .topbar { flex-wrap: wrap; height: auto; padding: 8px 10px; gap: 8px; row-gap: 6px; }
+  .brand-name { display: none; }
+  .project-ctl { flex: 1; min-width: 0; }
+  .project-ctl select { flex: 1; max-width: none; min-width: 0; }
+  .view-tabs { order: 10; width: 100%; }
+  .view-tabs button { flex: 1; }
+  .topbar-right { margin-left: 0; }
+
+  .app-body { display: block; position: relative; flex: 1; min-height: 0; }
+  .sidebar, .main-panel, .gdd-panel { display: none; height: 100%; width: 100%; }
+  .app-body.panel-agents .sidebar { display: flex; border-right: none; }
+  .app-body.panel-work .main-panel { display: flex; }
+  .app-body.panel-gdd .gdd-panel { display: flex; border-left: none; }
+
+  .mobile-tabs {
+    display: flex; gap: 6px; border-top: 1px solid var(--border); background: var(--bg-2);
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  }
+  .mobile-tabs button {
+    flex: 1; background: transparent; border: 1px solid transparent; border-radius: 10px;
+    color: var(--text-dim); padding: 11px 0; font-size: 13px; font-family: inherit;
+  }
+  .mobile-tabs button.active { background: var(--panel-2); color: var(--text); border-color: var(--border); }
+
+  /* 터치 타깃 확대 */
+  .btn { padding: 10px 14px; }
+  .btn.tiny { padding: 7px 11px; }
+  .agent-item { padding: 11px 9px; }
+  .bubble { max-width: 94%; }
+  .cards-grid { grid-template-columns: 1fr; }
+  .orch-view { padding: 10px; }
+  .chat-scroll { padding: 12px 10px; }
+  .composer { padding: 10px; }
+}
+@media (max-width: 600px) {
+  .model-badge { display: none; }
+  .conn-label { display: none; }
+}
