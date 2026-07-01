@@ -1,0 +1,104 @@
+{
+  "$comment": "Vision Engine — OpenClaw 멀티에이전트 설정. 실제 키 이름/구조는 사용하는 OpenClaw 버전 문서에서 최종 확인할 것. 이 파일은 설계 초안이다.",
+
+  "gateway": {
+    "host": "127.0.0.1",
+    "port": 18789,
+    "controlUI": {
+      "enabled": true,
+      "$comment_origins": "원격 접속 시 정확한 URL 등록 필요. 로컬 전용이면 기본값 유지.",
+      "allowedOrigins": ["http://127.0.0.1:18789"]
+    }
+  },
+
+  "auth": {
+    "$comment": "GPT Pro 구독을 API 키 없이 OAuth로 쓰려면 openai-codex, Claude 모델은 별도 인증. 오너 환경에 맞게 택일/병행.",
+    "choice": "openai-codex"
+  },
+
+  "models": {
+    "$comment": "이 프로젝트의 목적은 Claude Fable 5 성능 실험. 주력은 fable-5, 폴백은 opus-4-8.",
+    "primary": "claude-fable-5",
+    "fallbacks": ["claude-opus-4-8"]
+  },
+
+  "sandbox": {
+    "$comment": "처음에는 메인 환경과 분리해 보수적으로 시작. 익숙해지면 단계적으로 권한 확대.",
+    "mode": "non-main"
+  },
+
+  "agents": {
+    "list": [
+      {
+        "id": "pm",
+        "name": "PM 총괄 오케스트레이터",
+        "workspace": "~/.openclaw/ws-pm",
+        "instructionsFile": "agents/pm/AGENTS.md",
+        "model": "claude-fable-5",
+        "$comment": "유일하게 GDD 쓰기 권한. 서브에이전트를 spawn해 위임."
+      },
+      {
+        "id": "scenario",
+        "name": "시나리오·월드빌딩",
+        "workspace": "~/.openclaw/ws-scenario",
+        "instructionsFile": "agents/scenario/AGENTS.md",
+        "model": "claude-fable-5"
+      },
+      {
+        "id": "gameplay",
+        "name": "게임플레이 로직",
+        "workspace": "~/.openclaw/ws-gameplay",
+        "instructionsFile": "agents/gameplay/AGENTS.md",
+        "model": "claude-fable-5"
+      },
+      {
+        "id": "uiux",
+        "name": "UI/UX",
+        "workspace": "~/.openclaw/ws-uiux",
+        "instructionsFile": "agents/uiux/AGENTS.md",
+        "model": "claude-fable-5"
+      },
+      {
+        "id": "systems",
+        "name": "메커니즘·규칙·전투",
+        "workspace": "~/.openclaw/ws-systems",
+        "instructionsFile": "agents/systems/AGENTS.md",
+        "model": "claude-fable-5"
+      },
+      {
+        "id": "balance",
+        "name": "밸런싱·수치",
+        "workspace": "~/.openclaw/ws-balance",
+        "instructionsFile": "agents/balance/AGENTS.md",
+        "model": "claude-fable-5"
+      },
+      {
+        "id": "bm",
+        "name": "비즈니스 모델",
+        "workspace": "~/.openclaw/ws-bm",
+        "instructionsFile": "agents/bm/AGENTS.md",
+        "model": "claude-fable-5",
+        "tools": {
+          "$comment": "BM은 파일 실행/삭제 불필요. 안전을 위해 제한.",
+          "deny": ["exec", "write"]
+        }
+      },
+      {
+        "id": "visual",
+        "name": "아트 디렉션·톤앤매너",
+        "workspace": "~/.openclaw/ws-visual",
+        "instructionsFile": "agents/visual/AGENTS.md",
+        "model": "claude-fable-5",
+        "$comment": "이미지를 직접 생성하지 않음. 스타일 스펙과 이미지 생성 프롬프트 초안만 작성."
+      }
+    ]
+  },
+
+  "optionalHelpers": {
+    "$comment": "무료 티어 보조 API. rate limit이 빡빡하므로 대량 반복 작업에만 선택적으로 사용. 실제 연결 방식은 각 서비스 문서 확인.",
+    "gemini": { "purpose": "시나리오 대량 초안", "model": "gemini-flash", "enabled": false },
+    "githubModels": { "purpose": "코드 초안", "enabled": false },
+    "nvidia": { "purpose": "자산 최적화", "enabled": false },
+    "ollamaLocal": { "purpose": "오프라인 백업·반복 계산", "model": "llama3", "enabled": false }
+  }
+}

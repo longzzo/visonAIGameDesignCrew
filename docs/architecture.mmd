@@ -1,0 +1,49 @@
+%% Vision Engine 아키텍처 다이어그램
+%% 렌더링: https://mermaid.live 또는 VS Code Mermaid 확장
+
+flowchart TB
+    Owner([오너 / 사람]):::human
+
+    subgraph IF[인터페이스 계층]
+        CC[Claude Code CLI]
+        WC[OpenClaw WebChat<br/>localhost:18789]
+    end
+
+    subgraph ORCH[오케스트레이션 계층]
+        PM[PM 에이전트<br/>Main Brain<br/>Claude Fable 5]:::brain
+    end
+
+    subgraph EXEC[실행 계층 - 서브에이전트]
+        direction LR
+        SC[Scenario<br/>시나리오·월드빌딩]
+        GP[Gameplay<br/>플레이 로직]
+        UX[UI/UX<br/>사용자 여정]
+        SY[Systems<br/>메커니즘·규칙·전투]
+        BL[Balance<br/>수치 밸런싱]
+        BM[Business<br/>수익 모델]
+    end
+
+    GDD[(MASTER_GDD.md<br/>진실의 원천)]:::gdd
+
+    subgraph MODEL[모델·리소스 계층]
+        F5[Claude Fable 5<br/>주력]:::brain
+        OP[Claude Opus 4.8<br/>폴백]
+        FREE[보조 무료 API<br/>Gemini / GitHub Models / NVIDIA / Ollama]:::free
+    end
+
+    Owner --> IF
+    IF --> PM
+    PM -->|TASK_BRIEF 위임| SC & GP & UX & SY & BL & BM
+    SC & GP & UX & SY & BL & BM -->|참조 read| GDD
+    SC & GP & UX & SY & BL & BM -->|결과 반환| PM
+    PM -->|대조·검증 후 갱신 write| GDD
+    PM -->|통합 결과물| Owner
+
+    PM -.실행.-> F5
+    F5 -.거부/차단·429.-> OP
+    EXEC -.대량 반복 작업.-> FREE
+
+    classDef human fill:#1a2332,color:#fff,stroke:#4a90d9,stroke-width:2px
+    classDef brain fill:#0f2847,color:#fff,stroke:#4a90d9,stroke-width:2px
+    classDef gdd fill:#2d1f3d,color:#fff,stroke:#9b6dc9,stroke-width:2px
+    classDef free fill:#1f3d2d,color:#fff,stroke:#5cb85c,stroke-width:1px

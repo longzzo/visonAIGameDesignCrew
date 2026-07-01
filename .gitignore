@@ -1,0 +1,14 @@
+webapp/node_modules/
+webapp/dist/
+webapp/.env.local
+agents/*/memory/
+agents/*/canvas/
+agents/*/.openclaw/
+# OpenClaw 게이트웨이가 자동 생성·갱신하는 에이전트 런타임 파일
+agents/*/BOOTSTRAP.md
+agents/*/HEARTBEAT.md
+agents/*/IDENTITY.md
+agents/*/SOUL.md
+agents/*/TOOLS.md
+agents/*/USER.md
+agents/*/openclaw-workspace-state.json

@@ -1,0 +1,105 @@
+{
+  "_comment": "Vision Engine 참조 설정 — 실제 적용 파일은 C:\\Users\\ba960\\.openclaw\\openclaw.json (게이트웨이 토큰은 실제 파일 참조)",
+  "agents": {
+    "defaults": {
+      "workspace": "C:\\Users\\ba960\\.openclaw\\workspace",
+      "model": {
+        "primary": "ollama/qwen3:8b"
+      }
+    },
+    "list": [
+      {
+        "id": "pm",
+        "name": "PM 디렉터",
+        "default": true,
+        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\pm",
+        "identity": { "name": "PM 디렉터", "emoji": "🎯" },
+        "model": "ollama/qwen3:8b"
+      },
+      {
+        "id": "scenario",
+        "name": "시나리오 라이터",
+        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\scenario",
+        "identity": { "name": "시나리오 라이터", "emoji": "📖" },
+        "model": "ollama/qwen3:8b"
+      },
+      {
+        "id": "gameplay",
+        "name": "게임플레이 디자이너",
+        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\gameplay",
+        "identity": { "name": "게임플레이 디자이너", "emoji": "🕹️" },
+        "model": "ollama/qwen3:8b"
+      },
+      {
+        "id": "uiux",
+        "name": "UI/UX 디자이너",
+        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\uiux",
+        "identity": { "name": "UI/UX 디자이너", "emoji": "🧭" },
+        "model": "ollama/qwen3:8b"
+      },
+      {
+        "id": "systems",
+        "name": "시스템 디자이너",
+        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\systems",
+        "identity": { "name": "시스템 디자이너", "emoji": "⚙️" },
+        "model": "ollama/qwen3:8b"
+      },
+      {
+        "id": "balance",
+        "name": "밸런스 디자이너",
+        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\balance",
+        "identity": { "name": "밸런스 디자이너", "emoji": "⚖️" },
+        "model": "ollama/qwen3:8b"
+      },
+      {
+        "id": "bm",
+        "name": "BM 전략가",
+        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\bm",
+        "identity": { "name": "BM 전략가", "emoji": "💰" },
+        "model": "ollama/qwen3:8b",
+        "tools": { "deny": ["exec", "write", "edit"] }
+      },
+      {
+        "id": "visual",
+        "name": "아트 디렉터",
+        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\visual",
+        "identity": { "name": "아트 디렉터", "emoji": "🎨" },
+        "model": "ollama/qwen3:8b"
+      }
+    ]
+  },
+  "models": {
+    "providers": {
+      "ollama": {
+        "baseUrl": "http://127.0.0.1:11434",
+        "api": "ollama",
+        "apiKey": "ollama-local",
+        "models": [
+          {
+            "id": "qwen3:8b",
+            "name": "Qwen3 8B (local)",
+            "input": ["text"],
+            "contextWindow": 32768,
+            "maxTokens": 8192
+          },
+          {
+            "id": "qwen2.5:7b-instruct",
+            "name": "Qwen2.5 7B Instruct (local)",
+            "input": ["text"],
+            "contextWindow": 32768,
+            "maxTokens": 8192
+          }
+        ]
+      }
+    }
+  },
+  "gateway": {
+    "mode": "local",
+    "auth": {
+      "mode": "token",
+      "token": "(실제 파일의 토큰 사용 — 커밋 금지)"
+    },
+    "port": 18789,
+    "bind": "loopback"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "vision-engine-webapp",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Vision Engine — 게임 기획 멀티에이전트 웹앱 (OpenClaw 게이트웨이 프론트엔드)",
+  "scripts": {
+    "predev": "node scripts/prepare-env.mjs",
+    "dev": "vite",
+    "dev:mobile": "node scripts/prepare-env.mjs && node scripts/dev-mobile.mjs",
+    "prebuild": "node scripts/prepare-env.mjs",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "dompurify": "^3.1.6",
+    "marked": "^12.0.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2"
+  }
+}
