@@ -468,10 +468,11 @@ const PROVIDER_TEMPLATES: Record<string, any> = {
   nvidia: {
     baseUrl: "https://integrate.api.nvidia.com/v1",
     api: "openai-completions",
+    // 2026-07 카탈로그 실측 기준 — 응답 빠르고 한국어 정상인 모델만 (qwen3.5-397b는 대기열 2분+로 제외)
     models: [
       {
-        id: "qwen/qwen3-235b-a22b",
-        name: "Qwen3 235B (NVIDIA)",
+        id: "moonshotai/kimi-k2.6",
+        name: "Kimi K2.6 (NVIDIA)",
         input: ["text"],
         contextWindow: 131072,
         maxTokens: 8192,
@@ -483,11 +484,11 @@ const PROVIDER_TEMPLATES: Record<string, any> = {
         },
       },
       {
-        id: "meta/llama-3.3-70b-instruct",
-        name: "Llama 3.3 70B (NVIDIA)",
+        id: "qwen/qwen3-next-80b-a3b-instruct",
+        name: "Qwen3 Next 80B (NVIDIA)",
         input: ["text"],
         contextWindow: 131072,
-        maxTokens: 4096,
+        maxTokens: 8192,
         compat: {
           maxTokensField: "max_tokens",
           supportsStore: false,
@@ -496,8 +497,21 @@ const PROVIDER_TEMPLATES: Record<string, any> = {
         },
       },
       {
-        id: "deepseek-ai/deepseek-r1",
-        name: "DeepSeek R1 (NVIDIA)",
+        id: "deepseek-ai/deepseek-v4-flash",
+        name: "DeepSeek V4 Flash (NVIDIA)",
+        input: ["text"],
+        contextWindow: 131072,
+        maxTokens: 8192,
+        compat: {
+          maxTokensField: "max_tokens",
+          supportsStore: false,
+          supportsDeveloperRole: false,
+          supportsReasoningEffort: false,
+        },
+      },
+      {
+        id: "openai/gpt-oss-120b",
+        name: "GPT-OSS 120B (NVIDIA)",
         input: ["text"],
         contextWindow: 131072,
         maxTokens: 8192,
@@ -519,9 +533,10 @@ const MODEL_LABELS: Record<string, { label: string; note?: string }> = {
   // GitHub 설정에서 Models 유료 결제(또는 Copilot 유료 플랜)를 켜면 제한이 풀려 사용 가능.
   "github/openai/gpt-5-mini": { label: "GPT-5 mini · GitHub Models", note: "⚠️ GitHub 유료 결제 필요 (무료 티어는 4K 제한)" },
   "github/openai/gpt-5": { label: "GPT-5 · GitHub Models", note: "⚠️ GitHub 유료 결제 필요 (무료 티어는 4K 제한)" },
-  "nvidia/qwen/qwen3-235b-a22b": { label: "Qwen3 235B · NVIDIA", note: "무료 크레딧" },
-  "nvidia/meta/llama-3.3-70b-instruct": { label: "Llama 3.3 70B · NVIDIA", note: "무료 크레딧" },
-  "nvidia/deepseek-ai/deepseek-r1": { label: "DeepSeek R1 · NVIDIA", note: "추론 특화 · 느림" },
+  "nvidia/moonshotai/kimi-k2.6": { label: "Kimi K2.6 · NVIDIA", note: "헤드급 — PM 추천" },
+  "nvidia/qwen/qwen3-next-80b-a3b-instruct": { label: "Qwen3 Next 80B · NVIDIA", note: "빠름 — 팀원 추천" },
+  "nvidia/deepseek-ai/deepseek-v4-flash": { label: "DeepSeek V4 Flash · NVIDIA", note: "빠름" },
+  "nvidia/openai/gpt-oss-120b": { label: "GPT-OSS 120B · NVIDIA", note: "균형" },
 };
 
 function hasProviderKey(cfg: any, provider: string): boolean {

@@ -293,8 +293,21 @@
         "apiKey": "(NVIDIA nvapi 키 — 웹앱 사이드바 🔑 버튼으로 등록, 커밋 금지)",
         "models": [
           {
-            "id": "qwen/qwen3-235b-a22b",
-            "name": "Qwen3 235B (NVIDIA)",
+            "id": "moonshotai/kimi-k2.6",
+            "name": "Kimi K2.6 (NVIDIA) — PM 헤드 추천",
+            "input": ["text"],
+            "contextWindow": 131072,
+            "maxTokens": 8192,
+            "compat": {
+              "maxTokensField": "max_tokens",
+              "supportsStore": false,
+              "supportsDeveloperRole": false,
+              "supportsReasoningEffort": false
+            }
+          },
+          {
+            "id": "qwen/qwen3-next-80b-a3b-instruct",
+            "name": "Qwen3 Next 80B (NVIDIA) — 팀원 추천",
             "input": ["text"],
             "contextWindow": 131072,
             "maxTokens": 8192,
