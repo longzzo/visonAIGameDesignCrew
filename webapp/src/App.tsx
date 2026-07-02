@@ -4,6 +4,7 @@ import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
 import { ChatPanel } from "./components/ChatPanel";
 import { OrchestrationView } from "./components/OrchestrationView";
+import { OfficeView } from "./components/OfficeView";
 import { GddPanel } from "./components/GddPanel";
 
 export default function App() {
@@ -18,7 +19,9 @@ export default function App() {
       <TopBar />
       <div className={`app-body panel-${mobilePanel}`}>
         <Sidebar />
-        <main className="main-panel">{view === "orch" ? <OrchestrationView /> : <ChatPanel />}</main>
+        <main className="main-panel">
+          {view === "orch" ? <OrchestrationView /> : view === "office" ? <OfficeView /> : <ChatPanel />}
+        </main>
         <GddPanel />
       </div>
       {/* 모바일 전용 하단 탭 (900px 이하에서만 표시) */}

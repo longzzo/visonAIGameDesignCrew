@@ -99,9 +99,12 @@ export function OrchestrationView() {
     setAutoReflect,
     crossReview,
     setCrossReview,
+    webResearch,
+    setWebResearch,
     orchRunning,
     startOrch,
     stopOrch,
+    fullMeeting,
     cards,
     feed,
     clearFeed,
@@ -147,6 +150,10 @@ export function OrchestrationView() {
               <input type="checkbox" checked={crossReview} onChange={(e) => setCrossReview(e.target.checked)} disabled={orchRunning} />
               교차 검토
             </label>
+            <label title="에이전트가 web_search/web_fetch로 인터넷 조사를 할 수 있게 허용 (검색은 Brave API 키 필요, 페이지 조회는 바로 가능)">
+              <input type="checkbox" checked={webResearch} onChange={(e) => setWebResearch(e.target.checked)} disabled={orchRunning} />
+              🌐 웹 리서치
+            </label>
             <label>
               <input type="checkbox" checked={autoReflect} onChange={(e) => setAutoReflect(e.target.checked)} />
               GDD 자동 반영
@@ -163,9 +170,19 @@ export function OrchestrationView() {
                 ⏹ 중단
               </button>
             ) : (
-              <button className="btn primary" onClick={() => void startOrch()} disabled={!orchRequest.trim()}>
-                🚀 시작
-              </button>
+              <>
+                <button
+                  className="btn"
+                  onClick={() => void fullMeeting()}
+                  disabled={!orchRequest.trim()}
+                  title="7명 전체 + 교차 검토 + GDD 반영으로 즉시 시작 (소요 15분 이상)"
+                >
+                  🎪 풀 기획 회의
+                </button>
+                <button className="btn primary" onClick={() => void startOrch()} disabled={!orchRequest.trim()}>
+                  🚀 시작
+                </button>
+              </>
             )}
           </div>
         </div>

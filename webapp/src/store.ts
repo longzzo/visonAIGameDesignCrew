@@ -34,7 +34,7 @@ import {
   type GddVersion,
 } from "./lib/gdd";
 
-export type View = "orch" | "chat";
+export type View = "orch" | "chat" | "office";
 export type MobilePanel = "agents" | "work" | "gdd";
 export type AgentStatus = "idle" | "running" | "done" | "error";
 
@@ -105,6 +105,7 @@ interface VEState {
   concurrency: number;
   autoReflect: boolean;
   crossReview: boolean;
+  webResearch: boolean;
   orchRunning: boolean;
   stopRequested: boolean;
   cards: Record<string, OrchCard>;
@@ -143,9 +144,12 @@ interface VEState {
   setConcurrency: (n: number) => void;
   setAutoReflect: (b: boolean) => void;
   setCrossReview: (b: boolean) => void;
+  setWebResearch: (b: boolean) => void;
   startOrch: () => Promise<void>;
   stopOrch: () => void;
   clearFeed: () => void;
+  /** 풀 기획 회의 — 7명 전체 + 교차 검토 + GDD 반영을 구성하고 요청이 있으면 즉시 시작 */
+  fullMeeting: () => Promise<void>;
 
   healthCheck: () => Promise<void>;
 
@@ -287,6 +291,7 @@ export const useVE = create<VEState>()((set, get) => {
     concurrency: 1,
     autoReflect: true,
     crossReview: true,
+    webResearch: false,
     orchRunning: false,
     stopRequested: false,
     cards: {},
@@ -472,6 +477,15 @@ export const useVE = create<VEState>()((set, get) => {
     setConcurrency: (n) => set({ concurrency: n }),
     setAutoReflect: (b) => set({ autoReflect: b }),
     setCrossReview: (b) => set({ crossReview: b }),
+    setWebResearch: (b) => set({ webResearch: b }),
+    fullMeeting: async () => {
+      set({
+        selected: Object.fromEntries(SPECIALISTS.map((a) => [a.id, true])),
+        crossReview: true,
+        autoReflect: true,
+      });
+      if (get().orchRequest.trim() && !get().orchRunning) await get().startOrch();
+    },
     clearFeed: () => {
       set({ feed: [] });
       const project = get().activeProject;
@@ -508,7 +522,7 @@ export const useVE = create<VEState>()((set, get) => {
           if (get().stopRequested) return;
           const agent = queue.shift();
           if (!agent) return;
-          const instruction = specialistPrompt(req, agent);
+          const instruction = specialistPrompt(req, agent, get().webResearch);
           updateCard(agent.id, { state: "running", phase: "초안 작성 중", startedAt: Date.now(), instruction });
           setAgentStatus(agent.id, "running");
           pushFeed({ from: "pm", to: agent.id, kind: "instruction", text: instruction });

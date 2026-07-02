@@ -43,7 +43,7 @@ export function TopBar() {
       void deleteProjectAction(current.id);
     }
   };
-  const switchView = (v: "orch" | "chat") => {
+  const switchView = (v: "orch" | "chat" | "office") => {
     setView(v);
     setMobilePanel("work");
   };
@@ -78,6 +78,9 @@ export function TopBar() {
         </button>
         <button className={view === "chat" ? "active" : ""} onClick={() => switchView("chat")}>
           💬 에이전트 채팅
+        </button>
+        <button className={view === "office" ? "active" : ""} onClick={() => switchView("office")}>
+          🏢 사무실
         </button>
       </nav>
       <div className="topbar-right">

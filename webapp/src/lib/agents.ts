@@ -49,7 +49,7 @@ export const REVIEWERS: Record<string, string> = {
   visual: "scenario",
 };
 
-export function specialistPrompt(request: string, agent: AgentDef): string {
+export function specialistPrompt(request: string, agent: AgentDef, webResearch = false): string {
   return [
     `[프로젝트 요청]`,
     request.trim(),
@@ -57,7 +57,9 @@ export function specialistPrompt(request: string, agent: AgentDef): string {
     `너의 워크스페이스 지침(AGENTS.md)의 산출물 형식에 따라, 이 게임의 "${agent.sectionTitle}" 파트를 작성해라.`,
     `- 순수 마크다운 텍스트로만. 소제목(###) 사용.`,
     `- 20줄 이내로 간결하고 구체적으로.`,
-    `- 도구/함수 호출 금지.`,
+    webResearch
+      ? `- 최신 정보·레퍼런스가 필요하면 web_search / web_fetch 도구로 조사해도 된다(다른 도구는 금지). 조사한 내용은 출처와 함께 본문에 녹여라.`
+      : `- 도구/함수 호출 금지.`,
   ].join("\n");
 }
 
