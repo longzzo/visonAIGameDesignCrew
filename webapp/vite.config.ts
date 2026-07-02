@@ -43,6 +43,12 @@ function gddTemplate(name: string): string {
     "## 8. 아트",
     "_(아트 디렉터 담당 — 아직 작성되지 않음)_",
     "",
+    "## 9. 기술",
+    "_(테크니컬 디렉터 담당 — 아직 작성되지 않음)_",
+    "",
+    "## 10. 일정",
+    "_(스케줄러 담당 — 아직 작성되지 않음)_",
+    "",
   ].join("\n");
 }
 
@@ -422,6 +428,108 @@ function braveKeyPlugin(): Plugin {
               res.end(JSON.stringify({ ok: true }));
               return;
             }
+            res.statusCode = 405;
+            res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
+/* ── 플러그인: 보고서 저장소 (프로젝트별 정식 명세서/보고서) ── */
+
+function reportsApiPlugin(): Plugin {
+  const safeAgent = (s: string) => /^[a-z0-9-]{1,30}$/.test(s);
+  const reportsDir = (projectId: string) => path.join(projectDir(projectId), "reports");
+  return {
+    name: "vision-engine-reports-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/reports", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            const url = new URL(req.url ?? "/", "http://local");
+            const project = url.searchParams.get("project") ?? "";
+            if (!isSafeId(project) || !fs.existsSync(projectDir(project))) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: "project 확인 필요" }));
+              return;
+            }
+            const dir = reportsDir(project);
+
+            if (req.method === "GET") {
+              const ts = url.searchParams.get("ts");
+              if (ts) {
+                // 단건 조회
+                const f = path.join(dir, `${Number(ts)}.json`);
+                if (!fs.existsSync(f)) {
+                  res.statusCode = 404;
+                  res.end(JSON.stringify({ ok: false, error: "보고서 없음" }));
+                  return;
+                }
+                res.end(fs.readFileSync(f, "utf-8"));
+                return;
+              }
+              // 목록 (본문 제외 메타만)
+              if (!fs.existsSync(dir)) {
+                res.end(JSON.stringify({ reports: [] }));
+                return;
+              }
+              const reports = fs
+                .readdirSync(dir)
+                .filter((f) => /^\d+\.json$/.test(f))
+                .map((f) => {
+                  try {
+                    const j = JSON.parse(fs.readFileSync(path.join(dir, f), "utf-8"));
+                    return { ts: j.ts, agent: j.agent, title: j.title, size: (j.markdown ?? "").length };
+                  } catch {
+                    return null;
+                  }
+                })
+                .filter(Boolean)
+                .sort((a: any, b: any) => b.ts - a.ts);
+              res.end(JSON.stringify({ reports }));
+              return;
+            }
+
+            if (req.method === "POST") {
+              const j = JSON.parse((await readBody(req)) || "{}");
+              const agent = String(j.agent ?? "");
+              const title = String(j.title ?? "").trim().slice(0, 120);
+              const markdown = String(j.markdown ?? "");
+              if (!safeAgent(agent) || !title || !markdown) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: "agent/title/markdown 필요" }));
+                return;
+              }
+              fs.mkdirSync(dir, { recursive: true });
+              const ts = Date.now();
+              fs.writeFileSync(
+                path.join(dir, `${ts}.json`),
+                JSON.stringify({ ts, agent, title, markdown }, null, 0),
+                "utf-8"
+              );
+              res.end(JSON.stringify({ ok: true, ts }));
+              return;
+            }
+
+            if (req.method === "DELETE") {
+              const ts = Number(url.searchParams.get("ts") ?? 0);
+              const f = path.join(dir, `${ts}.json`);
+              if (!fs.existsSync(f)) {
+                res.statusCode = 404;
+                res.end(JSON.stringify({ ok: false, error: "보고서 없음" }));
+                return;
+              }
+              fs.rmSync(f, { force: true });
+              res.end(JSON.stringify({ ok: true }));
+              return;
+            }
+
             res.statusCode = 405;
             res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
           } catch (e: any) {
@@ -820,6 +928,7 @@ export default defineConfig({
     projectsApiPlugin(),
     gddApiPlugin(),
     chatsApiPlugin(),
+    reportsApiPlugin(),
     braveKeyPlugin(),
     modelsApiPlugin(),
     agentBridgePlugin(),

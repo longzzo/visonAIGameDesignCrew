@@ -79,6 +79,25 @@ function Accessory({ id, c }: { id: string; c: string }) {
           <path d="M30.5 31.5 l1.8 -1.8" stroke={c} strokeWidth="2.6" strokeLinecap="round" />
         </>
       );
+    case "td": // 보안경 + 렌치
+      return (
+        <>
+          <rect x="12.5" y="20.6" width="7" height="3.8" rx="1.9" fill="none" stroke="#3b4252" strokeWidth="1.2" />
+          <rect x="20.5" y="20.6" width="7" height="3.8" rx="1.9" fill="none" stroke="#3b4252" strokeWidth="1.2" />
+          <path d="M12.5 22 h-2 M27.5 22 h2" stroke="#3b4252" strokeWidth="1.2" />
+          <path d="M25.5 36 l4 -4" stroke="#9aa5b1" strokeWidth="2" strokeLinecap="round" />
+          <path d="M29 32.5 a2.4 2.4 0 1 0 2.4 -2.4 l-1.4 1 z" fill="#9aa5b1" />
+        </>
+      );
+    case "scheduler": // 헤어밴드 + 달력 배지
+      return (
+        <>
+          <path d="M11 15.5 Q20 9.5 29 15.5" stroke={c} strokeWidth="2.4" fill="none" strokeLinecap="round" />
+          <rect x="24.5" y="30" width="7.5" height="6.5" rx="1" fill="#fff" stroke="#c96a2c" strokeWidth="1" />
+          <rect x="24.5" y="30" width="7.5" height="2" fill="#c96a2c" />
+          <path d="M26.5 34 h1.4 M29.5 34 h1.4 M26.5 35.6 h1.4" stroke="#c96a2c" strokeWidth="0.9" />
+        </>
+      );
     default:
       return null;
   }

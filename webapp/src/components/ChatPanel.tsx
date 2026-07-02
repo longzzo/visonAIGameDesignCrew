@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AGENT_MAP } from "../lib/agents";
+import { AGENT_MAP, DEFAULT_REPORT_TOPIC } from "../lib/agents";
 import { useVE } from "../store";
 import { Markdown } from "./Markdown";
 
@@ -15,10 +15,13 @@ export function ChatPanel() {
     requestPmVerify,
     approveVerify,
     rejectVerify,
+    generateReport,
+    reportBusy,
   } = useVE();
   const agent = AGENT_MAP[activeAgent];
   const msgs = chats[activeAgent] ?? [];
   const busy = chatBusy[activeAgent] ?? false;
+  const rBusy = reportBusy[activeAgent] ?? false;
   const pv = pendingVerify[activeAgent];
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -56,6 +59,26 @@ export function ChatPanel() {
             🧾 PM 검증 → GDD 반영
           </button>
         )}
+        <button
+          className="btn small"
+          disabled={busy || rBusy}
+          onClick={() => {
+            const topic = window.prompt(
+              `${agent.name}에게 요청할 보고서 주제를 입력하세요.\n(현재 GDD 전체를 근거로 정식 명세서 수준의 문서를 작성해 보고서함에 저장합니다)`,
+              DEFAULT_REPORT_TOPIC[activeAgent] ?? `${agent.sectionTitle} 명세서`
+            );
+            if (topic?.trim()) void generateReport(activeAgent, topic.trim());
+          }}
+          title="현재 GDD를 근거로 정식 보고서(명세서)를 작성해 프로젝트 보고서함에 저장합니다. 아트 명세서, 개발 명세서, 일정표 등."
+        >
+          {rBusy ? (
+            <>
+              <span className="spinner" /> 작성 중…
+            </>
+          ) : (
+            "📋 보고서"
+          )}
+        </button>
         <button className="btn small" onClick={() => newChatSession(activeAgent)} title="새 컨텍스트로 대화 시작">
           🧹 새 대화
         </button>

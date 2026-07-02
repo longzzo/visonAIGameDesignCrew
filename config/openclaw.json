@@ -251,6 +251,66 @@
             "pdf"
           ]
         }
+      },
+      {
+        "id": "td",
+        "name": "테크니컬 디렉터",
+        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\td",
+        "identity": {
+          "name": "테크니컬 디렉터",
+          "emoji": "🛠️"
+        },
+        "model": "ollama/qwen3:8b",
+        "tools": {
+          "deny": [
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf"
+          ]
+        }
+      },
+      {
+        "id": "scheduler",
+        "name": "스케줄러",
+        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\scheduler",
+        "identity": {
+          "name": "스케줄러",
+          "emoji": "📅"
+        },
+        "model": "ollama/qwen3:8b",
+        "tools": {
+          "deny": [
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf"
+          ]
+        }
       }
     ]
   },

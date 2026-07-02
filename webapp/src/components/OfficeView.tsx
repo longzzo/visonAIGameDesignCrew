@@ -78,8 +78,8 @@ export function OfficeView() {
     return () => clearInterval(t);
   }, []);
 
-  const row1 = ["scenario", "gameplay", "systems", "uiux"];
-  const row2 = ["balance", "bm", "visual"];
+  const row1 = ["scenario", "gameplay", "systems", "uiux", "td"];
+  const row2 = ["balance", "bm", "visual", "scheduler"];
 
   return (
     <section className="office-view">

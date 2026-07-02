@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { AGENTS } from "../lib/agents";
+import { AGENTS, AGENT_MAP } from "../lib/agents";
+import { downloadReport } from "../lib/reports";
 import { useVE } from "../store";
 import { Markdown } from "./Markdown";
 
@@ -26,14 +27,29 @@ export function GddPanel() {
     previewGddVersion,
     closeGddPreview,
     restoreGdd,
+    reports,
+    loadReports,
+    reportPreview,
+    openReport,
+    closeReportPreview,
+    removeReport,
   } = useVE();
   const [dragOver, setDragOver] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
+  const [showReports, setShowReports] = useState(false);
 
   const toggleVersions = () => {
     const next = !showVersions;
     setShowVersions(next);
+    setShowReports(false);
     if (next) void loadGddVersions();
+  };
+
+  const toggleReports = () => {
+    const next = !showReports;
+    setShowReports(next);
+    setShowVersions(false);
+    if (next) void loadReports();
   };
 
   const onRestore = (ts: number) => {
@@ -75,13 +91,15 @@ export function GddPanel() {
     >
       <div className="panel-head">
         <div className="head-meta">
-          <div className="head-name">📄 마스터 GDD</div>
+          <div className="head-name">{reportPreview ? "📋 보고서" : "📄 마스터 GDD"}</div>
           <div className="head-role dim">
-            {gddPreview
-              ? `과거 버전 미리보기 — ${fmtTs(gddPreview.ts)}`
-              : gddMtime
-                ? `갱신: ${new Date(gddMtime).toLocaleTimeString("ko-KR", { hour12: false })}`
-                : "실시간 미리보기"}
+            {reportPreview
+              ? `${AGENT_MAP[reportPreview.agent]?.name ?? reportPreview.agent} — ${fmtTs(reportPreview.ts)}`
+              : gddPreview
+                ? `과거 버전 미리보기 — ${fmtTs(gddPreview.ts)}`
+                : gddMtime
+                  ? `갱신: ${new Date(gddMtime).toLocaleTimeString("ko-KR", { hour12: false })}`
+                  : "실시간 미리보기"}
           </div>
         </div>
         <div className="gdd-tools">
@@ -96,10 +114,17 @@ export function GddPanel() {
             </>
           ) : (
             <>
+              <button
+                className={`btn tiny ${showReports || reportPreview ? "primary" : ""}`}
+                onClick={toggleReports}
+                title={`보고서함 (${reports.length}건) — 아트 명세서, 개발 명세서, 일정표 등`}
+              >
+                📋{reports.length > 0 ? ` ${reports.length}` : ""}
+              </button>
               <button className={`btn tiny ${showVersions ? "primary" : ""}`} onClick={toggleVersions} title="버전 히스토리">
                 🕘
               </button>
-              <button className="btn tiny" onClick={() => setGddEditing(true)} disabled={!!gddPreview}>
+              <button className="btn tiny" onClick={() => setGddEditing(true)} disabled={!!gddPreview || !!reportPreview}>
                 ✏️ 편집
               </button>
               <button className="btn tiny" onClick={() => void loadGdd()} title="파일에서 다시 읽기">
@@ -109,6 +134,47 @@ export function GddPanel() {
           )}
         </div>
       </div>
+
+      {showReports && (
+        <div className="version-drawer">
+          {reports.length === 0 && (
+            <div className="dim">
+              아직 보고서가 없습니다. 에이전트 1:1 대화의 <b>📋 보고서</b> 버튼으로 명세서를 요청해 보세요.
+            </div>
+          )}
+          {reports.map((r) => {
+            const a = AGENT_MAP[r.agent];
+            return (
+              <div key={r.ts} className={`version-item ${reportPreview?.ts === r.ts ? "active" : ""}`}>
+                <button className="version-time" onClick={() => void openReport(r.ts)} title="이 보고서 열기">
+                  {a?.emoji ?? "📋"} {r.title} <span className="dim">({fmtTs(r.ts)} · {(r.size / 1000).toFixed(1)}천자)</span>
+                </button>
+                <button
+                  className="btn tiny"
+                  onClick={() => {
+                    if (window.confirm(`보고서 "${r.title}"를 삭제할까요?`)) void removeReport(r.ts);
+                  }}
+                  title="삭제"
+                >
+                  🗑
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {reportPreview && (
+        <div className="preview-banner">
+          📋 보고서를 보고 있습니다
+          <button className="btn tiny primary" onClick={() => downloadReport(reportPreview)}>
+            ⬇️ .md 다운로드
+          </button>
+          <button className="btn tiny" onClick={closeReportPreview}>
+            GDD로 돌아가기
+          </button>
+        </div>
+      )}
 
       {showVersions && (
         <div className="version-drawer">
@@ -150,7 +216,15 @@ export function GddPanel() {
         <textarea className="gdd-editor" value={gddDraft} onChange={(e) => setGddDraft(e.target.value)} spellCheck={false} />
       ) : (
         <div className="gdd-content">
-          <Markdown text={gddPreview ? gddPreview.markdown : gdd || "_GDD를 불러오는 중…_"} />
+          <Markdown
+            text={
+              reportPreview
+                ? reportPreview.markdown
+                : gddPreview
+                  ? gddPreview.markdown
+                  : gdd || "_GDD를 불러오는 중…_"
+            }
+          />
         </div>
       )}
       {dragOver && <div className="drop-veil">여기에 놓으면 해당 에이전트의 GDD 섹션에 반영됩니다</div>}

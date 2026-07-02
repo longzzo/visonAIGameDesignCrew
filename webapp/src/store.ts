@@ -15,9 +15,18 @@ import {
   pmVerifyPrompt,
   pmRoutePrompt,
   parseRoutePlan,
+  reportPrompt,
   type AgentDef,
   type WebMode,
 } from "./lib/agents";
+import {
+  listReports,
+  fetchReport,
+  saveReport,
+  deleteReport,
+  type ReportInfo,
+  type ReportDoc,
+} from "./lib/reports";
 import {
   fetchGdd,
   saveGdd,
@@ -133,6 +142,10 @@ interface VEState {
   agentHealth: Record<string, AgentHealth>;
   healthRunning: boolean;
 
+  reports: ReportInfo[];
+  reportBusy: Record<string, boolean>;
+  reportPreview: ReportDoc | null;
+
   gdd: string;
   gddMtime: number;
   gddEditing: boolean;
@@ -179,6 +192,13 @@ interface VEState {
   fullMeeting: () => Promise<void>;
 
   healthCheck: () => Promise<void>;
+
+  /** 개인 단위 정식 보고서(명세서) 생성 — 현재 GDD 전문을 근거로 작성해 프로젝트에 저장 */
+  generateReport: (agentId: string, topic: string) => Promise<void>;
+  loadReports: () => Promise<void>;
+  openReport: (ts: number) => Promise<void>;
+  closeReportPreview: () => void;
+  removeReport: (ts: number) => Promise<void>;
 
   reflectToGdd: (agentId: string, text: string) => Promise<void>;
   loadGdd: () => Promise<void>;
@@ -330,6 +350,10 @@ export const useVE = create<VEState>()((set, get) => {
     agentHealth: {},
     healthRunning: false,
 
+    reports: [],
+    reportBusy: {},
+    reportPreview: null,
+
     gdd: "",
     gddMtime: 0,
     gddEditing: false,
@@ -354,6 +378,7 @@ export const useVE = create<VEState>()((set, get) => {
         const feed = await loadFeedHistory(project);
         if (feed.length > 0 && get().activeProject === project) set({ feed });
         void ensureChatLoaded(get().activeAgent);
+        void get().loadReports();
       }
       setInterval(() => {
         const st = get();
@@ -417,11 +442,15 @@ export const useVE = create<VEState>()((set, get) => {
         gddEditing: false,
         gddVersions: [],
         gddPreview: null,
+        reports: [],
+        reportBusy: {},
+        reportPreview: null,
       });
       await get().loadGdd();
       const feed = await loadFeedHistory(id);
       if (get().activeProject === id && feed.length > 0) set({ feed });
       void ensureChatLoaded(get().activeAgent);
+      void get().loadReports();
     },
 
     createProjectAction: async (name) => {
@@ -846,6 +875,97 @@ export const useVE = create<VEState>()((set, get) => {
       };
       await Promise.all([worker(), worker()]);
       set({ healthRunning: false });
+    },
+
+    /* ── 보고서 (개인 단위 정식 명세서) ─────────────── */
+
+    generateReport: async (agentId, topic) => {
+      const agent = AGENT_MAP[agentId];
+      const project = get().activeProject;
+      const title = topic.trim();
+      if (!agent || !project || !title || get().reportBusy[agentId]) return;
+      set((s) => ({ reportBusy: { ...s.reportBusy, [agentId]: true } }));
+      setAgentStatus(agentId, "running");
+      try {
+        let gddFull = get().gdd;
+        try {
+          gddFull = (await fetchGdd(project)).markdown;
+        } catch {
+          /* 화면의 최신 상태 사용 */
+        }
+        const r = await gateway.runAgent(
+          agentId,
+          reportPrompt(agent, title, gddFull),
+          `report-${project}-${Date.now().toString(36)}`
+        );
+        const markdown = sanitizeAgentOutput(r.text);
+        addUsage(r.usage, markdown);
+        if (!markdown || markdown.length < 50) throw new Error("보고서 내용이 비어 있습니다");
+        const ts = await saveReport(project, agentId, title, markdown);
+        await get().loadReports();
+        setAgentStatus(agentId, "done");
+        // 채팅에 완료 안내 남기기 (해당 에이전트 대화방)
+        set((s) => ({
+          chats: {
+            ...s.chats,
+            [agentId]: [
+              ...(s.chats[agentId] ?? []),
+              {
+                id: `rp-${ts}`,
+                role: "assistant" as const,
+                text: `📋 보고서 **"${title}"** 작성 완료 (${markdown.length.toLocaleString()}자) — 오른쪽 GDD 패널의 📋 보고서함에서 열람·다운로드할 수 있습니다.`,
+                ts: Date.now(),
+              },
+            ],
+          },
+        }));
+        persistChat(agentId);
+        // 미리보기 바로 열기
+        set({ reportPreview: { ts, agent: agentId, title, markdown } });
+      } catch (e: any) {
+        setAgentStatus(agentId, "error");
+        set((s) => ({
+          chats: {
+            ...s.chats,
+            [agentId]: [
+              ...(s.chats[agentId] ?? []),
+              {
+                id: `rpe-${Date.now()}`,
+                role: "assistant" as const,
+                text: `⚠️ 보고서 생성 실패: ${String(e?.message ?? e).slice(0, 150)}`,
+                error: true,
+                ts: Date.now(),
+              },
+            ],
+          },
+        }));
+      } finally {
+        set((s) => ({ reportBusy: { ...s.reportBusy, [agentId]: false } }));
+      }
+    },
+
+    loadReports: async () => {
+      const project = get().activeProject;
+      if (!project) return;
+      const reports = await listReports(project);
+      if (get().activeProject === project) set({ reports });
+    },
+
+    openReport: async (ts) => {
+      const project = get().activeProject;
+      if (!project) return;
+      const doc = await fetchReport(project, ts);
+      set({ reportPreview: doc, gddPreview: null, gddEditing: false });
+    },
+
+    closeReportPreview: () => set({ reportPreview: null }),
+
+    removeReport: async (ts) => {
+      const project = get().activeProject;
+      if (!project) return;
+      await deleteReport(project, ts);
+      set((s) => ({ reportPreview: s.reportPreview?.ts === ts ? null : s.reportPreview }));
+      await get().loadReports();
     },
 
     /* ── GDD + 버전 히스토리 ───────────────────────── */

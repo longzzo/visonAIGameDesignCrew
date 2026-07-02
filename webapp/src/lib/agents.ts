@@ -20,6 +20,8 @@ export const AGENTS: AgentDef[] = [
   { id: "balance", name: "밸런스 디자이너", emoji: "⚖️", role: "수치·난이도 곡선", section: "## 6.", sectionTitle: "밸런스", color: "#a3e635" },
   { id: "bm", name: "BM 전략가", emoji: "💰", role: "수익모델·라이브옵스 (읽기 전용)", section: "## 7.", sectionTitle: "수익모델", color: "#fde047" },
   { id: "visual", name: "아트 디렉터", emoji: "🎨", role: "아트 스타일·팔레트", section: "## 8.", sectionTitle: "아트", color: "#e879f9" },
+  { id: "td", name: "테크니컬 디렉터", emoji: "🛠️", role: "개발 명세·기능 목록·기술 리스크", section: "## 9.", sectionTitle: "기술", color: "#38bdf8" },
+  { id: "scheduler", name: "스케줄러", emoji: "📅", role: "일정 설계·마일스톤·대회 역산", section: "## 10.", sectionTitle: "일정", color: "#fb923c" },
 ];
 
 export const AGENT_MAP: Record<string, AgentDef> = Object.fromEntries(
@@ -47,6 +49,8 @@ export const REVIEWERS: Record<string, string> = {
   uiux: "gameplay",
   bm: "gameplay",
   visual: "scenario",
+  td: "systems", //     기술 명세 ← 시스템    (명세가 시스템 구조를 다 담는가)
+  scheduler: "td", //   일정 ← 테크니컬       (일정이 구현 난이도와 맞는가)
 };
 
 /**
@@ -134,6 +138,39 @@ export function pmRoutePrompt(request: string, pool: AgentDef[]): string {
     ``,
     `예시:`,
     `할당: scenario | 주인공과 라이벌의 관계 설정을 세계관에 추가해라`,
+  ].join("\n");
+}
+
+/** 역할별 기본 보고서 주제 — 📋 버튼을 눌렀을 때 입력창의 기본값 */
+export const DEFAULT_REPORT_TOPIC: Record<string, string> = {
+  pm: "프로젝트 종합 현황 보고서",
+  scenario: "세계관·캐릭터 설정집",
+  gameplay: "게임플레이 상세 명세서",
+  systems: "시스템 설계 명세서",
+  uiux: "UI/UX 화면 명세서 (와이어프레임 텍스트 기술)",
+  balance: "밸런스 수치 명세서 (전체 표 포함)",
+  bm: "수익모델 제안 보고서",
+  visual: "아트 명세서 (스타일 가이드 + 에셋 목록)",
+  td: "개발 명세서 (기능 목록 + 난이도 판정)",
+  scheduler: "개발 일정표 (목표일과 요구 수준을 함께 적어주세요)",
+};
+
+/**
+ * 정식 보고서(명세서) 생성 프롬프트 — 채팅 답변과 달리 분량 제한 없이
+ * 실무 문서 수준을 요구한다. 현재 GDD 전문을 근거로 삼는다.
+ */
+export function reportPrompt(agent: AgentDef, topic: string, gddFull: string): string {
+  return [
+    `너는 ${agent.name}(${agent.role})다. 오너가 정식 보고서를 요청했다: "${topic.trim()}"`,
+    ``,
+    `[현재 마스터 GDD 전문 — 이것이 근거 자료다]`,
+    gddFull.slice(0, 12000) || `(아직 기획이 없다 — 보고서 안에서 전제를 명시하고 제안 형태로 작성해라)`,
+    ``,
+    `위 기획을 근거로 "${topic.trim()}" 보고서를 작성해라.`,
+    `- 실무자가 그대로 들고 작업할 수 있는 수준으로 구체적으로. 표·체크리스트를 적극 사용해라.`,
+    `- 구조: # 제목 → 목적·범위 → 본문(세부 명세, 필요한 만큼 소제목 분할) → 리스크·미결정 사항 → 다음 액션 3개.`,
+    `- 채팅 답변이 아니라 문서다. 분량 제한 없음 — 상세할수록 좋다. 인사말·사족 금지.`,
+    `- 순수 마크다운 텍스트로만. 도구 호출 금지(웹 조사가 꼭 필요하면 web_fetch만).`,
   ].join("\n");
 }
 
