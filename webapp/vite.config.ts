@@ -506,6 +506,8 @@ export default defineConfig({
   plugins: [react(), projectsApiPlugin(), gddApiPlugin(), chatsApiPlugin(), agentBridgePlugin()],
   server: {
     port: 5199,
+    // 포트가 차 있으면 조용히 5200으로 옮겨 뜨는 대신 명확히 실패시킨다 (중복 실행 방지)
+    strictPort: true,
     host: resolveDevHost(),
     allowedHosts: true,
     proxy: {
