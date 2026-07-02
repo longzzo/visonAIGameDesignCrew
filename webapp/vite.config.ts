@@ -1023,6 +1023,11 @@ function agentBridgePlugin(): Plugin {
           let out = "";
           let err = "";
           const killer = setTimeout(() => child.kill(), 430_000);
+          // 클라이언트가 요청을 중단(⏹)하면 CLI 실행도 즉시 종료 — 오케스트레이션 즉시 중단
+          // (req의 close는 본문 수신 완료 시에도 발생하므로 res의 close로 조기 종료만 감지)
+          res.on("close", () => {
+            if (!res.writableEnded) child.kill();
+          });
           child.stdout.on("data", (d) => (out += d.toString("utf-8")));
           child.stderr.on("data", (d) => (err += d.toString("utf-8")));
           child.on("close", () => {

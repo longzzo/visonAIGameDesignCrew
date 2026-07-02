@@ -3,6 +3,7 @@ import { AGENT_MAP } from "../lib/agents";
 import { downloadReport } from "../lib/reports";
 import { useVE } from "../store";
 import { Markdown } from "./Markdown";
+import { ReportVerifyFlow } from "./ReportVerifyFlow";
 
 /**
  * 전체화면 문서 뷰어 — 사무실에서 GDD/보고서를 큰 화면으로 읽는다.
@@ -85,7 +86,10 @@ export function DocViewer({
             </div>
             <div className="doc-body">
               {reportPreview ? (
-                <Markdown text={reportPreview.markdown} />
+                <>
+                  <ReportVerifyFlow ts={reportPreview.ts} agentId={reportPreview.agent} />
+                  <Markdown text={reportPreview.markdown} />
+                </>
               ) : (
                 <div className="empty-hint">왼쪽 목록에서 보고서를 선택하세요.</div>
               )}

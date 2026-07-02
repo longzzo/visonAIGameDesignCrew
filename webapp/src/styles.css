@@ -161,6 +161,31 @@ button { font-family: inherit; }
 .art-item figcaption { display: flex; align-items: center; gap: 6px; padding: 6px 8px; font-size: 11.5px; }
 .art-caption { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
 
+/* 읽지 않은 보고서 배지 (사이드바) */
+.report-badge {
+  font-size: 10.5px; background: #b45309; color: #fff; border-radius: 9px;
+  padding: 1px 6px; flex-shrink: 0; font-weight: 700;
+  animation: pulse 2.2s infinite;
+}
+
+/* 보고서 PM 가치검증 플로우 */
+.report-verify { margin: 8px 0 12px; }
+.report-verify-wrap { padding: 8px 12px 0; }
+.report-verify .verify-card { margin-top: 8px; }
+
+/* PM 이동 연출 */
+.pm-walker {
+  position: absolute; z-index: 5; pointer-events: none;
+  transition: left 1.1s ease-in-out, top 1.1s ease-in-out;
+  display: flex; flex-direction: column; align-items: center;
+  animation: walker-in 0.5s ease-out;
+}
+.pm-walker-note {
+  font-size: 9.5px; background: #8b7cf6; color: #fff; border-radius: 6px;
+  padding: 1px 5px; margin-top: 2px; white-space: nowrap;
+}
+@keyframes walker-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; } }
+
 /* 아트 코너 (아트 디렉터 + 인턴 세로 배치) */
 .art-corner { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .desk.intern { transform: scale(0.82); margin-top: -6px; opacity: 0.95; }

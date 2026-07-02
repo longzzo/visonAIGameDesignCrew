@@ -177,6 +177,38 @@ export function reportPrompt(agent: AgentDef, topic: string, gddFull: string): s
 }
 
 /**
+ * 보고서 → GDD 반영 전 PM 가치검증 프롬프트 —
+ * 보고서가 게임의 처음 기획(개요)의 가치·방향과 맞는지 확인하고,
+ * 맞으면 "### 반영안" 아래 섹션 갱신본을 쓰게 한다.
+ */
+export function reportVerifyPrompt(
+  agent: AgentDef,
+  reportTitle: string,
+  reportMd: string,
+  overview: string,
+  currentSection: string
+): string {
+  return [
+    `너는 PM이다. ${agent.name}가 작성한 보고서 "${reportTitle}"를 마스터 GDD에 반영하기 전 검증해라.`,
+    ``,
+    `[게임의 처음 기획 — "1. 개요", 이 게임의 핵심 가치·방향이다]`,
+    overview.trim().slice(0, 800) || `(개요 미작성 — 보고서 자체의 일관성만 검증해라)`,
+    ``,
+    `[현재 GDD "${agent.sectionTitle}" 섹션]`,
+    currentSection.slice(0, 800) || `(아직 비어 있음)`,
+    ``,
+    `[검증 대상 보고서]`,
+    reportMd.slice(0, 6000),
+    ``,
+    `1) 이 보고서가 처음 기획의 가치·방향과 어긋나는 점이 있으면 최대 3줄로 짚어라. 없으면 "가치 정합 — 문제 없음"이라고 써라.`,
+    `2) 반영 권고 여부를 한 줄로 밝혀라.`,
+    `3) 반영을 권고한다면 마지막에 "### 반영안" 헤딩을 쓰고, 그 아래에 보고서의 핵심을 "${agent.sectionTitle}" 섹션 형식으로 압축한 갱신본을 작성해라 (기존 내용 중 보고서와 무관한 부분은 유지, 25줄 이내).`,
+    `   반영을 권고하지 않으면 "### 반영안"을 쓰지 마라.`,
+    `순수 마크다운, 도구 호출 금지.`,
+  ].join("\n");
+}
+
+/**
  * 아트 디렉터에게 Stable Diffusion 프롬프트 작성을 의뢰 —
  * 아트 인턴(로컬 SD)이 그대로 넣을 수 있는 영어 태그 프롬프트를 받아낸다.
  */

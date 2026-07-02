@@ -7,7 +7,9 @@ import { useVE } from "../store";
  * 오너 요청 → 아트 디렉터가 확정 아트 방향에 맞는 SD 프롬프트 작성 → 인턴이 생성.
  */
 export function ArtStudio({ onClose }: { onClose: () => void }) {
-  const { activeProject, artStatus, checkArtStatus, artImages, artBusy, artPhase, generateArt, removeArt } = useVE();
+  const { activeProject, artStatus, checkArtStatus, artImages, artBusy, artPhase, generateArt, removeArt, attachArtToGdd } =
+    useVE();
+  const [attached, setAttached] = useState<number[]>([]);
   const [request, setRequest] = useState("");
   const [showGuide, setShowGuide] = useState(false);
 
@@ -106,6 +108,16 @@ export function ArtStudio({ onClose }: { onClose: () => void }) {
                 <span className="art-caption" title={`SD 프롬프트: ${img.prompt}`}>
                   {img.request || img.prompt.slice(0, 60)}
                 </span>
+                <button
+                  className="btn tiny"
+                  disabled={attached.includes(img.ts)}
+                  onClick={() => {
+                    void attachArtToGdd(img.ts).then(() => setAttached((a) => [...a, img.ts]));
+                  }}
+                  title='GDD "8. 아트" 섹션에 이미지로 삽입 (직전 버전 자동 백업)'
+                >
+                  {attached.includes(img.ts) ? "✓ 삽입됨" : "📌 GDD"}
+                </button>
                 <button
                   className="btn tiny"
                   onClick={() => {

@@ -267,10 +267,12 @@ export class GatewayClient {
    * 디바이스 신원을 자동 처리하는 공식 CLI를 실행해 결과를 돌려준다.
    * (WS 연결은 상태 표시·이벤트 수신용으로 계속 사용)
    */
-  async runAgent(agentId: string, input: string, sessionSuffix: string): Promise<RunResult> {
+  async runAgent(agentId: string, input: string, sessionSuffix: string, signal?: AbortSignal): Promise<RunResult> {
     const r = await fetch("/api/agent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      // 중단 시그널 — 요청이 끊기면 서버측 브리지가 CLI 프로세스를 즉시 종료한다
+      signal,
       body: JSON.stringify({
         agentId,
         message: input,

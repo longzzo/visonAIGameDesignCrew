@@ -3,6 +3,7 @@ import { AGENTS, AGENT_MAP } from "../lib/agents";
 import { downloadReport } from "../lib/reports";
 import { useVE } from "../store";
 import { Markdown } from "./Markdown";
+import { ReportVerifyFlow } from "./ReportVerifyFlow";
 
 function fmtTs(ts: number): string {
   const d = new Date(ts);
@@ -165,15 +166,20 @@ export function GddPanel() {
       )}
 
       {reportPreview && (
-        <div className="preview-banner">
-          📋 보고서를 보고 있습니다
-          <button className="btn tiny primary" onClick={() => downloadReport(reportPreview)}>
-            ⬇️ .md 다운로드
-          </button>
-          <button className="btn tiny" onClick={closeReportPreview}>
-            GDD로 돌아가기
-          </button>
-        </div>
+        <>
+          <div className="preview-banner">
+            📋 보고서를 보고 있습니다
+            <button className="btn tiny primary" onClick={() => downloadReport(reportPreview)}>
+              ⬇️ .md 다운로드
+            </button>
+            <button className="btn tiny" onClick={closeReportPreview}>
+              GDD로 돌아가기
+            </button>
+          </div>
+          <div className="report-verify-wrap">
+            <ReportVerifyFlow ts={reportPreview.ts} agentId={reportPreview.agent} />
+          </div>
+        </>
       )}
 
       {showVersions && (

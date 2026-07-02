@@ -21,7 +21,7 @@ function statusLabel(status: string, phase?: string): string {
 }
 
 function Desk({ agentId, big }: { agentId: string; big?: boolean }) {
-  const { agentStatus, cards, feed, selectAgent } = useVE();
+  const { agentStatus, cards, feed, selectAgent, livePeek } = useVE();
   const a = AGENT_MAP[agentId];
   const st = agentStatus[agentId] ?? "idle";
   const phase = cards[agentId]?.phase;
@@ -30,16 +30,25 @@ function Desk({ agentId, big }: { agentId: string; big?: boolean }) {
   let last: FeedMsg | undefined;
   for (const m of feed) if (m.from === agentId) last = m;
   const fresh = last && Date.now() - last.ts < BUBBLE_TTL;
+  const peek = livePeek[agentId] ?? "";
   const showBubble = st === "running" || fresh;
+  // 작업 중이면 실시간 부분 응답(livePeek)을 우선 표시 — 타이핑하는 느낌
   const bubbleText =
-    st === "running" && !fresh
-      ? "…"
-      : last
-        ? last.text.replace(/[#*>`]/g, "").replace(/\s+/g, " ").slice(0, 90) + (last.text.length > 90 ? "…" : "")
-        : "";
+    st === "running" && peek
+      ? "…" + peek.replace(/[#*>`]/g, "").replace(/\s+/g, " ").slice(-70)
+      : st === "running" && !fresh
+        ? "…"
+        : last
+          ? last.text.replace(/[#*>`]/g, "").replace(/\s+/g, " ").slice(0, 90) + (last.text.length > 90 ? "…" : "")
+          : "";
 
   return (
-    <div className={`desk st-${st} ${big ? "big" : ""}`} onClick={() => selectAgent(agentId)} title={`${a.name} — 클릭하면 대화`}>
+    <div
+      className={`desk st-${st} ${big ? "big" : ""}`}
+      data-agent={agentId}
+      onClick={() => selectAgent(agentId)}
+      title={`${a.name} — 클릭하면 대화`}
+    >
       {showBubble && bubbleText && (
         <div className="speech" style={{ borderColor: a.color + "66" }}>
           {bubbleText}
@@ -66,6 +75,51 @@ function Desk({ agentId, big }: { agentId: string; big?: boolean }) {
         {a.name}
       </div>
       <div className={`desk-status ds-${st}`}>{statusLabel(st, phase)}</div>
+    </div>
+  );
+}
+
+/**
+ * PM 이동 연출 — PM이 최근 지시를 내린 책상 옆으로 걸어가는 미니 스프라이트.
+ * 지시 후 8초 동안 대상 책상 옆에 나타났다가 사라진다.
+ */
+const WALK_TTL = 8000;
+
+function PmWalker() {
+  const { feed } = useVE();
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+
+  // 최근 PM→담당자 지시 찾기
+  let target: FeedMsg | undefined;
+  for (const m of feed) {
+    if (m.from === "pm" && m.to && (m.kind === "instruction" || m.kind === "status")) target = m;
+  }
+  const active = target && Date.now() - target.ts < WALK_TTL;
+
+  useEffect(() => {
+    if (!active || !target?.to) {
+      setPos(null);
+      return;
+    }
+    const room = document.querySelector(".office-room");
+    const desk = room?.querySelector(`[data-agent="${target.to}"]`);
+    if (!room || !desk) {
+      setPos(null);
+      return;
+    }
+    const rr = room.getBoundingClientRect();
+    const dr = desk.getBoundingClientRect();
+    setPos({ left: dr.left - rr.left - 26, top: dr.top - rr.top + 34 });
+    const t = setTimeout(() => setPos(null), WALK_TTL - (Date.now() - target.ts));
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target?.id, active]);
+
+  if (!pos) return null;
+  return (
+    <div className="pm-walker" style={{ left: pos.left, top: pos.top }} title="PM이 지시를 전달하러 왔습니다">
+      <AgentSprite id="pm" size={30} />
+      <span className="pm-walker-note">지시 전달!</span>
     </div>
   );
 }
@@ -151,6 +205,7 @@ export function OfficeView() {
           </div>
         </div>
         <div className="office-floor" />
+        <PmWalker />
       </div>
       <div className="office-hint dim">
         캐릭터 클릭 → 1:1 대화 · 🖌️ 아트 인턴 클릭 → 컨셉 아트 스튜디오 · 상단 📄/📋 → 큰 화면 문서 뷰어

@@ -16,6 +16,7 @@ import {
   pmRoutePrompt,
   parseRoutePlan,
   reportPrompt,
+  reportVerifyPrompt,
   sdPromptPrompt,
   parseSdPrompt,
   type AgentDef,
@@ -155,6 +156,18 @@ interface VEState {
   reports: ReportInfo[];
   reportBusy: Record<string, boolean>;
   reportPreview: ReportDoc | null;
+  /** 읽은 보고서 ts 목록 (프로젝트별 localStorage 영속) — 사이드바 미확인 배지용 */
+  readReports: number[];
+  /** 보고서 → GDD 반영 전 PM 가치검증 상태 */
+  reportVerify: {
+    ts: number;
+    agentId: string;
+    title: string;
+    status: "running" | "ready" | "rejected" | "error";
+    verdict?: string;
+    finalText?: string;
+    error?: string;
+  } | null;
 
   /** 아트 인턴 (로컬 Stable Diffusion) */
   artStatus: ArtStatus | null;
@@ -162,6 +175,9 @@ interface VEState {
   artBusy: boolean;
   /** 진행 단계 표시 ("프롬프트 의뢰 중" / "이미지 생성 중") */
   artPhase: string;
+
+  /** 작업 중인 에이전트의 부분 응답 미리보기 (사무실 말풍선 라이브) */
+  livePeek: Record<string, string>;
 
   gdd: string;
   gddMtime: number;
@@ -217,11 +233,18 @@ interface VEState {
   closeReportPreview: () => void;
   removeReport: (ts: number) => Promise<void>;
 
+  /** 보고서 → PM 가치검증(처음 기획과 정합) → 오너 승인 → GDD 반영 */
+  requestReportVerify: (ts: number) => Promise<void>;
+  approveReportVerify: () => Promise<void>;
+  dismissReportVerify: () => void;
+
   /** 아트 인턴 — 아트 디렉터가 프롬프트를 쓰고 로컬 SD가 이미지를 뽑는다 */
   checkArtStatus: () => Promise<void>;
   loadArt: () => Promise<void>;
   generateArt: (request: string) => Promise<void>;
   removeArt: (ts: number) => Promise<void>;
+  /** 컨셉 아트를 GDD "8. 아트" 섹션에 이미지로 삽입 */
+  attachArtToGdd: (ts: number) => Promise<void>;
 
   reflectToGdd: (agentId: string, text: string) => Promise<void>;
   loadGdd: () => Promise<void>;
@@ -238,6 +261,17 @@ let initialized = false;
 let gddQueue: Promise<void> = Promise.resolve();
 let persistQueue: Promise<void> = Promise.resolve();
 let feedSeq = 0;
+/** 진행 중 오케스트레이션의 중단 컨트롤러 — ⏹ 클릭 시 실행 중 호출까지 즉시 끊는다 */
+let orchAbort: AbortController | null = null;
+
+const readKey = (project: string) => `ve-reports-read:${project}`;
+function loadReadSet(project: string): number[] {
+  try {
+    return JSON.parse(localStorage.getItem(readKey(project)) ?? "[]");
+  } catch {
+    return [];
+  }
+}
 const loadedChats = new Set<string>(); // `${project}:${agent}`
 
 function estimateTokens(text: string): number {
@@ -299,16 +333,27 @@ export const useVE = create<VEState>()((set, get) => {
     if (frame.event === "agent") {
       const state = String(p.state ?? "").toLowerCase();
       if (state.includes("error") || state.includes("fail")) setAgentStatus(agentId, "error");
-      else if (["done", "completed", "stopped", "finished", "idle"].some((k) => state.includes(k)))
+      else if (["done", "completed", "stopped", "finished", "idle"].some((k) => state.includes(k))) {
         setAgentStatus(agentId, "done");
-      else if (state) setAgentStatus(agentId, "running");
+        // 라이브 미리보기 정리
+        set((s) => (s.livePeek[agentId] ? { livePeek: { ...s.livePeek, [agentId]: "" } } : s));
+      } else if (state) setAgentStatus(agentId, "running");
       return;
     }
 
     if (frame.event === "chat") {
       const role = String(p.role ?? p.direction ?? "assistant").toLowerCase();
       if (role.includes("user") || role.includes("inbound")) return;
-      if (!suffix.startsWith("web-")) return;
+      if (!suffix.startsWith("web-")) {
+        // 오케스트레이션/보고서 세션의 부분 텍스트 → 사무실 말풍선 라이브 미리보기
+        const delta: string = p.deltaText ?? (typeof p.message === "string" ? p.message : "");
+        if (delta) {
+          set((s) => ({
+            livePeek: { ...s.livePeek, [agentId]: ((s.livePeek[agentId] ?? "") + delta).slice(-120) },
+          }));
+        }
+        return;
+      }
       const delta: string = p.deltaText ?? "";
       const full: string | undefined = typeof p.message === "string" ? p.message : undefined;
       set((s) => {
@@ -376,11 +421,14 @@ export const useVE = create<VEState>()((set, get) => {
     reports: [],
     reportBusy: {},
     reportPreview: null,
+    readReports: [],
+    reportVerify: null,
 
     artStatus: null,
     artImages: [],
     artBusy: false,
     artPhase: "",
+    livePeek: {},
 
     gdd: "",
     gddMtime: 0,
@@ -672,6 +720,8 @@ export const useVE = create<VEState>()((set, get) => {
       const project = st.activeProject || "np";
       const runTag = `${project}-orch-${Date.now().toString(36)}`;
 
+      orchAbort = new AbortController();
+      const signal = orchAbort.signal;
       set({
         orchRunning: true,
         stopRequested: false,
@@ -706,7 +756,7 @@ export const useVE = create<VEState>()((set, get) => {
         setAgentStatus("pm", "running");
         pushFeed({ from: "pm", kind: "status", text: "지시를 분석해 담당자를 배정하는 중…" });
         try {
-          const r = await gateway.runAgent("pm", pmRoutePrompt(req, pool), `${runTag}-route`);
+          const r = await gateway.runAgent("pm", pmRoutePrompt(req, pool), `${runTag}-route`, signal);
           const routed = parseRoutePlan(
             sanitizeAgentOutput(r.text),
             pool.map((a) => a.id)
@@ -774,7 +824,7 @@ export const useVE = create<VEState>()((set, get) => {
           setAgentStatus(agent.id, "running");
           pushFeed({ from: "pm", to: agent.id, kind: "instruction", text: instruction });
           try {
-            const r = await gateway.runAgent(agent.id, instruction, runTag);
+            const r = await gateway.runAgent(agent.id, instruction, runTag, signal);
             const draft = sanitizeAgentOutput(r.text);
             addUsage(r.usage, draft);
             pushFeed({ from: agent.id, to: "pm", kind: "draft", text: draft });
@@ -792,7 +842,12 @@ export const useVE = create<VEState>()((set, get) => {
                   kind: "status",
                   text: `${agent.name}의 "${agent.sectionTitle}" 초안 검토를 요청합니다.`,
                 });
-                const rv = await gateway.runAgent(reviewer.id, reviewPrompt(req, agent, reviewer, draft), `${runTag}-rv`);
+                const rv = await gateway.runAgent(
+                  reviewer.id,
+                  reviewPrompt(req, agent, reviewer, draft),
+                  `${runTag}-rv`,
+                  signal
+                );
                 const review = sanitizeAgentOutput(rv.text);
                 addUsage(rv.usage, review);
                 pushFeed({ from: reviewer.id, to: agent.id, kind: "review", text: review });
@@ -800,7 +855,7 @@ export const useVE = create<VEState>()((set, get) => {
 
                 updateCard(agent.id, { phase: "검토 반영 수정 중" });
                 setAgentStatus(agent.id, "running");
-                const rev = await gateway.runAgent(agent.id, revisePrompt(agent, reviewer, review), runTag);
+                const rev = await gateway.runAgent(agent.id, revisePrompt(agent, reviewer, review), runTag, signal);
                 const revised = sanitizeAgentOutput(rev.text);
                 addUsage(rev.usage, revised);
                 if (revised && revised.length > 30) final = revised;
@@ -824,6 +879,12 @@ export const useVE = create<VEState>()((set, get) => {
               pushFeed({ from: "system", kind: "status", text: `📄 마스터 GDD "${agent.sectionTitle}" 섹션이 갱신되었습니다.` });
             }
           } catch (e: any) {
+            if (get().stopRequested) {
+              // 오너의 ⏹ 중단 — 오류가 아니라 중단으로 표시
+              updateCard(agent.id, { state: "pending", phase: undefined, endedAt: Date.now() });
+              setAgentStatus(agent.id, "idle");
+              return;
+            }
             updateCard(agent.id, { state: "error", phase: undefined, error: String(e?.message ?? e), endedAt: Date.now() });
             setAgentStatus(agent.id, "error");
             pushFeed({ from: "system", kind: "error", text: `⚠️ ${agent.name} 작업 실패: ${String(e?.message ?? e).slice(0, 120)}` });
@@ -847,7 +908,7 @@ export const useVE = create<VEState>()((set, get) => {
         setAgentStatus("pm", "running");
         pushFeed({ from: "pm", kind: "status", text: `산출물 ${results.length}건을 취합해 "1. 개요"를 통합 작성합니다.` });
         try {
-          const r = await gateway.runAgent("pm", pmInstruction, runTag);
+          const r = await gateway.runAgent("pm", pmInstruction, runTag, signal);
           const clean = sanitizeAgentOutput(r.text);
           addUsage(r.usage, clean);
           updateCard("pm", { state: "done", phase: undefined, output: clean, endedAt: Date.now() });
@@ -857,6 +918,34 @@ export const useVE = create<VEState>()((set, get) => {
             await get().reflectToGdd("pm", clean);
             updateCard("pm", { reflected: true });
             pushFeed({ from: "system", kind: "status", text: `📄 마스터 GDD "개요" 섹션이 갱신되었습니다. 오케스트레이션 완료.` });
+          }
+          // 회의록 자동 저장 — 3명 이상 참여한 회의는 기록을 남긴다 (결정론적 취합, 추가 호출 없음)
+          if (results.length >= 3) {
+            const now = new Date();
+            const minutes = [
+              `# 회의록 — ${now.toLocaleString("ko-KR", { hour12: false })}`,
+              ``,
+              `## 오너 지시`,
+              req,
+              ``,
+              `## 참여 (${results.length}명)`,
+              results.map(({ agent }) => `- ${agent.emoji} ${agent.name} — "${agent.sectionTitle}" 담당`).join("\n"),
+              ``,
+              `## PM 통합 결론`,
+              get().cards["pm"]?.output ?? clean,
+              ``,
+              `## 확정 산출물 요약`,
+              ...results.map(
+                ({ agent, text }) => `### ${agent.emoji} ${agent.sectionTitle} (${agent.name})\n${text.slice(0, 600)}${text.length > 600 ? "\n…(전문은 GDD 참조)" : ""}\n`
+              ),
+            ].join("\n");
+            try {
+              await saveReport(project, "pm", `회의록 — ${req.slice(0, 30)}${req.length > 30 ? "…" : ""}`, minutes);
+              await get().loadReports();
+              pushFeed({ from: "system", kind: "status", text: "📋 회의록이 보고서함에 저장되었습니다." });
+            } catch {
+              /* 회의록 저장 실패는 치명적이지 않음 */
+            }
           }
         } catch (e: any) {
           updateCard("pm", { state: "error", phase: undefined, error: String(e?.message ?? e), endedAt: Date.now() });
@@ -869,7 +958,9 @@ export const useVE = create<VEState>()((set, get) => {
 
     stopOrch: () => {
       set({ stopRequested: true });
-      pushFeed({ from: "system", kind: "status", text: "중단 요청됨 — 진행 중인 호출이 끝나는 대로 멈춥니다." });
+      // 진행 중 호출까지 즉시 끊는다 (서버측 브리지가 CLI 프로세스를 kill)
+      orchAbort?.abort();
+      pushFeed({ from: "system", kind: "status", text: "⏹ 즉시 중단 — 진행 중이던 호출을 끊었습니다." });
     },
 
     /* ── 에이전트 헬스체크 ─────────────────────────── */
@@ -982,14 +1073,21 @@ export const useVE = create<VEState>()((set, get) => {
       const project = get().activeProject;
       if (!project) return;
       const reports = await listReports(project);
-      if (get().activeProject === project) set({ reports });
+      if (get().activeProject === project) set({ reports, readReports: loadReadSet(project) });
     },
 
     openReport: async (ts) => {
       const project = get().activeProject;
       if (!project) return;
       const doc = await fetchReport(project, ts);
-      set({ reportPreview: doc, gddPreview: null, gddEditing: false });
+      // 읽음 처리 — 사이드바 미확인 배지 해제
+      const read = Array.from(new Set([...get().readReports, ts]));
+      try {
+        localStorage.setItem(readKey(project), JSON.stringify(read.slice(-200)));
+      } catch {
+        /* noop */
+      }
+      set({ reportPreview: doc, gddPreview: null, gddEditing: false, readReports: read });
     },
 
     closeReportPreview: () => set({ reportPreview: null }),
@@ -1001,6 +1099,70 @@ export const useVE = create<VEState>()((set, get) => {
       set((s) => ({ reportPreview: s.reportPreview?.ts === ts ? null : s.reportPreview }));
       await get().loadReports();
     },
+
+    /* ── 보고서 → PM 가치검증 → 오너 승인 → GDD 반영 ── */
+
+    requestReportVerify: async (ts) => {
+      const project = get().activeProject;
+      if (!project || get().reportVerify?.status === "running") return;
+      const doc = await fetchReport(project, ts);
+      const agent = AGENT_MAP[doc.agent];
+      if (!agent) return;
+      set({ reportVerify: { ts, agentId: doc.agent, title: doc.title, status: "running" } });
+      setAgentStatus("pm", "running");
+      try {
+        const cur = await fetchGdd(project);
+        const r = await gateway.runAgent(
+          "pm",
+          reportVerifyPrompt(
+            agent,
+            doc.title,
+            doc.markdown,
+            getSectionBody(cur.markdown, "## 1."),
+            getSectionBody(cur.markdown, agent.section)
+          ),
+          `rverify-${project}-${Date.now().toString(36)}`
+        );
+        const full = sanitizeAgentOutput(r.text);
+        addUsage(r.usage, full);
+        const m = /###\s*반영안\s*\n?/.exec(full);
+        const verdict = m ? full.slice(0, m.index).trim() : full;
+        const finalText = m ? full.slice(m.index + m[0].length).trim() : "";
+        set({
+          reportVerify: {
+            ts,
+            agentId: doc.agent,
+            title: doc.title,
+            // PM이 반영안을 쓰지 않았다면 "반영 비권고"로 처리
+            status: finalText ? "ready" : "rejected",
+            verdict,
+            finalText,
+          },
+        });
+        setAgentStatus("pm", "done");
+      } catch (e: any) {
+        set({
+          reportVerify: {
+            ts,
+            agentId: doc.agent,
+            title: doc.title,
+            status: "error",
+            error: String(e?.message ?? e).slice(0, 150),
+          },
+        });
+        setAgentStatus("pm", "error");
+      }
+    },
+
+    approveReportVerify: async () => {
+      const rv = get().reportVerify;
+      if (!rv || rv.status !== "ready" || !rv.finalText) return;
+      // reflectToGdd → 저장 시 서버가 직전 버전을 자동 백업한다
+      await get().reflectToGdd(rv.agentId, rv.finalText);
+      set({ reportVerify: null });
+    },
+
+    dismissReportVerify: () => set({ reportVerify: null }),
 
     /* ── 아트 인턴 (로컬 Stable Diffusion) ──────────── */
 
@@ -1057,6 +1219,27 @@ export const useVE = create<VEState>()((set, get) => {
       if (!project) return;
       await deleteArtImage(project, ts);
       await get().loadArt();
+    },
+
+    attachArtToGdd: async (ts) => {
+      const project = get().activeProject;
+      const img = get().artImages.find((i) => i.ts === ts);
+      if (!project || !img) return;
+      const caption = (img.request || "컨셉 아트").replace(/[\[\]]/g, "");
+      const imgMd = `![${caption}](/api/art/file?project=${encodeURIComponent(project)}&ts=${ts})`;
+      gddQueue = gddQueue.then(async () => {
+        try {
+          const cur = await fetchGdd(project);
+          const body = getSectionBody(cur.markdown, "## 8.");
+          // 기존 아트 섹션 내용은 유지하고 이미지를 뒤에 덧붙인다 (저장 시 자동 백업)
+          const md = replaceSection(cur.markdown, "## 8.", "아트", body ? `${body}\n\n${imgMd}` : imgMd);
+          const mtime = await saveGdd(project, md);
+          set({ gdd: md, gddMtime: mtime });
+        } catch (e) {
+          console.warn("[art] GDD 삽입 실패:", e);
+        }
+      });
+      await gddQueue;
     },
 
     /* ── GDD + 버전 히스토리 ───────────────────────── */

@@ -27,7 +27,15 @@ export function Sidebar() {
     loadBraveStatus,
     modelName,
     setModelName,
+    reports,
+    readReports,
   } = useVE();
+
+  // 에이전트별 읽지 않은 보고서 수 — 확인 여부 배지
+  const unreadByAgent: Record<string, number> = {};
+  for (const r of reports) {
+    if (!readReports.includes(r.ts)) unreadByAgent[r.agent] = (unreadByAgent[r.agent] ?? 0) + 1;
+  }
 
   const healthDone = Object.keys(agentHealth).length;
   const healthOk = Object.values(agentHealth).filter((h) => h.ok).length;
@@ -134,6 +142,14 @@ export function Sidebar() {
                 <span className="agent-name">{a.name}</span>
                 <span className="agent-role">{a.role}</span>
               </span>
+              {unreadByAgent[a.id] > 0 && (
+                <span
+                  className="report-badge"
+                  title={`읽지 않은 보고서 ${unreadByAgent[a.id]}건 — GDD 패널 📋 또는 사무실 📋 탭에서 확인`}
+                >
+                  📋{unreadByAgent[a.id]}
+                </span>
+              )}
               {health && (
                 <span
                   className={`health-mark ${health.ok ? "ok" : "bad"}`}
