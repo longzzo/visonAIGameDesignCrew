@@ -376,10 +376,23 @@ function chatsApiPlugin(): Plugin {
   };
 }
 
+/* ── OpenClaw 설정 공용 헬퍼 ──────────────────────────── */
+
+const OPENCLAW_CFG = path.join(os.homedir(), ".openclaw", "openclaw.json");
+
+/** 예약작업으로 게이트웨이 재시작 — 설정 변경(키/모델) 반영용 */
+function restartGateway(): void {
+  spawn("schtasks", ["/End", "/TN", "OpenClaw Gateway"], { shell: false, windowsHide: true }).on("close", () => {
+    setTimeout(() => {
+      spawn("schtasks", ["/Run", "/TN", "OpenClaw Gateway"], { shell: false, windowsHide: true });
+    }, 1500);
+  });
+}
+
 /* ── 플러그인: Brave 검색 키 등록 (웹앱에서 붙여넣기) ──── */
 
 function braveKeyPlugin(): Plugin {
-  const cfgPath = path.join(os.homedir(), ".openclaw", "openclaw.json");
+  const cfgPath = OPENCLAW_CFG;
   return {
     name: "vision-engine-brave-key",
     configureServer(server: ViteDevServer) {
@@ -405,15 +418,204 @@ function braveKeyPlugin(): Plugin {
               cfg.tools.web = cfg.tools.web || {};
               cfg.tools.web.search = { ...(cfg.tools.web.search || {}), enabled: true, apiKey: key.trim() };
               fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), "utf-8");
-              // 게이트웨이 재시작(예약작업) — 키 반영
-              spawn("schtasks", ["/End", "/TN", "OpenClaw Gateway"], { shell: false, windowsHide: true }).on("close", () => {
-                setTimeout(() => {
-                  spawn("schtasks", ["/Run", "/TN", "OpenClaw Gateway"], { shell: false, windowsHide: true });
-                }, 1500);
-              });
+              restartGateway(); // 키 반영
               res.end(JSON.stringify({ ok: true }));
               return;
             }
+            res.statusCode = 405;
+            res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
+/* ── 플러그인: AI 모델 프로바이더 (GitHub Models / NVIDIA NIM) ── */
+
+/**
+ * OpenClaw 프로바이더 템플릿. 키가 등록될 때 openclaw.json 에 병합된다.
+ * - api "openai-completions" + compat: gpt-5 계열은 max_completion_tokens,
+ *   NVIDIA NIM 은 max_tokens 만 받으므로 모델별로 명시한다.
+ * - store/developer role 은 두 서비스 모두 미지원 가능성이 있어 끈다.
+ */
+const PROVIDER_TEMPLATES: Record<string, any> = {
+  github: {
+    baseUrl: "https://models.github.ai/inference",
+    api: "openai-completions",
+    models: [
+      {
+        id: "openai/gpt-5-mini",
+        name: "GPT-5 mini (GitHub Models)",
+        input: ["text"],
+        contextWindow: 128000,
+        maxTokens: 16384,
+        compat: { maxTokensField: "max_completion_tokens", supportsStore: false, supportsDeveloperRole: false },
+      },
+      {
+        id: "openai/gpt-5",
+        name: "GPT-5 (GitHub Models)",
+        input: ["text"],
+        contextWindow: 128000,
+        maxTokens: 16384,
+        compat: { maxTokensField: "max_completion_tokens", supportsStore: false, supportsDeveloperRole: false },
+      },
+    ],
+  },
+  nvidia: {
+    baseUrl: "https://integrate.api.nvidia.com/v1",
+    api: "openai-completions",
+    models: [
+      {
+        id: "qwen/qwen3-235b-a22b",
+        name: "Qwen3 235B (NVIDIA)",
+        input: ["text"],
+        contextWindow: 131072,
+        maxTokens: 8192,
+        compat: {
+          maxTokensField: "max_tokens",
+          supportsStore: false,
+          supportsDeveloperRole: false,
+          supportsReasoningEffort: false,
+        },
+      },
+      {
+        id: "meta/llama-3.3-70b-instruct",
+        name: "Llama 3.3 70B (NVIDIA)",
+        input: ["text"],
+        contextWindow: 131072,
+        maxTokens: 4096,
+        compat: {
+          maxTokensField: "max_tokens",
+          supportsStore: false,
+          supportsDeveloperRole: false,
+          supportsReasoningEffort: false,
+        },
+      },
+      {
+        id: "deepseek-ai/deepseek-r1",
+        name: "DeepSeek R1 (NVIDIA)",
+        input: ["text"],
+        contextWindow: 131072,
+        maxTokens: 8192,
+        compat: {
+          maxTokensField: "max_tokens",
+          supportsStore: false,
+          supportsDeveloperRole: false,
+          supportsReasoningEffort: false,
+        },
+      },
+    ],
+  },
+};
+
+/** 사용자에게 보여줄 모델 라벨 */
+const MODEL_LABELS: Record<string, { label: string; note?: string }> = {
+  "ollama/qwen3:8b": { label: "로컬 Qwen3 8B", note: "무료·무제한·오프라인 (품질 낮음)" },
+  // GitHub Models 무료 티어는 요청당 4,000토큰 제한이라 에이전트 프롬프트가 안 들어간다.
+  // GitHub 설정에서 Models 유료 결제(또는 Copilot 유료 플랜)를 켜면 제한이 풀려 사용 가능.
+  "github/openai/gpt-5-mini": { label: "GPT-5 mini · GitHub Models", note: "⚠️ GitHub 유료 결제 필요 (무료 티어는 4K 제한)" },
+  "github/openai/gpt-5": { label: "GPT-5 · GitHub Models", note: "⚠️ GitHub 유료 결제 필요 (무료 티어는 4K 제한)" },
+  "nvidia/qwen/qwen3-235b-a22b": { label: "Qwen3 235B · NVIDIA", note: "무료 크레딧" },
+  "nvidia/meta/llama-3.3-70b-instruct": { label: "Llama 3.3 70B · NVIDIA", note: "무료 크레딧" },
+  "nvidia/deepseek-ai/deepseek-r1": { label: "DeepSeek R1 · NVIDIA", note: "추론 특화 · 느림" },
+};
+
+function hasProviderKey(cfg: any, provider: string): boolean {
+  const key = cfg?.models?.providers?.[provider]?.apiKey;
+  return typeof key === "string" && key.length > 10;
+}
+
+function modelsApiPlugin(): Plugin {
+  return {
+    name: "vision-engine-models-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/models", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            const cfg = JSON.parse(fs.readFileSync(OPENCLAW_CFG, "utf-8"));
+
+            if (req.method === "GET") {
+              const current =
+                cfg?.agents?.defaults?.model?.primary ?? cfg?.agents?.list?.[0]?.model ?? "ollama/qwen3:8b";
+              const providers = {
+                ollama: true,
+                github: hasProviderKey(cfg, "github"),
+                nvidia: hasProviderKey(cfg, "nvidia"),
+              };
+              const options: { id: string; label: string; note?: string }[] = [];
+              for (const m of cfg?.models?.providers?.ollama?.models ?? []) {
+                const id = `ollama/${m.id}`;
+                options.push({ id, ...(MODEL_LABELS[id] ?? { label: m.name ?? m.id }) });
+              }
+              for (const provider of ["github", "nvidia"] as const) {
+                if (!providers[provider]) continue;
+                for (const m of cfg?.models?.providers?.[provider]?.models ?? []) {
+                  const id = `${provider}/${m.id}`;
+                  options.push({ id, ...(MODEL_LABELS[id] ?? { label: m.name ?? m.id }) });
+                }
+              }
+              res.end(JSON.stringify({ current, providers, options }));
+              return;
+            }
+
+            if (req.method === "POST") {
+              const j = JSON.parse((await readBody(req)) || "{}");
+
+              // ① 프로바이더 키 등록
+              if (j.registerKey) {
+                const provider = String(j.registerKey.provider ?? "");
+                const key = String(j.registerKey.key ?? "").trim();
+                if (!PROVIDER_TEMPLATES[provider] || key.length < 10) {
+                  res.statusCode = 400;
+                  res.end(JSON.stringify({ ok: false, error: "provider/key 확인 필요" }));
+                  return;
+                }
+                cfg.models = cfg.models || {};
+                cfg.models.providers = cfg.models.providers || {};
+                cfg.models.providers[provider] = { ...PROVIDER_TEMPLATES[provider], apiKey: key };
+                fs.writeFileSync(OPENCLAW_CFG, JSON.stringify(cfg, null, 2), "utf-8");
+                restartGateway();
+                res.end(JSON.stringify({ ok: true }));
+                return;
+              }
+
+              // ② 전 에이전트 모델 전환
+              if (typeof j.model === "string" && j.model) {
+                const model = j.model.trim();
+                const slash = model.indexOf("/");
+                const provider = slash > 0 ? model.slice(0, slash) : "";
+                const modelId = slash > 0 ? model.slice(slash + 1) : "";
+                const known = (cfg?.models?.providers?.[provider]?.models ?? []).some((m: any) => m.id === modelId);
+                if (!known) {
+                  res.statusCode = 400;
+                  res.end(JSON.stringify({ ok: false, error: `알 수 없는 모델: ${model}` }));
+                  return;
+                }
+                if (provider !== "ollama" && !hasProviderKey(cfg, provider)) {
+                  res.statusCode = 400;
+                  res.end(JSON.stringify({ ok: false, error: `${provider} API 키를 먼저 등록하세요` }));
+                  return;
+                }
+                cfg.agents = cfg.agents || {};
+                cfg.agents.defaults = cfg.agents.defaults || {};
+                cfg.agents.defaults.model = { ...(cfg.agents.defaults.model || {}), primary: model };
+                for (const a of cfg.agents.list ?? []) a.model = model;
+                fs.writeFileSync(OPENCLAW_CFG, JSON.stringify(cfg, null, 2), "utf-8");
+                restartGateway();
+                res.end(JSON.stringify({ ok: true, model }));
+                return;
+              }
+
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: "registerKey 또는 model 필요" }));
+              return;
+            }
+
             res.statusCode = 405;
             res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
           } catch (e: any) {
@@ -553,7 +755,15 @@ function resolveDevHost(): string {
 }
 
 export default defineConfig({
-  plugins: [react(), projectsApiPlugin(), gddApiPlugin(), chatsApiPlugin(), braveKeyPlugin(), agentBridgePlugin()],
+  plugins: [
+    react(),
+    projectsApiPlugin(),
+    gddApiPlugin(),
+    chatsApiPlugin(),
+    braveKeyPlugin(),
+    modelsApiPlugin(),
+    agentBridgePlugin(),
+  ],
   server: {
     port: 5199,
     // 포트가 차 있으면 조용히 5200으로 옮겨 뜨는 대신 명확히 실패시킨다 (중복 실행 방지)

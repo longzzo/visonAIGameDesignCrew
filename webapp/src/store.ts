@@ -13,7 +13,10 @@ import {
   revisePrompt,
   pmSummaryPrompt,
   pmVerifyPrompt,
+  pmRoutePrompt,
+  parseRoutePlan,
   type AgentDef,
+  type WebMode,
 } from "./lib/agents";
 import {
   fetchGdd,
@@ -32,6 +35,7 @@ import {
   saveChatHistory,
   loadFeedHistory,
   saveFeedHistory,
+  getBraveKeyStatus,
   type ProjectInfo,
   type GddVersion,
 } from "./lib/gdd";
@@ -117,6 +121,10 @@ interface VEState {
   autoReflect: boolean;
   crossReview: boolean;
   webResearch: boolean;
+  /** Brave 검색 키 등록 여부 — 없으면 웹 리서치가 web_fetch 전용으로 강등된다 */
+  braveOk: boolean;
+  /** PM이 지시를 분류해 필요한 에이전트에게만 배정하는 자동 분배 모드 */
+  autoRoute: boolean;
   orchRunning: boolean;
   stopRequested: boolean;
   cards: Record<string, OrchCard>;
@@ -161,6 +169,9 @@ interface VEState {
   setAutoReflect: (b: boolean) => void;
   setCrossReview: (b: boolean) => void;
   setWebResearch: (b: boolean) => void;
+  setAutoRoute: (b: boolean) => void;
+  loadBraveStatus: () => Promise<void>;
+  setModelName: (m: string) => void;
   startOrch: () => Promise<void>;
   stopOrch: () => void;
   clearFeed: () => void;
@@ -309,6 +320,8 @@ export const useVE = create<VEState>()((set, get) => {
     autoReflect: true,
     crossReview: true,
     webResearch: false,
+    braveOk: false,
+    autoRoute: true,
     orchRunning: false,
     stopRequested: false,
     cards: {},
@@ -332,6 +345,7 @@ export const useVE = create<VEState>()((set, get) => {
       initialized = true;
       gateway.onStatus((s, detail) => set({ conn: s, connDetail: detail }));
       gateway.onEvent(handleEvent);
+      void get().loadBraveStatus();
       await get().loadProjects();
       void get().loadGdd();
       // 저장된 피드/기본 에이전트 채팅 복원
@@ -563,6 +577,15 @@ export const useVE = create<VEState>()((set, get) => {
     setAutoReflect: (b) => set({ autoReflect: b }),
     setCrossReview: (b) => set({ crossReview: b }),
     setWebResearch: (b) => set({ webResearch: b }),
+    setAutoRoute: (b) => set({ autoRoute: b }),
+    setModelName: (m) => set({ modelName: m }),
+    loadBraveStatus: async () => {
+      try {
+        set({ braveOk: await getBraveKeyStatus() });
+      } catch {
+        /* 상태 조회 실패 시 미등록으로 간주 */
+      }
+    },
     fullMeeting: async () => {
       set({
         selected: Object.fromEntries(SPECIALISTS.map((a) => [a.id, true])),
@@ -581,18 +604,27 @@ export const useVE = create<VEState>()((set, get) => {
       const st = get();
       const req = st.orchRequest.trim();
       if (!req || st.orchRunning) return;
-      const targets = SPECIALISTS.filter((a) => st.selected[a.id]);
-      if (targets.length === 0) return;
+      const pool = SPECIALISTS.filter((a) => st.selected[a.id]);
+      if (pool.length === 0) return;
       const project = st.activeProject || "np";
       const runTag = `${project}-orch-${Date.now().toString(36)}`;
 
-      const initialCards: Record<string, OrchCard> = Object.fromEntries(
-        targets.map((a) => [a.id, { agentId: a.id, state: "queued" as const, output: "" }])
-      );
-      initialCards["pm"] = { agentId: "pm", state: "pending", output: "" };
-      set({ orchRunning: true, stopRequested: false, cards: initialCards });
-
+      set({
+        orchRunning: true,
+        stopRequested: false,
+        cards: { pm: { agentId: "pm", state: "pending", output: "" } },
+      });
       pushFeed({ from: "user", kind: "request", text: req });
+
+      // 웹 리서치 수준 — 검색 키가 없으면 web_fetch 전용으로 강등 (web_search 오류 방지)
+      const web: WebMode = st.webResearch ? (st.braveOk ? "full" : "fetch") : "off";
+      if (web === "fetch") {
+        pushFeed({
+          from: "system",
+          kind: "status",
+          text: "🔍 웹 검색 키가 등록되지 않아 이번 리서치는 페이지 조회(web_fetch)만 사용합니다. 사이드바 🔑에서 Brave 키를 등록하면 검색도 가능해집니다.",
+        });
+      }
 
       // 기획 보존 모드 — 현재 GDD를 읽어 각 에이전트에게 "기존 기획 + 새 지시" 컨텍스트로 전달
       let baseMd = get().gdd;
@@ -602,8 +634,57 @@ export const useVE = create<VEState>()((set, get) => {
         /* 저장본을 못 읽으면 화면의 최신 상태 사용 */
       }
       const overview = getSectionBody(baseMd, "## 1.");
-      const hasExisting = targets.some((a) => getSectionBody(baseMd, a.section).length > 0);
 
+      // PM 자동 분배 — 지시를 분류해 관련 담당자에게만 배정한다 (실패 시 선택된 전원 폴백)
+      let targets = pool;
+      const focusMap: Record<string, string> = {};
+      if (st.autoRoute && pool.length > 1 && !get().stopRequested) {
+        updateCard("pm", { state: "running", phase: "지시 분류 중", startedAt: Date.now() });
+        setAgentStatus("pm", "running");
+        pushFeed({ from: "pm", kind: "status", text: "지시를 분석해 담당자를 배정하는 중…" });
+        try {
+          const r = await gateway.runAgent("pm", pmRoutePrompt(req, pool), `${runTag}-route`);
+          const routed = parseRoutePlan(
+            sanitizeAgentOutput(r.text),
+            pool.map((a) => a.id)
+          );
+          addUsage(r.usage, r.text);
+          if (routed.length > 0) {
+            targets = routed.map((p) => AGENT_MAP[p.id]);
+            for (const p of routed) focusMap[p.id] = p.directive;
+            pushFeed({
+              from: "pm",
+              kind: "instruction",
+              text: routed
+                .map((p) => `**${AGENT_MAP[p.id].emoji} ${AGENT_MAP[p.id].name}** — ${p.directive}`)
+                .join("\n\n"),
+            });
+          } else {
+            pushFeed({
+              from: "system",
+              kind: "status",
+              text: "PM의 배정 결과를 해석하지 못해 선택된 전원에게 전달합니다.",
+            });
+          }
+        } catch (e: any) {
+          pushFeed({
+            from: "system",
+            kind: "status",
+            text: `⚠️ PM 분배 단계 실패 (${String(e?.message ?? e).slice(0, 80)}) — 선택된 전원에게 전달합니다.`,
+          });
+        }
+        setAgentStatus("pm", "done");
+        updateCard("pm", { state: "pending", phase: undefined, startedAt: undefined });
+      }
+
+      set((s) => ({
+        cards: {
+          ...s.cards,
+          ...Object.fromEntries(targets.map((a) => [a.id, { agentId: a.id, state: "queued" as const, output: "" }])),
+        },
+      }));
+
+      const hasExisting = targets.some((a) => getSectionBody(baseMd, a.section).length > 0);
       pushFeed({
         from: "pm",
         kind: "status",
@@ -621,9 +702,10 @@ export const useVE = create<VEState>()((set, get) => {
           const instruction = specialistPrompt(
             req,
             agent,
-            get().webResearch,
+            web,
             getSectionBody(baseMd, agent.section),
-            overview
+            overview,
+            focusMap[agent.id] ?? ""
           );
           updateCard(agent.id, { state: "running", phase: "초안 작성 중", startedAt: Date.now(), instruction });
           setAgentStatus(agent.id, "running");

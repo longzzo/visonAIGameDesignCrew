@@ -50,15 +50,23 @@ export const REVIEWERS: Record<string, string> = {
 };
 
 /**
+ * 웹 리서치 허용 수준 — Brave 검색 키가 없으면 web_search가 오류를 뱉으므로
+ * "fetch"(페이지 조회만)로 강등해 에이전트가 검색을 시도조차 하지 않게 한다.
+ */
+export type WebMode = "off" | "fetch" | "full";
+
+/**
  * 증분(기획 보존) 지시 프롬프트 — 기존 GDD 섹션을 컨텍스트로 주고
  * 새 지시사항만 반영한 "갱신본"을 요구한다. 섹션이 비어 있으면 신규 작성 모드.
+ * focus = PM이 자동 분배에서 이 에이전트에게 내린 배정 지시(있으면 우선 수행).
  */
 export function specialistPrompt(
   request: string,
   agent: AgentDef,
-  webResearch = false,
+  web: WebMode = "off",
   currentSection = "",
-  overview = ""
+  overview = "",
+  focus = ""
 ): string {
   const hasExisting = currentSection.trim().length > 0;
   const parts: string[] = [];
@@ -72,27 +80,78 @@ export function specialistPrompt(
       ``,
       `[오너의 새 지시사항]`,
       request.trim(),
-      ``,
+      ``
+    );
+    if (focus.trim()) {
+      parts.push(`[PM의 배정 지시 — 너의 몫은 이것이다]`, focus.trim(), ``);
+    }
+    parts.push(
       `위 지시사항을 기존 기획에 **반영**해 "${agent.sectionTitle}" 섹션의 갱신본 전체를 작성해라.`,
       `- 지시와 무관한 기존 확정 내용은 그대로 유지해라. 지시가 요구하는 부분만 바꾸거나 추가해라.`,
       `- 기존 기획을 무시하고 처음부터 새로 쓰지 마라.`
     );
   } else {
+    parts.push(`[프로젝트 요청]`, request.trim(), ``);
+    if (focus.trim()) {
+      parts.push(`[PM의 배정 지시 — 너의 몫은 이것이다]`, focus.trim(), ``);
+    }
     parts.push(
-      `[프로젝트 요청]`,
-      request.trim(),
-      ``,
       `너의 워크스페이스 지침(AGENTS.md)의 산출물 형식에 따라, 이 게임의 "${agent.sectionTitle}" 파트를 새로 작성해라.`
     );
   }
   parts.push(
     `- 순수 마크다운 텍스트로만. 소제목(###) 사용.`,
     `- 20줄 이내로 간결하고 구체적으로.`,
-    webResearch
+    web === "full"
       ? `- 최신 정보·레퍼런스가 필요하면 web_search / web_fetch 도구로 조사해도 된다(다른 도구는 금지). 조사한 내용은 출처와 함께 본문에 녹여라.`
-      : `- 도구/함수 호출 금지.`
+      : web === "fetch"
+        ? `- 필요하면 web_fetch 도구로 알고 있는 URL의 페이지를 조회해도 된다. web_search는 지금 사용 불가이니 호출하지 마라(다른 도구도 금지).`
+        : `- 도구/함수 호출 금지.`
   );
   return parts.join("\n");
+}
+
+/**
+ * PM 자동 분배 프롬프트 — 오너 지시를 읽고 담당자와 배정 지시를 정하게 한다.
+ * 로컬 모델도 안정적으로 파싱되도록 "할당: id | 지시" 한 줄 형식을 강제한다.
+ */
+export function pmRoutePrompt(request: string, pool: AgentDef[]): string {
+  const roster = pool.map((a) => `- ${a.id} = ${a.name} (${a.role})`).join("\n");
+  return [
+    `너는 PM 디렉터다. 오너의 지시를 읽고 처리할 담당자를 정해라.`,
+    ``,
+    `[오너 지시]`,
+    request.trim(),
+    ``,
+    `[담당자 목록]`,
+    roster,
+    ``,
+    `규칙:`,
+    `- 지시와 직접 관련된 담당자만 골라라. 보통 1~3명이면 충분하다. 지시가 게임 전체 컨셉이면 전원도 가능.`,
+    `- 담당자마다 아래 형식으로 정확히 한 줄씩만 출력해라. 다른 설명·인사·도구 호출은 절대 금지.`,
+    ``,
+    `할당: <id> | <그 담당자에게 전달할 구체적 한 줄 지시>`,
+    ``,
+    `예시:`,
+    `할당: scenario | 주인공과 라이벌의 관계 설정을 세계관에 추가해라`,
+  ].join("\n");
+}
+
+/** PM 자동 분배 응답 파싱 — "할당: id | 지시" 줄만 추출, 유효한 전문가 id만 채택 */
+export function parseRoutePlan(text: string, validIds: string[]): { id: string; directive: string }[] {
+  const out: { id: string; directive: string }[] = [];
+  const seen = new Set<string>();
+  const re = /^[\s*>-]*(?:할당|assign)\s*[:：]\s*\**([a-z]+)\**\s*[|｜]\s*(.+)$/gim;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const id = m[1].toLowerCase();
+    const directive = m[2].trim().replace(/\**$/, "");
+    if (validIds.includes(id) && !seen.has(id) && directive) {
+      seen.add(id);
+      out.push({ id, directive });
+    }
+  }
+  return out;
 }
 
 /**

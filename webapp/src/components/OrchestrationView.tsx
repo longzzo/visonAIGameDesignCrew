@@ -101,6 +101,9 @@ export function OrchestrationView() {
     setCrossReview,
     webResearch,
     setWebResearch,
+    autoRoute,
+    setAutoRoute,
+    braveOk,
     orchRunning,
     startOrch,
     stopOrch,
@@ -144,15 +147,26 @@ export function OrchestrationView() {
                 {a.emoji} {a.name.replace(" 디자이너", "").replace(" 라이터", "").replace(" 전략가", "").replace(" 디렉터", "")}
               </button>
             ))}
+            {autoRoute && <span className="dim chips-hint">← PM이 이 중에서 담당자를 골라 배정합니다</span>}
           </div>
           <div className="orch-controls">
+            <label title="PM이 지시를 먼저 분석해 관련 담당자에게만 배정합니다. 특정 지시는 한 명에게만 갈 수도 있습니다. 끄면 위에서 선택한 전원에게 전달됩니다.">
+              <input type="checkbox" checked={autoRoute} onChange={(e) => setAutoRoute(e.target.checked)} disabled={orchRunning} />
+              🎯 PM 자동 분배
+            </label>
             <label title="동료 에이전트가 초안을 검토하고, 작성자가 수정해 확정 (호출 수 3배)">
               <input type="checkbox" checked={crossReview} onChange={(e) => setCrossReview(e.target.checked)} disabled={orchRunning} />
               교차 검토
             </label>
-            <label title="에이전트가 web_search/web_fetch로 인터넷 조사를 할 수 있게 허용 (검색은 Brave API 키 필요, 페이지 조회는 바로 가능)">
+            <label
+              title={
+                braveOk
+                  ? "에이전트가 web_search/web_fetch로 인터넷 조사를 할 수 있게 허용"
+                  : "검색 키가 없어 페이지 조회(web_fetch)만 사용됩니다 — 사이드바 🔑에서 Brave 키를 등록하면 검색도 가능"
+              }
+            >
               <input type="checkbox" checked={webResearch} onChange={(e) => setWebResearch(e.target.checked)} disabled={orchRunning} />
-              🌐 웹 리서치
+              🌐 웹 리서치{webResearch && !braveOk ? <span className="dim"> (조회만)</span> : null}
             </label>
             <label>
               <input type="checkbox" checked={autoReflect} onChange={(e) => setAutoReflect(e.target.checked)} />

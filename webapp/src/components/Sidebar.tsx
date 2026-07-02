@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AGENTS } from "../lib/agents";
-import { getBraveKeyStatus, setBraveKey } from "../lib/gdd";
+import { setBraveKey } from "../lib/gdd";
+import { getModelsInfo, registerModelKey, switchModel, type ModelsInfo } from "../lib/models";
 import { useVE } from "../store";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -22,15 +23,24 @@ export function Sidebar() {
     agentHealth,
     healthRunning,
     healthCheck,
+    braveOk,
+    loadBraveStatus,
+    modelName,
+    setModelName,
   } = useVE();
 
   const healthDone = Object.keys(agentHealth).length;
   const healthOk = Object.values(agentHealth).filter((h) => h.ok).length;
 
-  const [braveOk, setBraveOk] = useState<boolean | null>(null);
-  useEffect(() => {
-    void getBraveKeyStatus().then(setBraveOk);
-  }, []);
+  const [models, setModels] = useState<ModelsInfo | null>(null);
+  const [switching, setSwitching] = useState(false);
+  const refreshModels = () => {
+    void getModelsInfo()
+      .then(setModels)
+      .catch(() => setModels(null));
+  };
+  useEffect(refreshModels, []);
+
   const onBraveKey = () => {
     const key = window.prompt(
       "Brave Search API 키를 붙여넣으세요.\n(발급: https://brave.com/search/api — Free 플랜, 월 2,000회 무료)\n저장하면 게이트웨이가 자동 재시작됩니다(약 10초)."
@@ -38,10 +48,40 @@ export function Sidebar() {
     if (!key?.trim()) return;
     void setBraveKey(key.trim())
       .then(() => {
-        setBraveOk(true);
+        void loadBraveStatus();
         window.alert("저장 완료 — 게이트웨이 재시작 중입니다. 10초 뒤부터 에이전트가 웹 검색을 쓸 수 있습니다.");
       })
       .catch((e) => window.alert(`실패: ${e.message}`));
+  };
+
+  const onRegisterKey = (provider: "github" | "nvidia") => {
+    const guide =
+      provider === "github"
+        ? "GitHub 개인 액세스 토큰(PAT)을 붙여넣으세요.\n(github.com → Settings → Developer settings → Fine-grained token, models 권한)"
+        : "NVIDIA API 키(nvapi-…)를 붙여넣으세요.\n(발급: https://build.nvidia.com — 무료 크레딧 제공)";
+    const key = window.prompt(`${guide}\n저장하면 게이트웨이가 자동 재시작됩니다(약 10초).`);
+    if (!key?.trim()) return;
+    void registerModelKey(provider, key.trim())
+      .then(() => {
+        window.alert("키 등록 완료 — 게이트웨이 재시작 중입니다. 이제 모델 목록에서 선택할 수 있습니다.");
+        setTimeout(refreshModels, 1000);
+      })
+      .catch((e) => window.alert(`실패: ${e.message}`));
+  };
+
+  const onSwitchModel = (id: string) => {
+    if (!models || id === models.current || switching) return;
+    const opt = models.options.find((o) => o.id === id);
+    if (!window.confirm(`모든 에이전트의 모델을 "${opt?.label ?? id}"(으)로 바꿉니다.\n게이트웨이가 재시작됩니다(약 10초). 진행할까요?`)) return;
+    setSwitching(true);
+    void switchModel(id)
+      .then(() => {
+        setModelName(id);
+        setModels({ ...models, current: id });
+        window.alert("모델 전환 완료 — 게이트웨이 재시작 중입니다. 10초 뒤 🩺 전원 점검으로 확인해 보세요.");
+      })
+      .catch((e) => window.alert(`전환 실패: ${e.message}`))
+      .finally(() => setSwitching(false));
   };
 
   return (
@@ -80,6 +120,39 @@ export function Sidebar() {
         })}
       </ul>
       <div className="sidebar-foot">
+        <div className="model-box">
+          <div className="model-box-title">🧠 AI 모델</div>
+          {models ? (
+            <>
+              <select
+                className="model-select"
+                value={models.current}
+                disabled={switching}
+                onChange={(e) => onSwitchModel(e.target.value)}
+                title={models.options.find((o) => o.id === models.current)?.note ?? ""}
+              >
+                {models.options.map((o) => (
+                  <option key={o.id} value={o.id} title={o.note}>
+                    {o.label}
+                    {o.note ? ` — ${o.note}` : ""}
+                  </option>
+                ))}
+              </select>
+              {!models.providers.github && (
+                <button className="btn small" onClick={() => onRegisterKey("github")} title="GitHub Models(GPT-5 계열)를 쓰려면 PAT 등록">
+                  🔑 GitHub Models 토큰 등록
+                </button>
+              )}
+              {!models.providers.nvidia && (
+                <button className="btn small" onClick={() => onRegisterKey("nvidia")} title="NVIDIA NIM API(Qwen3 235B 등)를 쓰려면 키 등록">
+                  🔑 NVIDIA API 키 등록
+                </button>
+              )}
+            </>
+          ) : (
+            <span className="dim">{modelName}</span>
+          )}
+        </div>
         <button className="btn small" onClick={() => void healthCheck()} disabled={healthRunning}>
           {healthRunning ? (
             <>
