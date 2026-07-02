@@ -475,3 +475,15 @@ button { font-family: inherit; }
   .desk { min-width: 84px; padding-top: 30px; }
   .speech { max-width: 150px; }
 }
+
+/* ── v0.5: PM 검증 → 오너 승인 카드 ───────────────── */
+.verify-card {
+  align-self: stretch; background: var(--panel); border: 1px solid var(--accent);
+  border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
+  box-shadow: 0 0 0 3px rgba(139, 124, 246, 0.08);
+}
+.verify-head { font-weight: 700; font-size: 13px; color: var(--accent); }
+.verify-preview summary { cursor: pointer; font-size: 12px; color: var(--text-dim); }
+.verify-preview .md { margin-top: 6px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; max-height: 240px; overflow-y: auto; }
+.verify-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.office-avatar svg { display: block; }

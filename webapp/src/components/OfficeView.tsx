@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { AGENTS, AGENT_MAP } from "../lib/agents";
+import { AGENT_MAP } from "../lib/agents";
+import { AgentSprite } from "./AgentSprite";
 import { useVE, type FeedMsg } from "../store";
 
 /**
@@ -43,7 +44,7 @@ function Desk({ agentId, big }: { agentId: string; big?: boolean }) {
         </div>
       )}
       <div className="office-avatar" style={{ background: a.color + "26", borderColor: a.color + "88" }}>
-        <span className="avatar-emoji">{a.emoji}</span>
+        <AgentSprite id={agentId} size={big ? 52 : 42} />
         {st === "running" && <span className="zzz work">⚡</span>}
         {st === "idle" && <span className="zzz">💤</span>}
         {st === "done" && <span className="zzz ok">✅</span>}

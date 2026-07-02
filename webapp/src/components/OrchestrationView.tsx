@@ -126,7 +126,7 @@ export function OrchestrationView() {
         <textarea
           value={orchRequest}
           onChange={(e) => setOrchRequest(e.target.value)}
-          placeholder={'기획 요청을 입력하세요. 예: "고양이들이 우주 정거장을 운영하는 모바일 방치형 게임"'}
+          placeholder={'새 지시사항을 입력하세요 — 기존 기획은 유지되고 지시만 반영됩니다. 예: "전투를 턴제로 바꿔줘", "겨울 시즌 이벤트 추가해줘" (첫 기획이면 컨셉을 자유롭게)'}
           rows={2}
           disabled={orchRunning}
         />

@@ -17,7 +17,27 @@
           "name": "PM 디렉터",
           "emoji": "🎯"
         },
-        "model": "ollama/qwen3:8b"
+        "model": "ollama/qwen3:8b",
+        "tools": {
+          "deny": [
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf"
+          ]
+        }
       },
       {
         "id": "scenario",
@@ -27,7 +47,27 @@
           "name": "시나리오 라이터",
           "emoji": "📖"
         },
-        "model": "ollama/qwen3:8b"
+        "model": "ollama/qwen3:8b",
+        "tools": {
+          "deny": [
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf"
+          ]
+        }
       },
       {
         "id": "gameplay",
@@ -37,7 +77,27 @@
           "name": "게임플레이 디자이너",
           "emoji": "🕹️"
         },
-        "model": "ollama/qwen3:8b"
+        "model": "ollama/qwen3:8b",
+        "tools": {
+          "deny": [
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf"
+          ]
+        }
       },
       {
         "id": "uiux",
@@ -47,7 +107,27 @@
           "name": "UI/UX 디자이너",
           "emoji": "🧭"
         },
-        "model": "ollama/qwen3:8b"
+        "model": "ollama/qwen3:8b",
+        "tools": {
+          "deny": [
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf"
+          ]
+        }
       },
       {
         "id": "systems",
@@ -57,7 +137,27 @@
           "name": "시스템 디자이너",
           "emoji": "⚙️"
         },
-        "model": "ollama/qwen3:8b"
+        "model": "ollama/qwen3:8b",
+        "tools": {
+          "deny": [
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf"
+          ]
+        }
       },
       {
         "id": "balance",
@@ -67,7 +167,27 @@
           "name": "밸런스 디자이너",
           "emoji": "⚖️"
         },
-        "model": "ollama/qwen3:8b"
+        "model": "ollama/qwen3:8b",
+        "tools": {
+          "deny": [
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf"
+          ]
+        }
       },
       {
         "id": "bm",
@@ -82,7 +202,23 @@
           "deny": [
             "exec",
             "write",
-            "edit"
+            "edit",
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf"
           ]
         }
       },
@@ -94,7 +230,27 @@
           "name": "아트 디렉터",
           "emoji": "🎨"
         },
-        "model": "ollama/qwen3:8b"
+        "model": "ollama/qwen3:8b",
+        "tools": {
+          "deny": [
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf"
+          ]
+        }
       }
     ]
   },

@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { AGENTS } from "../lib/agents";
+import { getBraveKeyStatus, setBraveKey } from "../lib/gdd";
 import { useVE } from "../store";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -24,6 +26,23 @@ export function Sidebar() {
 
   const healthDone = Object.keys(agentHealth).length;
   const healthOk = Object.values(agentHealth).filter((h) => h.ok).length;
+
+  const [braveOk, setBraveOk] = useState<boolean | null>(null);
+  useEffect(() => {
+    void getBraveKeyStatus().then(setBraveOk);
+  }, []);
+  const onBraveKey = () => {
+    const key = window.prompt(
+      "Brave Search API 키를 붙여넣으세요.\n(발급: https://brave.com/search/api — Free 플랜, 월 2,000회 무료)\n저장하면 게이트웨이가 자동 재시작됩니다(약 10초)."
+    );
+    if (!key?.trim()) return;
+    void setBraveKey(key.trim())
+      .then(() => {
+        setBraveOk(true);
+        window.alert("저장 완료 — 게이트웨이 재시작 중입니다. 10초 뒤부터 에이전트가 웹 검색을 쓸 수 있습니다.");
+      })
+      .catch((e) => window.alert(`실패: ${e.message}`));
+  };
 
   return (
     <aside className="sidebar">
@@ -71,6 +90,13 @@ export function Sidebar() {
           ) : (
             "🩺 에이전트 전원 점검"
           )}
+        </button>
+        <button
+          className="btn small"
+          onClick={onBraveKey}
+          title="Brave Search API 키를 등록하면 에이전트들이 웹 검색(web_search)을 쓸 수 있습니다. 페이지 조회(web_fetch)는 키 없이도 됩니다."
+        >
+          {braveOk ? "🔑 웹 검색 활성화됨 ✓ (키 변경)" : "🔑 웹 검색 키 등록"}
         </button>
         {conn !== "connected" && (
           <button className="btn small" onClick={() => void reconnect()}>

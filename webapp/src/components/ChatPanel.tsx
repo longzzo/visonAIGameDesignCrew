@@ -4,16 +4,30 @@ import { useVE } from "../store";
 import { Markdown } from "./Markdown";
 
 export function ChatPanel() {
-  const { activeAgent, chats, chatBusy, sendChat, newChatSession, reflectToGdd } = useVE();
+  const {
+    activeAgent,
+    chats,
+    chatBusy,
+    sendChat,
+    newChatSession,
+    reflectToGdd,
+    pendingVerify,
+    requestPmVerify,
+    approveVerify,
+    rejectVerify,
+  } = useVE();
   const agent = AGENT_MAP[activeAgent];
   const msgs = chats[activeAgent] ?? [];
   const busy = chatBusy[activeAgent] ?? false;
+  const pv = pendingVerify[activeAgent];
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  const hasConclusion = msgs.some((m) => m.role === "assistant" && !m.error && m.text.trim());
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [msgs.length, msgs[msgs.length - 1]?.text?.length]);
+  }, [msgs.length, msgs[msgs.length - 1]?.text?.length, pv?.status]);
 
   const submit = () => {
     const t = input.trim();
@@ -32,6 +46,16 @@ export function ChatPanel() {
           <div className="head-name">{agent.name}</div>
           <div className="head-role">{agent.role}</div>
         </div>
+        {activeAgent !== "pm" && (
+          <button
+            className="btn small"
+            disabled={busy || !hasConclusion || pv?.status === "running"}
+            onClick={() => void requestPmVerify(activeAgent)}
+            title="이 대화의 결론을 PM이 기존 기획과 대조해 검증합니다. 승인하셔야만 GDD에 반영되며, 반영 직전 버전은 자동 백업됩니다."
+          >
+            🧾 PM 검증 → GDD 반영
+          </button>
+        )}
         <button className="btn small" onClick={() => newChatSession(activeAgent)} title="새 컨텍스트로 대화 시작">
           🧹 새 대화
         </button>
@@ -42,7 +66,9 @@ export function ChatPanel() {
           <div className="empty-hint">
             {agent.emoji} {agent.name}에게 기획 질문을 보내보세요.
             <br />
-            <span className="dim">예: "수집형 RPG의 코어 루프 제안해줘"</span>
+            <span className="dim">
+              논의가 끝나면 <b>🧾 PM 검증</b>을 눌러 결론을 검증받고, 승인하면 GDD에 반영됩니다.
+            </span>
           </div>
         )}
         {msgs.map((m) => (
@@ -52,10 +78,10 @@ export function ChatPanel() {
               <div className="bubble-actions">
                 <button
                   className="btn tiny"
-                  title={`GDD "${agent.sectionTitle}" 섹션에 반영`}
+                  title={`검증 없이 바로 GDD "${agent.sectionTitle}" 섹션에 반영 (직전 버전 자동 백업)`}
                   onClick={() => void reflectToGdd(activeAgent, m.text)}
                 >
-                  📌 GDD 반영
+                  📌 바로 반영
                 </button>
                 <span
                   className="drag-hint"
@@ -76,6 +102,39 @@ export function ChatPanel() {
         {busy && msgs[msgs.length - 1]?.role === "user" && (
           <div className="bubble assistant pending">
             <span className="spinner" /> {agent.name}가 작성 중… <span className="dim">(로컬 모델은 수십 초 걸릴 수 있음)</span>
+          </div>
+        )}
+
+        {/* PM 검증 → 오너 승인 카드 */}
+        {pv?.status === "running" && (
+          <div className="bubble assistant pending">
+            <span className="spinner" /> 🎯 PM이 결론을 기존 기획과 대조 검증 중…
+          </div>
+        )}
+        {pv?.status === "error" && (
+          <div className="bubble assistant error">
+            ⚠️ PM 검증 실패: {pv.error}{" "}
+            <button className="btn tiny" onClick={() => void requestPmVerify(activeAgent)}>
+              재시도
+            </button>
+          </div>
+        )}
+        {pv?.status === "ready" && (
+          <div className="verify-card">
+            <div className="verify-head">🎯 PM 검증 의견</div>
+            <Markdown text={pv.verdict || "(의견 없음)"} />
+            <details className="verify-preview">
+              <summary>📄 반영안 미리보기 ("{agent.sectionTitle}" 섹션 갱신본)</summary>
+              <Markdown text={pv.finalText || ""} />
+            </details>
+            <div className="verify-actions">
+              <button className="btn primary" onClick={() => void approveVerify(activeAgent)}>
+                ✅ 승인 — GDD 반영 (직전 버전 자동 백업)
+              </button>
+              <button className="btn" onClick={() => rejectVerify(activeAgent)}>
+                ❌ 반영 안 함
+              </button>
+            </div>
           </div>
         )}
         <div ref={bottomRef} />

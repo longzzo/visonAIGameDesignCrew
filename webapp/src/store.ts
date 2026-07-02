@@ -12,12 +12,14 @@ import {
   reviewPrompt,
   revisePrompt,
   pmSummaryPrompt,
+  pmVerifyPrompt,
   type AgentDef,
 } from "./lib/agents";
 import {
   fetchGdd,
   saveGdd,
   replaceSection,
+  getSectionBody,
   sanitizeAgentOutput,
   listProjects,
   createProject,
@@ -77,6 +79,14 @@ export interface AgentHealth {
   error?: string;
 }
 
+/** 1:1 대화 결론에 대한 PM 검증 대기 상태 */
+export interface PendingVerify {
+  status: "running" | "ready" | "error";
+  verdict?: string;
+  finalText?: string;
+  error?: string;
+}
+
 export interface UsageTotals {
   input: number;
   output: number;
@@ -99,6 +109,7 @@ interface VEState {
   chats: Record<string, ChatMessage[]>;
   chatEpoch: Record<string, number>;
   chatBusy: Record<string, boolean>;
+  pendingVerify: Record<string, PendingVerify | undefined>;
 
   orchRequest: string;
   selected: Record<string, boolean>;
@@ -138,6 +149,11 @@ interface VEState {
 
   sendChat: (text: string) => Promise<void>;
   newChatSession: (id: string) => void;
+  /** 1:1 대화의 마지막 결론을 PM에게 검증 요청 */
+  requestPmVerify: (agentId: string) => Promise<void>;
+  /** 오너 승인 — 반영안(직전 버전은 자동 백업됨)을 GDD에 적용 */
+  approveVerify: (agentId: string) => Promise<void>;
+  rejectVerify: (agentId: string) => void;
 
   setOrchRequest: (t: string) => void;
   toggleSelected: (id: string) => void;
@@ -285,6 +301,7 @@ export const useVE = create<VEState>()((set, get) => {
     chats: {},
     chatEpoch: {},
     chatBusy: {},
+    pendingVerify: {},
 
     orchRequest: "",
     selected: Object.fromEntries(SPECIALISTS.map((a) => [a.id, true])),
@@ -466,9 +483,77 @@ export const useVE = create<VEState>()((set, get) => {
       set((s) => ({
         chatEpoch: { ...s.chatEpoch, [id]: (s.chatEpoch[id] ?? 1) + 1 },
         chats: { ...s.chats, [id]: [] },
+        pendingVerify: { ...s.pendingVerify, [id]: undefined },
       }));
       persistChat(id);
     },
+
+    /* ── 1:1 대화 → PM 검증 → 오너 승인 → GDD 반영 ── */
+
+    requestPmVerify: async (agentId) => {
+      const agent = AGENT_MAP[agentId];
+      const project = get().activeProject;
+      if (!agent || !project || get().pendingVerify[agentId]?.status === "running") return;
+      const msgs = get().chats[agentId] ?? [];
+      const proposal = [...msgs].reverse().find((m) => m.role === "assistant" && !m.error && m.text.trim());
+      if (!proposal) return;
+      set((s) => ({ pendingVerify: { ...s.pendingVerify, [agentId]: { status: "running" } } }));
+      setAgentStatus("pm", "running");
+      try {
+        const cur = await fetchGdd(project);
+        const section = getSectionBody(cur.markdown, agent.section);
+        const overview = getSectionBody(cur.markdown, "## 1.");
+        const r = await gateway.runAgent(
+          "pm",
+          pmVerifyPrompt(agent, proposal.text, section, overview),
+          `verify-${project}-${Date.now().toString(36)}`
+        );
+        const full = sanitizeAgentOutput(r.text);
+        addUsage(r.usage, full);
+        // "### 반영안" 헤딩 기준으로 검증 의견과 반영 최종본을 분리
+        const m = /###\s*반영안\s*\n?/.exec(full);
+        const verdict = m ? full.slice(0, m.index).trim() : full;
+        const finalText = m ? full.slice(m.index + m[0].length).trim() : proposal.text;
+        set((s) => ({
+          pendingVerify: { ...s.pendingVerify, [agentId]: { status: "ready", verdict, finalText } },
+        }));
+        setAgentStatus("pm", "done");
+      } catch (e: any) {
+        set((s) => ({
+          pendingVerify: {
+            ...s.pendingVerify,
+            [agentId]: { status: "error", error: String(e?.message ?? e).slice(0, 150) },
+          },
+        }));
+        setAgentStatus("pm", "error");
+      }
+    },
+
+    approveVerify: async (agentId) => {
+      const pv = get().pendingVerify[agentId];
+      if (!pv || pv.status !== "ready" || !pv.finalText) return;
+      // reflectToGdd → 저장 시 서버가 직전 버전을 자동 스냅샷(백업)한다
+      await get().reflectToGdd(agentId, pv.finalText);
+      set((s) => ({
+        pendingVerify: { ...s.pendingVerify, [agentId]: undefined },
+        chats: {
+          ...s.chats,
+          [agentId]: [
+            ...(s.chats[agentId] ?? []),
+            {
+              id: `sys-${Date.now()}`,
+              role: "assistant",
+              text: `✅ 오너 승인 — "${AGENT_MAP[agentId]?.sectionTitle}" 섹션에 반영했습니다. 직전 버전은 GDD 패널의 🕘 히스토리에 백업되어 있어 언제든 복원할 수 있습니다.`,
+              ts: Date.now(),
+            },
+          ],
+        },
+      }));
+      persistChat(agentId);
+    },
+
+    rejectVerify: (agentId) =>
+      set((s) => ({ pendingVerify: { ...s.pendingVerify, [agentId]: undefined } })),
 
     /* ── 오케스트레이션 (대화 피드 + 교차 검토 루프) ── */
 
@@ -508,10 +593,21 @@ export const useVE = create<VEState>()((set, get) => {
       set({ orchRunning: true, stopRequested: false, cards: initialCards });
 
       pushFeed({ from: "user", kind: "request", text: req });
+
+      // 기획 보존 모드 — 현재 GDD를 읽어 각 에이전트에게 "기존 기획 + 새 지시" 컨텍스트로 전달
+      let baseMd = get().gdd;
+      try {
+        baseMd = (await fetchGdd(project)).markdown;
+      } catch {
+        /* 저장본을 못 읽으면 화면의 최신 상태 사용 */
+      }
+      const overview = getSectionBody(baseMd, "## 1.");
+      const hasExisting = targets.some((a) => getSectionBody(baseMd, a.section).length > 0);
+
       pushFeed({
         from: "pm",
         kind: "status",
-        text: `요청을 접수했습니다. ${targets.map((a) => `${a.emoji} ${a.name}`).join(", ")}에게 파트를 분배합니다.${st.crossReview ? " 각 초안은 동료 검토를 거친 뒤 확정됩니다." : ""}`,
+        text: `지시를 접수했습니다. ${targets.map((a) => `${a.emoji} ${a.name}`).join(", ")}에게 분배합니다.${hasExisting ? " 기존 기획은 유지하고 지시사항만 반영합니다." : ""}${st.crossReview ? " 각 결과는 동료 검토를 거쳐 확정됩니다." : ""}`,
       });
 
       const queue = [...targets];
@@ -522,7 +618,13 @@ export const useVE = create<VEState>()((set, get) => {
           if (get().stopRequested) return;
           const agent = queue.shift();
           if (!agent) return;
-          const instruction = specialistPrompt(req, agent, get().webResearch);
+          const instruction = specialistPrompt(
+            req,
+            agent,
+            get().webResearch,
+            getSectionBody(baseMd, agent.section),
+            overview
+          );
           updateCard(agent.id, { state: "running", phase: "초안 작성 중", startedAt: Date.now(), instruction });
           setAgentStatus(agent.id, "running");
           pushFeed({ from: "pm", to: agent.id, kind: "instruction", text: instruction });
@@ -594,7 +696,7 @@ export const useVE = create<VEState>()((set, get) => {
       }
 
       if (results.length > 0) {
-        const pmInstruction = pmSummaryPrompt(req, results);
+        const pmInstruction = pmSummaryPrompt(req, results, overview);
         updateCard("pm", { state: "running", phase: "산출물 통합 중", startedAt: Date.now(), instruction: pmInstruction });
         setAgentStatus("pm", "running");
         pushFeed({ from: "pm", kind: "status", text: `산출물 ${results.length}건을 취합해 "1. 개요"를 통합 작성합니다.` });

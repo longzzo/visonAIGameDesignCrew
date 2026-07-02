@@ -376,6 +376,56 @@ function chatsApiPlugin(): Plugin {
   };
 }
 
+/* ── 플러그인: Brave 검색 키 등록 (웹앱에서 붙여넣기) ──── */
+
+function braveKeyPlugin(): Plugin {
+  const cfgPath = path.join(os.homedir(), ".openclaw", "openclaw.json");
+  return {
+    name: "vision-engine-brave-key",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/brave-key", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            if (req.method === "GET") {
+              const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+              const key = cfg?.tools?.web?.search?.apiKey ?? "";
+              res.end(JSON.stringify({ configured: typeof key === "string" && key.length > 10 }));
+              return;
+            }
+            if (req.method === "POST") {
+              const { key } = JSON.parse((await readBody(req)) || "{}");
+              if (typeof key !== "string" || key.trim().length < 10) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: "키가 너무 짧습니다" }));
+                return;
+              }
+              const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+              cfg.tools = cfg.tools || {};
+              cfg.tools.web = cfg.tools.web || {};
+              cfg.tools.web.search = { ...(cfg.tools.web.search || {}), enabled: true, apiKey: key.trim() };
+              fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), "utf-8");
+              // 게이트웨이 재시작(예약작업) — 키 반영
+              spawn("schtasks", ["/End", "/TN", "OpenClaw Gateway"], { shell: false, windowsHide: true }).on("close", () => {
+                setTimeout(() => {
+                  spawn("schtasks", ["/Run", "/TN", "OpenClaw Gateway"], { shell: false, windowsHide: true });
+                }, 1500);
+              });
+              res.end(JSON.stringify({ ok: true }));
+              return;
+            }
+            res.statusCode = 405;
+            res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
 /* ── 플러그인: 에이전트 실행 브리지 ───────────────────── */
 
 /** 설치된 OpenClaw CLI 엔트리(dist/index.js)를 찾는다 */
@@ -503,7 +553,7 @@ function resolveDevHost(): string {
 }
 
 export default defineConfig({
-  plugins: [react(), projectsApiPlugin(), gddApiPlugin(), chatsApiPlugin(), agentBridgePlugin()],
+  plugins: [react(), projectsApiPlugin(), gddApiPlugin(), chatsApiPlugin(), braveKeyPlugin(), agentBridgePlugin()],
   server: {
     port: 5199,
     // 포트가 차 있으면 조용히 5200으로 옮겨 뜨는 대신 명확히 실패시킨다 (중복 실행 방지)

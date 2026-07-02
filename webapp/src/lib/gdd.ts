@@ -145,6 +145,43 @@ export async function saveFeedHistory(project: string, feed: any[]): Promise<voi
 
 /* ── 마크다운 섹션 조작 ─────────────────────────────── */
 
+/** headingPrefix 섹션의 본문 텍스트만 추출 (없거나 미작성 플레이스홀더면 빈 문자열) */
+export function getSectionBody(markdown: string, headingPrefix: string): string {
+  const lines = markdown.split(/\r?\n/);
+  const start = lines.findIndex((l) => l.trimStart().startsWith(headingPrefix));
+  if (start === -1) return "";
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^##\s/.test(lines[i])) {
+      end = i;
+      break;
+    }
+  }
+  const body = lines.slice(start + 1, end).join("\n").trim();
+  return /아직 작성되지 않음/.test(body) ? "" : body;
+}
+
+/* ── Brave 검색 키 등록 ─────────────────────────────── */
+
+export async function getBraveKeyStatus(): Promise<boolean> {
+  try {
+    const r = await fetch("/api/brave-key");
+    return (await r.json()).configured === true;
+  } catch {
+    return false;
+  }
+}
+
+export async function setBraveKey(key: string): Promise<void> {
+  const r = await fetch("/api/brave-key", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key }),
+  });
+  const j = await r.json();
+  if (!r.ok || !j.ok) throw new Error(j.error || "키 저장 실패");
+}
+
 /**
  * headingPrefix(예: "## 3.")로 시작하는 섹션의 본문을 newBody로 교체한다.
  * 섹션이 없으면 문서 끝에 추가한다. 헤딩 라인 자체는 보존한다.
