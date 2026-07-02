@@ -160,8 +160,10 @@ export const DEFAULT_REPORT_TOPIC: Record<string, string> = {
  * 실무 문서 수준을 요구한다. 현재 GDD 전문을 근거로 삼는다.
  */
 export function reportPrompt(agent: AgentDef, topic: string, gddFull: string): string {
+  const today = new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" });
   return [
     `너는 ${agent.name}(${agent.role})다. 오너가 정식 보고서를 요청했다: "${topic.trim()}"`,
+    `오늘 날짜: ${today} — 일정·기간 계산은 반드시 이 날짜 기준으로 해라.`,
     ``,
     `[현재 마스터 GDD 전문 — 이것이 근거 자료다]`,
     gddFull.slice(0, 12000) || `(아직 기획이 없다 — 보고서 안에서 전제를 명시하고 제안 형태로 작성해라)`,
@@ -172,6 +174,34 @@ export function reportPrompt(agent: AgentDef, topic: string, gddFull: string): s
     `- 채팅 답변이 아니라 문서다. 분량 제한 없음 — 상세할수록 좋다. 인사말·사족 금지.`,
     `- 순수 마크다운 텍스트로만. 도구 호출 금지(웹 조사가 꼭 필요하면 web_fetch만).`,
   ].join("\n");
+}
+
+/**
+ * 아트 디렉터에게 Stable Diffusion 프롬프트 작성을 의뢰 —
+ * 아트 인턴(로컬 SD)이 그대로 넣을 수 있는 영어 태그 프롬프트를 받아낸다.
+ */
+export function sdPromptPrompt(request: string, artSection: string, overview: string): string {
+  return [
+    `너는 아트 디렉터다. 아트 인턴이 Stable Diffusion으로 컨셉 아트를 뽑을 수 있게 프롬프트를 써줘라.`,
+    overview.trim() ? `[프로젝트 개요]\n${overview.trim().slice(0, 300)}` : ``,
+    artSection.trim() ? `[확정된 아트 방향 — 반드시 이 스타일을 따라라]\n${artSection.slice(0, 800)}` : ``,
+    `[오너의 컨셉 아트 요청]`,
+    request.trim(),
+    ``,
+    `출력은 정확히 아래 두 줄만. 다른 말·설명·도구 호출 금지.`,
+    `PROMPT: <영어 태그 프롬프트 — 주제, 구도, 스타일, 조명, 색감 순. 60단어 이내>`,
+    `NEGATIVE: <영어 네거티브 태그 — 15단어 이내>`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** sdPromptPrompt 응답에서 PROMPT/NEGATIVE 줄 파싱 */
+export function parseSdPrompt(text: string): { prompt: string; negative: string } | null {
+  const p = /^\s*\**PROMPT\**\s*[:：]\s*(.+)$/im.exec(text);
+  const n = /^\s*\**NEGATIVE\**\s*[:：]\s*(.+)$/im.exec(text);
+  if (!p) return null;
+  return { prompt: p[1].trim(), negative: n?.[1]?.trim() ?? "" };
 }
 
 /** PM 자동 분배 응답 파싱 — "할당: id | 지시" 줄만 추출, 유효한 전문가 id만 채택 */

@@ -16,6 +16,8 @@ import {
   pmRoutePrompt,
   parseRoutePlan,
   reportPrompt,
+  sdPromptPrompt,
+  parseSdPrompt,
   type AgentDef,
   type WebMode,
 } from "./lib/agents";
@@ -27,6 +29,14 @@ import {
   type ReportInfo,
   type ReportDoc,
 } from "./lib/reports";
+import {
+  getArtStatus,
+  listArt,
+  generateArtImage,
+  deleteArtImage,
+  type ArtImage,
+  type ArtStatus,
+} from "./lib/art";
 import {
   fetchGdd,
   saveGdd,
@@ -146,6 +156,13 @@ interface VEState {
   reportBusy: Record<string, boolean>;
   reportPreview: ReportDoc | null;
 
+  /** 아트 인턴 (로컬 Stable Diffusion) */
+  artStatus: ArtStatus | null;
+  artImages: ArtImage[];
+  artBusy: boolean;
+  /** 진행 단계 표시 ("프롬프트 의뢰 중" / "이미지 생성 중") */
+  artPhase: string;
+
   gdd: string;
   gddMtime: number;
   gddEditing: boolean;
@@ -199,6 +216,12 @@ interface VEState {
   openReport: (ts: number) => Promise<void>;
   closeReportPreview: () => void;
   removeReport: (ts: number) => Promise<void>;
+
+  /** 아트 인턴 — 아트 디렉터가 프롬프트를 쓰고 로컬 SD가 이미지를 뽑는다 */
+  checkArtStatus: () => Promise<void>;
+  loadArt: () => Promise<void>;
+  generateArt: (request: string) => Promise<void>;
+  removeArt: (ts: number) => Promise<void>;
 
   reflectToGdd: (agentId: string, text: string) => Promise<void>;
   loadGdd: () => Promise<void>;
@@ -354,6 +377,11 @@ export const useVE = create<VEState>()((set, get) => {
     reportBusy: {},
     reportPreview: null,
 
+    artStatus: null,
+    artImages: [],
+    artBusy: false,
+    artPhase: "",
+
     gdd: "",
     gddMtime: 0,
     gddEditing: false,
@@ -379,7 +407,9 @@ export const useVE = create<VEState>()((set, get) => {
         if (feed.length > 0 && get().activeProject === project) set({ feed });
         void ensureChatLoaded(get().activeAgent);
         void get().loadReports();
+        void get().loadArt();
       }
+      void get().checkArtStatus();
       setInterval(() => {
         const st = get();
         if (!st.gddEditing && !st.gddSaving && !st.gddPreview && st.activeProject) void st.loadGdd();
@@ -445,12 +475,14 @@ export const useVE = create<VEState>()((set, get) => {
         reports: [],
         reportBusy: {},
         reportPreview: null,
+        artImages: [],
       });
       await get().loadGdd();
       const feed = await loadFeedHistory(id);
       if (get().activeProject === id && feed.length > 0) set({ feed });
       void ensureChatLoaded(get().activeAgent);
       void get().loadReports();
+      void get().loadArt();
     },
 
     createProjectAction: async (name) => {
@@ -620,6 +652,8 @@ export const useVE = create<VEState>()((set, get) => {
         selected: Object.fromEntries(SPECIALISTS.map((a) => [a.id, true])),
         crossReview: true,
         autoReflect: true,
+        // 풀 기획 회의는 "전원 참여"가 목적 — PM 자동 분배가 인원을 줄이지 않게 해제
+        autoRoute: false,
       });
       if (get().orchRequest.trim() && !get().orchRunning) await get().startOrch();
     },
@@ -966,6 +1000,63 @@ export const useVE = create<VEState>()((set, get) => {
       await deleteReport(project, ts);
       set((s) => ({ reportPreview: s.reportPreview?.ts === ts ? null : s.reportPreview }));
       await get().loadReports();
+    },
+
+    /* ── 아트 인턴 (로컬 Stable Diffusion) ──────────── */
+
+    checkArtStatus: async () => {
+      set({ artStatus: await getArtStatus() });
+    },
+
+    loadArt: async () => {
+      const project = get().activeProject;
+      if (!project) return;
+      const artImages = await listArt(project);
+      if (get().activeProject === project) set({ artImages });
+    },
+
+    generateArt: async (request) => {
+      const project = get().activeProject;
+      const req = request.trim();
+      if (!project || !req || get().artBusy) return;
+      set({ artBusy: true, artPhase: "🎨 아트 디렉터가 프롬프트 작성 중…" });
+      setAgentStatus("visual", "running");
+      try {
+        // 1) 아트 디렉터가 확정된 아트 방향에 맞는 SD 프롬프트를 쓴다
+        let baseMd = get().gdd;
+        try {
+          baseMd = (await fetchGdd(project)).markdown;
+        } catch {
+          /* 화면 상태 사용 */
+        }
+        const r = await gateway.runAgent(
+          "visual",
+          sdPromptPrompt(req, getSectionBody(baseMd, "## 8."), getSectionBody(baseMd, "## 1.")),
+          `sdprompt-${project}-${Date.now().toString(36)}`
+        );
+        addUsage(r.usage, r.text);
+        const parsed = parseSdPrompt(sanitizeAgentOutput(r.text));
+        if (!parsed) throw new Error("아트 디렉터의 프롬프트를 해석하지 못했습니다");
+        setAgentStatus("visual", "done");
+
+        // 2) 아트 인턴(로컬 SD)이 이미지를 생성한다
+        set({ artPhase: "🖌️ 아트 인턴이 이미지 생성 중… (로컬 GPU, 수십 초)" });
+        await generateArtImage(project, parsed.prompt, parsed.negative, req);
+        await get().loadArt();
+      } catch (e: any) {
+        setAgentStatus("visual", "error");
+        // 실패 사유는 다음 시도 전까지 스튜디오에 남겨둔다
+        set({ artBusy: false, artPhase: `⚠️ ${String(e?.message ?? e).slice(0, 120)}` });
+        return;
+      }
+      set({ artBusy: false, artPhase: "" });
+    },
+
+    removeArt: async (ts) => {
+      const project = get().activeProject;
+      if (!project) return;
+      await deleteArtImage(project, ts);
+      await get().loadArt();
     },
 
     /* ── GDD + 버전 히스토리 ───────────────────────── */

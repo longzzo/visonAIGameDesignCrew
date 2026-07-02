@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { AGENT_MAP } from "../lib/agents";
 import { AgentSprite } from "./AgentSprite";
+import { ArtStudio } from "./ArtStudio";
+import { DocViewer } from "./DocViewer";
 import { useVE, type FeedMsg } from "../store";
 
 /**
@@ -68,8 +70,33 @@ function Desk({ agentId, big }: { agentId: string; big?: boolean }) {
   );
 }
 
+/** 아트 인턴 미니 책상 — 아트 디렉터 바로 아래, 클릭하면 아트 스튜디오 */
+function InternDesk({ onOpen }: { onOpen: () => void }) {
+  const { artBusy, artStatus, artPhase } = useVE();
+  const connected = artStatus?.connected === true;
+  return (
+    <div
+      className={`desk intern ${artBusy ? "st-running" : connected ? "st-done" : "st-idle"}`}
+      onClick={onOpen}
+      title={connected ? "아트 인턴 — 클릭하면 아트 스튜디오" : "아트 인턴 (Stable Diffusion 미연결) — 클릭해서 설치 안내 보기"}
+    >
+      {artBusy && artPhase && <div className="speech">{artPhase.slice(0, 40)}</div>}
+      <div className="office-avatar" style={{ background: "#e879f926", borderColor: "#e879f955" }}>
+        <span className="intern-face">🖌️</span>
+        {artBusy ? <span className="zzz work">⚡</span> : connected ? <span className="zzz ok">✅</span> : <span className="zzz">💤</span>}
+      </div>
+      <div className="nameplate" style={{ borderColor: "#e879f955" }}>
+        아트 인턴
+      </div>
+      <div className={`desk-status ${artBusy ? "ds-running" : "ds-idle"}`}>
+        {artBusy ? "그리는 중…" : connected ? "SD 대기 중" : "SD 미연결"}
+      </div>
+    </div>
+  );
+}
+
 export function OfficeView() {
-  const { projects, activeProject, gddMtime, orchRunning, setView } = useVE();
+  const { projects, activeProject, gddMtime, orchRunning, reports } = useVE();
   const projectName = projects.find((p) => p.id === activeProject)?.name ?? "";
   // 말풍선 TTL 갱신용 틱
   const [, tick] = useState(0);
@@ -78,8 +105,11 @@ export function OfficeView() {
     return () => clearInterval(t);
   }, []);
 
+  const [docViewer, setDocViewer] = useState<null | "gdd" | "reports">(null);
+  const [studioOpen, setStudioOpen] = useState(false);
+
   const row1 = ["scenario", "gameplay", "systems", "uiux", "td"];
-  const row2 = ["balance", "bm", "visual", "scheduler"];
+  const row2 = ["balance", "bm", "scheduler"];
 
   return (
     <section className="office-view">
@@ -87,10 +117,18 @@ export function OfficeView() {
         <span className="office-sign">🏢 Vision Engine 스튜디오</span>
         <span className="office-project">{projectName}</span>
         {orchRunning && <span className="office-live">● 회의 진행 중</span>}
+        <span className="office-doc-tabs">
+          <button className="btn small" onClick={() => setDocViewer("gdd")} title="마스터 GDD를 큰 화면으로">
+            📄 GDD
+          </button>
+          <button className="btn small" onClick={() => setDocViewer("reports")} title="보고서함을 큰 화면으로">
+            📋 보고서{reports.length > 0 ? ` ${reports.length}` : ""}
+          </button>
+        </span>
       </div>
       <div className="office-room">
         <div className="office-wall">
-          <button className="gdd-board" onClick={() => setView("orch")} title="오케스트레이션 뷰로">
+          <button className="gdd-board" onClick={() => setDocViewer("gdd")} title="GDD를 큰 화면으로 보기">
             📄 마스터 GDD 보드
             <span className="dim">{gddMtime ? `갱신 ${new Date(gddMtime).toLocaleTimeString("ko-KR", { hour12: false })}` : "대기"}</span>
           </button>
@@ -107,10 +145,19 @@ export function OfficeView() {
           {row2.map((id) => (
             <Desk key={id} agentId={id} />
           ))}
+          <div className="art-corner">
+            <Desk agentId="visual" />
+            <InternDesk onOpen={() => setStudioOpen(true)} />
+          </div>
         </div>
         <div className="office-floor" />
       </div>
-      <div className="office-hint dim">캐릭터를 클릭하면 1:1 대화로 이동합니다 · 발언 말풍선은 회의 피드와 실시간 연동</div>
+      <div className="office-hint dim">
+        캐릭터 클릭 → 1:1 대화 · 🖌️ 아트 인턴 클릭 → 컨셉 아트 스튜디오 · 상단 📄/📋 → 큰 화면 문서 뷰어
+      </div>
+
+      {docViewer && <DocViewer tab={docViewer} onTab={setDocViewer} onClose={() => setDocViewer(null)} />}
+      {studioOpen && <ArtStudio onClose={() => setStudioOpen(false)} />}
     </section>
   );
 }

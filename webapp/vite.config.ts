@@ -542,6 +542,165 @@ function reportsApiPlugin(): Plugin {
   };
 }
 
+/* ── 플러그인: 아트 인턴 (로컬 Stable Diffusion 브리지) ── */
+
+/**
+ * A1111 호환 API(/sdapi/v1/txt2img)로 컨셉 아트를 생성한다.
+ * 지원: AUTOMATIC1111 WebUI, SD.Next, Forge — `--api` 플래그로 실행돼 있어야 함.
+ * 주소는 VE_SD_URL 환경변수로 변경 가능 (기본 http://127.0.0.1:7860).
+ * 생성물은 projects/<id>/art/<ts>.png + <ts>.json(prompt 메타)로 저장된다.
+ */
+const SD_URL = process.env.VE_SD_URL || "http://127.0.0.1:7860";
+
+function artApiPlugin(): Plugin {
+  const artDir = (projectId: string) => path.join(projectDir(projectId), "art");
+  return {
+    name: "vision-engine-art-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/art", (req, res) => {
+        void (async () => {
+          try {
+            const url = new URL(req.url ?? "/", "http://local");
+            const sub = url.pathname.replace(/\/+$/, "");
+
+            // SD 서버 연결 상태
+            if (sub === "/status" && req.method === "GET") {
+              res.setHeader("Content-Type", "application/json; charset=utf-8");
+              try {
+                const ctl = new AbortController();
+                const t = setTimeout(() => ctl.abort(), 2000);
+                const r = await fetch(`${SD_URL}/sdapi/v1/options`, { signal: ctl.signal });
+                clearTimeout(t);
+                res.end(JSON.stringify({ connected: r.ok, url: SD_URL }));
+              } catch {
+                res.end(JSON.stringify({ connected: false, url: SD_URL }));
+              }
+              return;
+            }
+
+            const project = url.searchParams.get("project") ?? "";
+            if (!isSafeId(project) || !fs.existsSync(projectDir(project))) {
+              res.statusCode = 400;
+              res.setHeader("Content-Type", "application/json; charset=utf-8");
+              res.end(JSON.stringify({ ok: false, error: "project 확인 필요" }));
+              return;
+            }
+            const dir = artDir(project);
+
+            // 이미지 파일 서빙
+            if (sub === "/file" && req.method === "GET") {
+              const ts = Number(url.searchParams.get("ts") ?? 0);
+              const f = path.join(dir, `${ts}.png`);
+              if (!fs.existsSync(f)) {
+                res.statusCode = 404;
+                res.end("not found");
+                return;
+              }
+              res.setHeader("Content-Type", "image/png");
+              res.setHeader("Cache-Control", "max-age=86400");
+              fs.createReadStream(f).pipe(res);
+              return;
+            }
+
+            res.setHeader("Content-Type", "application/json; charset=utf-8");
+
+            // 갤러리 목록
+            if (req.method === "GET") {
+              if (!fs.existsSync(dir)) {
+                res.end(JSON.stringify({ images: [] }));
+                return;
+              }
+              const images = fs
+                .readdirSync(dir)
+                .filter((f) => /^\d+\.json$/.test(f))
+                .map((f) => {
+                  try {
+                    return JSON.parse(fs.readFileSync(path.join(dir, f), "utf-8"));
+                  } catch {
+                    return null;
+                  }
+                })
+                .filter(Boolean)
+                .sort((a: any, b: any) => b.ts - a.ts);
+              res.end(JSON.stringify({ images }));
+              return;
+            }
+
+            // 생성
+            if (req.method === "POST") {
+              const j = JSON.parse((await readBody(req)) || "{}");
+              const prompt = String(j.prompt ?? "").trim();
+              const negative = String(j.negative ?? "").trim();
+              const request = String(j.request ?? "").trim();
+              if (!prompt) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: "prompt 필요" }));
+                return;
+              }
+              const ctl = new AbortController();
+              const t = setTimeout(() => ctl.abort(), 300_000);
+              let sd: any;
+              try {
+                const r = await fetch(`${SD_URL}/sdapi/v1/txt2img`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  signal: ctl.signal,
+                  body: JSON.stringify({
+                    prompt,
+                    negative_prompt:
+                      negative || "lowres, blurry, bad anatomy, watermark, text, signature, jpeg artifacts",
+                    steps: 28,
+                    width: 768,
+                    height: 512,
+                    cfg_scale: 6,
+                    sampler_name: "DPM++ 2M",
+                  }),
+                });
+                if (!r.ok) throw new Error(`SD 서버 오류 (${r.status})`);
+                sd = await r.json();
+              } finally {
+                clearTimeout(t);
+              }
+              const b64 = sd?.images?.[0];
+              if (!b64) throw new Error("SD가 이미지를 반환하지 않았습니다");
+              fs.mkdirSync(dir, { recursive: true });
+              const ts = Date.now();
+              fs.writeFileSync(path.join(dir, `${ts}.png`), Buffer.from(b64, "base64"));
+              fs.writeFileSync(
+                path.join(dir, `${ts}.json`),
+                JSON.stringify({ ts, prompt, negative, request }, null, 0),
+                "utf-8"
+              );
+              res.end(JSON.stringify({ ok: true, ts }));
+              return;
+            }
+
+            // 삭제
+            if (req.method === "DELETE") {
+              const ts = Number(url.searchParams.get("ts") ?? 0);
+              fs.rmSync(path.join(dir, `${ts}.png`), { force: true });
+              fs.rmSync(path.join(dir, `${ts}.json`), { force: true });
+              res.end(JSON.stringify({ ok: true }));
+              return;
+            }
+
+            res.statusCode = 405;
+            res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            try {
+              res.setHeader("Content-Type", "application/json; charset=utf-8");
+            } catch {
+              /* 헤더 이미 전송됨 */
+            }
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 300) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
 /* ── 플러그인: AI 모델 프로바이더 (GitHub Models / NVIDIA NIM) ── */
 
 /**
@@ -929,6 +1088,7 @@ export default defineConfig({
     gddApiPlugin(),
     chatsApiPlugin(),
     reportsApiPlugin(),
+    artApiPlugin(),
     braveKeyPlugin(),
     modelsApiPlugin(),
     agentBridgePlugin(),
