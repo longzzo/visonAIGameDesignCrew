@@ -67,6 +67,82 @@ export async function saveGdd(project: string, markdown: string): Promise<number
   return j.mtime as number;
 }
 
+/* ── GDD 버전 히스토리 ─────────────────────────────── */
+
+export interface GddVersion {
+  ts: number;
+  size: number;
+}
+
+export async function listGddVersions(project: string): Promise<GddVersion[]> {
+  const r = await fetch(`/api/gdd/history?project=${encodeURIComponent(project)}`);
+  if (!r.ok) return [];
+  return (await r.json()).versions ?? [];
+}
+
+export async function fetchGddVersion(project: string, ts: number): Promise<string> {
+  const r = await fetch(`/api/gdd/history?project=${encodeURIComponent(project)}&ts=${ts}`);
+  if (!r.ok) throw new Error("버전 조회 실패");
+  return (await r.json()).markdown ?? "";
+}
+
+export async function restoreGddVersion(project: string, ts: number): Promise<{ markdown: string; mtime: number }> {
+  const r = await fetch(`/api/gdd/restore?project=${encodeURIComponent(project)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ts }),
+  });
+  const j = await r.json();
+  if (!r.ok || !j.ok) throw new Error(j.error || "복원 실패");
+  return { markdown: j.markdown, mtime: j.mtime };
+}
+
+/* ── 채팅/피드 영속화 ──────────────────────────────── */
+
+export async function loadChatHistory(project: string, agent: string): Promise<any[]> {
+  try {
+    const r = await fetch(`/api/chats?project=${encodeURIComponent(project)}&agent=${encodeURIComponent(agent)}`);
+    if (!r.ok) return [];
+    return (await r.json()).messages ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveChatHistory(project: string, agent: string, messages: any[]): Promise<void> {
+  try {
+    await fetch(`/api/chats?project=${encodeURIComponent(project)}&agent=${encodeURIComponent(agent)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages }),
+    });
+  } catch {
+    /* 로컬 저장 실패는 치명적이지 않음 */
+  }
+}
+
+export async function loadFeedHistory(project: string): Promise<any[]> {
+  try {
+    const r = await fetch(`/api/feed?project=${encodeURIComponent(project)}`);
+    if (!r.ok) return [];
+    return (await r.json()).feed ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveFeedHistory(project: string, feed: any[]): Promise<void> {
+  try {
+    await fetch(`/api/feed?project=${encodeURIComponent(project)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feed }),
+    });
+  } catch {
+    /* noop */
+  }
+}
+
 /* ── 마크다운 섹션 조작 ─────────────────────────────── */
 
 /**

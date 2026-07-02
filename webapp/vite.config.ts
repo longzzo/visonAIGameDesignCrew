@@ -181,7 +181,28 @@ function projectsApiPlugin(): Plugin {
   };
 }
 
-/* ── 플러그인: 마스터 GDD 읽기/쓰기 (프로젝트별) ───────── */
+/* ── 플러그인: 마스터 GDD 읽기/쓰기 + 버전 히스토리 (프로젝트별) ── */
+
+function historyDirOf(projectId: string): string {
+  return path.join(projectDir(projectId), "history");
+}
+
+/** 저장 직전 현재 GDD를 스냅샷으로 남긴다 (동일 내용이면 생략, 최근 50개 유지) */
+function snapshotGdd(projectId: string | null, incoming: string): void {
+  if (!projectId || !isSafeId(projectId) || !fs.existsSync(projectDir(projectId))) return;
+  const gddPath = gddPathOf(projectId);
+  if (!fs.existsSync(gddPath)) return;
+  const current = fs.readFileSync(gddPath, "utf-8");
+  if (current === incoming) return;
+  const dir = historyDirOf(projectId);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${Date.now()}.md`), current, "utf-8");
+  const files = fs
+    .readdirSync(dir)
+    .filter((f) => /^\d+\.md$/.test(f))
+    .sort((a, b) => Number(b.replace(".md", "")) - Number(a.replace(".md", "")));
+  for (const f of files.slice(50)) fs.rmSync(path.join(dir, f), { force: true });
+}
 
 function gddApiPlugin(): Plugin {
   return {
@@ -192,8 +213,49 @@ function gddApiPlugin(): Plugin {
           res.setHeader("Content-Type", "application/json; charset=utf-8");
           try {
             const url = new URL(req.url ?? "/", "http://local");
+            const sub = url.pathname.replace(/\/+$/, ""); // "", "/history", "/restore"
             const project = url.searchParams.get("project");
             const GDD_PATH = gddPathOf(project);
+
+            // 버전 목록 / 특정 버전 내용
+            if (sub === "/history" && req.method === "GET") {
+              const ts = url.searchParams.get("ts");
+              const dir = project && isSafeId(project) ? historyDirOf(project) : "";
+              if (!dir || !fs.existsSync(dir)) {
+                res.end(JSON.stringify(ts ? { markdown: "" } : { versions: [] }));
+                return;
+              }
+              if (ts) {
+                const f = path.join(dir, `${Number(ts)}.md`);
+                res.end(JSON.stringify({ markdown: fs.existsSync(f) ? fs.readFileSync(f, "utf-8") : "" }));
+                return;
+              }
+              const versions = fs
+                .readdirSync(dir)
+                .filter((f) => /^\d+\.md$/.test(f))
+                .map((f) => ({ ts: Number(f.replace(".md", "")), size: fs.statSync(path.join(dir, f)).size }))
+                .sort((a, b) => b.ts - a.ts);
+              res.end(JSON.stringify({ versions }));
+              return;
+            }
+
+            // 과거 버전으로 복원 (복원 직전 현재본도 스냅샷됨)
+            if (sub === "/restore" && req.method === "POST") {
+              const { ts } = JSON.parse((await readBody(req)) || "{}");
+              const dir = project && isSafeId(project) ? historyDirOf(project) : "";
+              const f = dir ? path.join(dir, `${Number(ts)}.md`) : "";
+              if (!f || !fs.existsSync(f)) {
+                res.statusCode = 404;
+                res.end(JSON.stringify({ ok: false, error: "해당 버전 없음" }));
+                return;
+              }
+              const old = fs.readFileSync(f, "utf-8");
+              snapshotGdd(project, old);
+              fs.writeFileSync(GDD_PATH, old, "utf-8");
+              res.end(JSON.stringify({ ok: true, markdown: old, mtime: fs.statSync(GDD_PATH).mtimeMs }));
+              return;
+            }
+
             if (req.method === "GET") {
               const markdown = fs.existsSync(GDD_PATH)
                 ? fs.readFileSync(GDD_PATH, "utf-8")
@@ -209,9 +271,97 @@ function gddApiPlugin(): Plugin {
                 res.end(JSON.stringify({ ok: false, error: "markdown 필드 필요" }));
                 return;
               }
+              snapshotGdd(project, markdown);
               fs.mkdirSync(path.dirname(GDD_PATH), { recursive: true });
               fs.writeFileSync(GDD_PATH, markdown, "utf-8");
               res.end(JSON.stringify({ ok: true, mtime: fs.statSync(GDD_PATH).mtimeMs }));
+              return;
+            }
+            res.statusCode = 405;
+            res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
+/* ── 플러그인: 채팅/피드 히스토리 영속화 (프로젝트별) ──── */
+
+function chatsApiPlugin(): Plugin {
+  const safeAgent = (s: string) => /^[a-z0-9-]{1,30}$/.test(s);
+  return {
+    name: "vision-engine-chats-api",
+    configureServer(server: ViteDevServer) {
+      // 에이전트별 채팅: projects/<id>/chats/<agent>.json
+      server.middlewares.use("/api/chats", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            const url = new URL(req.url ?? "/", "http://local");
+            const project = url.searchParams.get("project") ?? "";
+            const agent = url.searchParams.get("agent") ?? "";
+            if (!isSafeId(project) || !safeAgent(agent) || !fs.existsSync(projectDir(project))) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: "project/agent 확인 필요" }));
+              return;
+            }
+            const file = path.join(projectDir(project), "chats", `${agent}.json`);
+            if (req.method === "GET") {
+              const messages = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf-8")).messages ?? [] : [];
+              res.end(JSON.stringify({ messages }));
+              return;
+            }
+            if (req.method === "POST") {
+              const { messages } = JSON.parse((await readBody(req)) || "{}");
+              if (!Array.isArray(messages)) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: "messages 배열 필요" }));
+                return;
+              }
+              fs.mkdirSync(path.dirname(file), { recursive: true });
+              fs.writeFileSync(file, JSON.stringify({ messages: messages.slice(-200) }, null, 0), "utf-8");
+              res.end(JSON.stringify({ ok: true }));
+              return;
+            }
+            res.statusCode = 405;
+            res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e) }));
+          }
+        })();
+      });
+      // 오케스트레이션 대화 피드: projects/<id>/feed.json
+      server.middlewares.use("/api/feed", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            const url = new URL(req.url ?? "/", "http://local");
+            const project = url.searchParams.get("project") ?? "";
+            if (!isSafeId(project) || !fs.existsSync(projectDir(project))) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: "project 확인 필요" }));
+              return;
+            }
+            const file = path.join(projectDir(project), "feed.json");
+            if (req.method === "GET") {
+              const feed = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf-8")).feed ?? [] : [];
+              res.end(JSON.stringify({ feed }));
+              return;
+            }
+            if (req.method === "POST") {
+              const { feed } = JSON.parse((await readBody(req)) || "{}");
+              if (!Array.isArray(feed)) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: "feed 배열 필요" }));
+                return;
+              }
+              fs.writeFileSync(file, JSON.stringify({ feed: feed.slice(-400) }, null, 0), "utf-8");
+              res.end(JSON.stringify({ ok: true }));
               return;
             }
             res.statusCode = 405;
@@ -353,7 +503,7 @@ function resolveDevHost(): string {
 }
 
 export default defineConfig({
-  plugins: [react(), projectsApiPlugin(), gddApiPlugin(), agentBridgePlugin()],
+  plugins: [react(), projectsApiPlugin(), gddApiPlugin(), chatsApiPlugin(), agentBridgePlugin()],
   server: {
     port: 5199,
     host: resolveDevHost(),

@@ -29,6 +29,26 @@ export const AGENT_MAP: Record<string, AgentDef> = Object.fromEntries(
 /** PM을 제외한 전문 에이전트 목록 (오케스트레이션 팬아웃 대상) */
 export const SPECIALISTS = AGENTS.filter((a) => a.id !== "pm");
 
+/**
+ * 교차 검토 배정 — 각 산출물을 가장 이해관계가 얽힌 동료가 검토한다.
+ *   시나리오 ← 게임플레이 (이야기가 플레이로 구현 가능한가)
+ *   게임플레이 ← 시스템   (루프를 시스템이 지탱하는가)
+ *   시스템 ← 밸런스       (구조가 수치적으로 지속 가능한가)
+ *   밸런스 ← 시스템       (공식이 시스템 구조와 맞는가)
+ *   UI/UX ← 게임플레이    (화면 흐름이 플레이 리듬과 맞는가)
+ *   BM ← 게임플레이       (과금이 재미를 해치지 않는가)
+ *   아트 ← 시나리오       (비주얼이 세계관과 맞는가)
+ */
+export const REVIEWERS: Record<string, string> = {
+  scenario: "gameplay",
+  gameplay: "systems",
+  systems: "balance",
+  balance: "systems",
+  uiux: "gameplay",
+  bm: "gameplay",
+  visual: "scenario",
+};
+
 export function specialistPrompt(request: string, agent: AgentDef): string {
   return [
     `[프로젝트 요청]`,
@@ -38,6 +58,34 @@ export function specialistPrompt(request: string, agent: AgentDef): string {
     `- 순수 마크다운 텍스트로만. 소제목(###) 사용.`,
     `- 20줄 이내로 간결하고 구체적으로.`,
     `- 도구/함수 호출 금지.`,
+  ].join("\n");
+}
+
+/** 동료 검토 지시 (reviewer 에이전트에게 전송) */
+export function reviewPrompt(request: string, author: AgentDef, reviewer: AgentDef, draft: string): string {
+  return [
+    `[프로젝트 요청]`,
+    request.trim(),
+    ``,
+    `동료 ${author.name}가 작성한 "${author.sectionTitle}" 초안이다:`,
+    `---`,
+    draft.slice(0, 1500),
+    `---`,
+    `너(${reviewer.name})의 전문 관점에서 이 초안을 검토해라.`,
+    `형식: 좋은 점 1개 → 문제점 최대 2개 → 구체적 개선 제안 최대 2개.`,
+    `8줄 이내, 순수 마크다운. 도구/함수 호출 금지.`,
+  ].join("\n");
+}
+
+/** 검토 반영 수정 지시 (원 작성자에게 전송 — 같은 세션이라 초안 맥락 유지됨) */
+export function revisePrompt(author: AgentDef, reviewer: AgentDef, review: string): string {
+  return [
+    `동료 ${reviewer.name}가 네 "${author.sectionTitle}" 초안을 검토한 의견이다:`,
+    `---`,
+    review.slice(0, 1000),
+    `---`,
+    `타당한 지적만 반영해 초안을 수정하고, 수정된 최종본 전체만 출력해라.`,
+    `20줄 이내, 순수 마크다운. 도구/함수 호출 금지. 검토에 대한 답변이나 사족은 쓰지 마라.`,
   ].join("\n");
 }
 

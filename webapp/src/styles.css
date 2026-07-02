@@ -317,3 +317,73 @@ button { font-family: inherit; }
   .model-badge { display: none; }
   .conn-label { display: none; }
 }
+
+/* ── v0.3: 에이전트 대화 피드 ─────────────────────── */
+.feed-scroll {
+  flex: 1; min-height: 200px; overflow-y: auto; display: flex; flex-direction: column;
+  gap: 10px; padding: 12px 4px;
+}
+.feed-msg { display: flex; gap: 9px; align-items: flex-start; max-width: 92%; }
+.feed-msg.from-user { align-self: flex-end; flex-direction: row-reverse; }
+.feed-avatar {
+  width: 32px; height: 32px; border-radius: 10px; border: 1px solid; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 16px; margin-top: 2px;
+}
+.feed-body {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  padding: 8px 12px; min-width: 0;
+}
+.feed-msg.from-user .feed-body { background: #2b3550; }
+.feed-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 3px; font-size: 12px; }
+.feed-to { color: var(--text-dim); }
+.feed-kind { padding: 1px 7px; border-radius: 999px; font-size: 10.5px; background: var(--panel-2); color: var(--text-dim); }
+.feed-kind.k-draft { color: #60a5fa; }
+.feed-kind.k-review { color: var(--warn); }
+.feed-kind.k-revision { color: var(--ok); }
+.feed-kind.k-summary { color: var(--accent); }
+.feed-kind.k-instruction { color: var(--text-dim); }
+.feed-time { color: var(--text-dim); font-size: 10.5px; margin-left: auto; }
+.feed-long summary { cursor: pointer; list-style: none; }
+.feed-long summary::-webkit-details-marker { display: none; }
+.feed-preview { color: var(--text); }
+.feed-long[open] .feed-preview, .feed-long[open] summary .dim { display: none; }
+.feed-status {
+  align-self: center; display: flex; gap: 7px; align-items: center; flex-wrap: wrap; justify-content: center;
+  font-size: 11.5px; color: var(--text-dim); background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 999px; padding: 4px 13px; max-width: 95%; text-align: center;
+}
+.feed-status.error { color: #ffb0ab; border-color: var(--err); }
+.feed-status-from { font-weight: 600; }
+.feed-foot { display: flex; align-items: center; gap: 10px; padding: 4px 2px; }
+
+/* 진행 상태 스트립 */
+.status-strip { display: flex; flex-wrap: wrap; gap: 6px; }
+.strip-item {
+  display: flex; align-items: center; gap: 6px; font-size: 12px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 4px 11px;
+}
+.strip-item.running { border-color: var(--warn); }
+.strip-item.error { border-color: var(--err); }
+.strip-name { font-weight: 600; }
+.strip-ok { color: var(--ok); font-weight: 700; }
+.strip-bad { color: var(--err); font-weight: 700; }
+.strip-phase { color: var(--warn); font-size: 11px; }
+
+/* ── v0.3: GDD 버전 히스토리 ──────────────────────── */
+.version-drawer {
+  border-bottom: 1px solid var(--border); padding: 8px 12px; max-height: 180px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 4px; background: var(--bg);
+  font-size: 12px;
+}
+.version-item { display: flex; align-items: center; gap: 8px; }
+.version-item.active .version-time { color: var(--accent); }
+.version-time {
+  flex: 1; text-align: left; background: transparent; border: none; color: var(--text);
+  cursor: pointer; padding: 4px 6px; border-radius: 6px; font-size: 12px; font-family: inherit;
+}
+.version-time:hover { background: var(--panel); }
+.preview-banner {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: #3a2f14; border-bottom: 1px solid var(--warn); color: #ffd580;
+  padding: 7px 12px; font-size: 12px;
+}

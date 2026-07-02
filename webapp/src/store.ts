@@ -1,4 +1,5 @@
-// Vision Engine 전역 상태 (zustand) — 게이트웨이 연결, 프로젝트, 채팅, 오케스트레이션, GDD
+// Vision Engine 전역 상태 (zustand)
+// 게이트웨이 연결 · 프로젝트 · 채팅(영속) · 오케스트레이션 대화 피드(영속) · 교차 검토 루프 · GDD(버전 히스토리)
 
 import { create } from "zustand";
 import { gateway, type EventFrame, type RunUsage } from "./lib/gateway";
@@ -6,7 +7,10 @@ import {
   AGENTS,
   AGENT_MAP,
   SPECIALISTS,
+  REVIEWERS,
   specialistPrompt,
+  reviewPrompt,
+  revisePrompt,
   pmSummaryPrompt,
   type AgentDef,
 } from "./lib/agents";
@@ -19,7 +23,15 @@ import {
   createProject,
   renameProject,
   deleteProject,
+  listGddVersions,
+  fetchGddVersion,
+  restoreGddVersion,
+  loadChatHistory,
+  saveChatHistory,
+  loadFeedHistory,
+  saveFeedHistory,
   type ProjectInfo,
+  type GddVersion,
 } from "./lib/gdd";
 
 export type View = "orch" | "chat";
@@ -35,11 +47,22 @@ export interface ChatMessage {
   ts: number;
 }
 
+/** 오케스트레이션 대화 피드의 말풍선 하나 — 에이전트들이 주고받는 자연어 메시지 */
+export interface FeedMsg {
+  id: string;
+  from: string; // agentId | "user" | "system"
+  to?: string; // agentId
+  kind: "request" | "instruction" | "draft" | "review" | "revision" | "summary" | "status" | "error";
+  text: string;
+  ts: number;
+}
+
 export interface OrchCard {
   agentId: string;
   state: "pending" | "queued" | "running" | "done" | "error";
+  /** 진행 단계 설명 (초안 작성 중 / OO 검토 중 / 검토 반영 수정 중) */
+  phase?: string;
   output: string;
-  /** PM이 이 에이전트에게 보낸 지시 전문 (자연어) */
   instruction?: string;
   error?: string;
   startedAt?: number;
@@ -81,10 +104,11 @@ interface VEState {
   selected: Record<string, boolean>;
   concurrency: number;
   autoReflect: boolean;
+  crossReview: boolean;
   orchRunning: boolean;
   stopRequested: boolean;
   cards: Record<string, OrchCard>;
-  orchLog: string[];
+  feed: FeedMsg[];
 
   agentHealth: Record<string, AgentHealth>;
   healthRunning: boolean;
@@ -94,6 +118,8 @@ interface VEState {
   gddEditing: boolean;
   gddDraft: string;
   gddSaving: boolean;
+  gddVersions: GddVersion[];
+  gddPreview: { ts: number; markdown: string } | null;
 
   usage: UsageTotals;
 
@@ -116,8 +142,10 @@ interface VEState {
   toggleSelected: (id: string) => void;
   setConcurrency: (n: number) => void;
   setAutoReflect: (b: boolean) => void;
+  setCrossReview: (b: boolean) => void;
   startOrch: () => Promise<void>;
   stopOrch: () => void;
+  clearFeed: () => void;
 
   healthCheck: () => Promise<void>;
 
@@ -126,22 +154,23 @@ interface VEState {
   setGddEditing: (b: boolean) => void;
   setGddDraft: (t: string) => void;
   saveGddDraft: () => Promise<void>;
+  loadGddVersions: () => Promise<void>;
+  previewGddVersion: (ts: number) => Promise<void>;
+  closeGddPreview: () => void;
+  restoreGdd: (ts: number) => Promise<void>;
 }
 
 let initialized = false;
 let gddQueue: Promise<void> = Promise.resolve();
+let persistQueue: Promise<void> = Promise.resolve();
+let feedSeq = 0;
+const loadedChats = new Set<string>(); // `${project}:${agent}`
 
 function estimateTokens(text: string): number {
-  // 한국어 대략 2.5자/토큰 가정 (표시용 추정치)
   return Math.max(1, Math.round(text.length / 2.5));
 }
 
 export const useVE = create<VEState>()((set, get) => {
-  const log = (msg: string) => {
-    const line = `${new Date().toLocaleTimeString("ko-KR", { hour12: false })}  ${msg}`;
-    set((s) => ({ orchLog: [...s.orchLog.slice(-99), line] }));
-  };
-
   const setAgentStatus = (id: string, st: AgentStatus) =>
     set((s) => ({ agentStatus: { ...s.agentStatus, [id]: st } }));
 
@@ -149,6 +178,24 @@ export const useVE = create<VEState>()((set, get) => {
     set((s) => ({
       cards: { ...s.cards, [id]: { ...(s.cards[id] ?? { agentId: id, state: "pending", output: "" }), ...patch } },
     }));
+
+  /** 피드에 말풍선 추가 + 서버 저장(직렬화) */
+  const pushFeed = (msg: Omit<FeedMsg, "id" | "ts">) => {
+    const full: FeedMsg = { ...msg, id: `f-${Date.now()}-${++feedSeq}`, ts: Date.now() };
+    set((s) => ({ feed: [...s.feed.slice(-399), full] }));
+    const project = get().activeProject;
+    if (project) {
+      persistQueue = persistQueue.then(() => saveFeedHistory(project, get().feed));
+    }
+  };
+
+  /** 채팅 저장(직렬화) */
+  const persistChat = (agentId: string) => {
+    const project = get().activeProject;
+    if (!project) return;
+    const messages = (get().chats[agentId] ?? []).map((m) => ({ ...m, streaming: false }));
+    persistQueue = persistQueue.then(() => saveChatHistory(project, agentId, messages));
+  };
 
   const addUsage = (u: RunUsage | undefined, fallbackText?: string) =>
     set((s) => {
@@ -164,12 +211,7 @@ export const useVE = create<VEState>()((set, get) => {
       }
       const est = fallbackText ? estimateTokens(fallbackText) : 0;
       return {
-        usage: {
-          input: s.usage.input,
-          output: s.usage.output + est,
-          calls: s.usage.calls + 1,
-          estimated: true,
-        },
+        usage: { input: s.usage.input, output: s.usage.output + est, calls: s.usage.calls + 1, estimated: true },
       };
     });
 
@@ -211,6 +253,19 @@ export const useVE = create<VEState>()((set, get) => {
     }
   };
 
+  /** 프로젝트의 저장된 채팅을 (아직 안 불렀으면) 불러온다 */
+  const ensureChatLoaded = async (agentId: string) => {
+    const project = get().activeProject;
+    if (!project) return;
+    const key = `${project}:${agentId}`;
+    if (loadedChats.has(key)) return;
+    loadedChats.add(key);
+    const messages = await loadChatHistory(project, agentId);
+    if (messages.length > 0 && (get().chats[agentId] ?? []).length === 0 && get().activeProject === project) {
+      set((s) => ({ chats: { ...s.chats, [agentId]: messages } }));
+    }
+  };
+
   return {
     view: "orch",
     mobilePanel: "work",
@@ -231,10 +286,11 @@ export const useVE = create<VEState>()((set, get) => {
     selected: Object.fromEntries(SPECIALISTS.map((a) => [a.id, true])),
     concurrency: 1,
     autoReflect: true,
+    crossReview: true,
     orchRunning: false,
     stopRequested: false,
     cards: {},
-    orchLog: [],
+    feed: [],
 
     agentHealth: {},
     healthRunning: false,
@@ -244,6 +300,8 @@ export const useVE = create<VEState>()((set, get) => {
     gddEditing: false,
     gddDraft: "",
     gddSaving: false,
+    gddVersions: [],
+    gddPreview: null,
 
     usage: { input: 0, output: 0, calls: 0, estimated: false },
 
@@ -254,9 +312,16 @@ export const useVE = create<VEState>()((set, get) => {
       gateway.onEvent(handleEvent);
       await get().loadProjects();
       void get().loadGdd();
+      // 저장된 피드/기본 에이전트 채팅 복원
+      const project = get().activeProject;
+      if (project) {
+        const feed = await loadFeedHistory(project);
+        if (feed.length > 0 && get().activeProject === project) set({ feed });
+        void ensureChatLoaded(get().activeAgent);
+      }
       setInterval(() => {
         const st = get();
-        if (!st.gddEditing && !st.gddSaving && st.activeProject) void st.loadGdd();
+        if (!st.gddEditing && !st.gddSaving && !st.gddPreview && st.activeProject) void st.loadGdd();
       }, 4000);
       const ok = await gateway.connect();
       if (ok) {
@@ -272,7 +337,10 @@ export const useVE = create<VEState>()((set, get) => {
 
     setView: (v) => set({ view: v }),
     setMobilePanel: (p) => set({ mobilePanel: p }),
-    selectAgent: (id) => set({ activeAgent: id, view: "chat", mobilePanel: "work" }),
+    selectAgent: (id) => {
+      set({ activeAgent: id, view: "chat", mobilePanel: "work" });
+      void ensureChatLoaded(id);
+    },
 
     /* ── 프로젝트 ─────────────────────────────────── */
 
@@ -301,20 +369,23 @@ export const useVE = create<VEState>()((set, get) => {
     setActiveProject: async (id) => {
       if (id === get().activeProject) return;
       localStorage.setItem("ve-active-project", id);
-      // 프로젝트별로 대화 컨텍스트를 분리한다 (세션 키에 프로젝트 id 포함).
-      // 화면의 채팅·카드도 프로젝트 전환 시 초기화한다.
       set({
         activeProject: id,
         chats: {},
         chatBusy: {},
         cards: {},
-        orchLog: [],
+        feed: [],
         agentStatus: {},
         gdd: "",
         gddMtime: 0,
         gddEditing: false,
+        gddVersions: [],
+        gddPreview: null,
       });
       await get().loadGdd();
+      const feed = await loadFeedHistory(id);
+      if (get().activeProject === id && feed.length > 0) set({ feed });
+      void ensureChatLoaded(get().activeAgent);
     },
 
     createProjectAction: async (name) => {
@@ -333,12 +404,12 @@ export const useVE = create<VEState>()((set, get) => {
     deleteProjectAction: async (id) => {
       await deleteProject(id);
       localStorage.removeItem("ve-active-project");
-      set({ activeProject: "" });
+      set({ activeProject: "", feed: [], chats: {} });
       await get().loadProjects();
       await get().loadGdd();
     },
 
-    /* ── 채팅 ─────────────────────────────────────── */
+    /* ── 채팅 (프로젝트별 서버 저장) ───────────────── */
 
     sendChat: async (text) => {
       const id = get().activeAgent;
@@ -382,21 +453,30 @@ export const useVE = create<VEState>()((set, get) => {
         setAgentStatus(id, "error");
       } finally {
         set((s) => ({ chatBusy: { ...s.chatBusy, [id]: false } }));
+        persistChat(id);
       }
     },
 
-    newChatSession: (id) =>
+    newChatSession: (id) => {
       set((s) => ({
         chatEpoch: { ...s.chatEpoch, [id]: (s.chatEpoch[id] ?? 1) + 1 },
         chats: { ...s.chats, [id]: [] },
-      })),
+      }));
+      persistChat(id);
+    },
 
-    /* ── 오케스트레이션 ───────────────────────────── */
+    /* ── 오케스트레이션 (대화 피드 + 교차 검토 루프) ── */
 
     setOrchRequest: (t) => set({ orchRequest: t }),
     toggleSelected: (id) => set((s) => ({ selected: { ...s.selected, [id]: !s.selected[id] } })),
     setConcurrency: (n) => set({ concurrency: n }),
     setAutoReflect: (b) => set({ autoReflect: b }),
+    setCrossReview: (b) => set({ crossReview: b }),
+    clearFeed: () => {
+      set({ feed: [] });
+      const project = get().activeProject;
+      if (project) persistQueue = persistQueue.then(() => saveFeedHistory(project, []));
+    },
 
     startOrch: async () => {
       const st = get();
@@ -411,9 +491,14 @@ export const useVE = create<VEState>()((set, get) => {
         targets.map((a) => [a.id, { agentId: a.id, state: "queued" as const, output: "" }])
       );
       initialCards["pm"] = { agentId: "pm", state: "pending", output: "" };
-      set({ orchRunning: true, stopRequested: false, cards: initialCards, orchLog: [] });
-      log(`🎯 PM: 요청 접수 — "${req.slice(0, 60)}${req.length > 60 ? "…" : ""}"`);
-      log(`🎯 PM: ${targets.map((a) => a.name).join(", ")}에게 작업 분배 (동시 실행 ${st.concurrency})`);
+      set({ orchRunning: true, stopRequested: false, cards: initialCards });
+
+      pushFeed({ from: "user", kind: "request", text: req });
+      pushFeed({
+        from: "pm",
+        kind: "status",
+        text: `요청을 접수했습니다. ${targets.map((a) => `${a.emoji} ${a.name}`).join(", ")}에게 파트를 분배합니다.${st.crossReview ? " 각 초안은 동료 검토를 거친 뒤 확정됩니다." : ""}`,
+      });
 
       const queue = [...targets];
       const results: { agent: AgentDef; text: string }[] = [];
@@ -424,26 +509,63 @@ export const useVE = create<VEState>()((set, get) => {
           const agent = queue.shift();
           if (!agent) return;
           const instruction = specialistPrompt(req, agent);
-          updateCard(agent.id, { state: "running", startedAt: Date.now(), instruction });
+          updateCard(agent.id, { state: "running", phase: "초안 작성 중", startedAt: Date.now(), instruction });
           setAgentStatus(agent.id, "running");
-          log(`🎯 PM → ${agent.emoji} ${agent.name}: "${agent.sectionTitle}" 파트 작성 지시 (지시 전문은 카드에서)`);
+          pushFeed({ from: "pm", to: agent.id, kind: "instruction", text: instruction });
           try {
             const r = await gateway.runAgent(agent.id, instruction, runTag);
-            const clean = sanitizeAgentOutput(r.text);
-            addUsage(r.usage, clean);
-            updateCard(agent.id, { state: "done", output: clean, endedAt: Date.now() });
+            const draft = sanitizeAgentOutput(r.text);
+            addUsage(r.usage, draft);
+            pushFeed({ from: agent.id, to: "pm", kind: "draft", text: draft });
+
+            let final = draft;
+            const reviewerId = REVIEWERS[agent.id];
+            if (get().crossReview && reviewerId && !get().stopRequested) {
+              const reviewer = AGENT_MAP[reviewerId];
+              try {
+                updateCard(agent.id, { phase: `${reviewer.name} 검토 중` });
+                setAgentStatus(reviewer.id, "running");
+                pushFeed({
+                  from: "pm",
+                  to: reviewer.id,
+                  kind: "status",
+                  text: `${agent.name}의 "${agent.sectionTitle}" 초안 검토를 요청합니다.`,
+                });
+                const rv = await gateway.runAgent(reviewer.id, reviewPrompt(req, agent, reviewer, draft), `${runTag}-rv`);
+                const review = sanitizeAgentOutput(rv.text);
+                addUsage(rv.usage, review);
+                pushFeed({ from: reviewer.id, to: agent.id, kind: "review", text: review });
+                setAgentStatus(reviewer.id, "done");
+
+                updateCard(agent.id, { phase: "검토 반영 수정 중" });
+                setAgentStatus(agent.id, "running");
+                const rev = await gateway.runAgent(agent.id, revisePrompt(agent, reviewer, review), runTag);
+                const revised = sanitizeAgentOutput(rev.text);
+                addUsage(rev.usage, revised);
+                if (revised && revised.length > 30) final = revised;
+                pushFeed({ from: agent.id, to: "pm", kind: "revision", text: final });
+              } catch (e: any) {
+                setAgentStatus(reviewerId, "error");
+                pushFeed({
+                  from: "system",
+                  kind: "status",
+                  text: `⚠️ ${AGENT_MAP[reviewerId].name} 검토 단계 실패 (${String(e?.message ?? e).slice(0, 80)}) — ${agent.name}의 초안을 그대로 사용합니다.`,
+                });
+              }
+            }
+
+            updateCard(agent.id, { state: "done", phase: undefined, output: final, endedAt: Date.now() });
             setAgentStatus(agent.id, "done");
-            results.push({ agent, text: clean });
-            log(`${agent.emoji} ${agent.name} → 🎯 PM: "${agent.sectionTitle}" 초안 제출 (${clean.length}자)`);
+            results.push({ agent, text: final });
             if (get().autoReflect) {
-              await get().reflectToGdd(agent.id, clean);
+              await get().reflectToGdd(agent.id, final);
               updateCard(agent.id, { reflected: true });
-              log(`📄 GDD: "${agent.sectionTitle}" 섹션 갱신됨`);
+              pushFeed({ from: "system", kind: "status", text: `📄 마스터 GDD "${agent.sectionTitle}" 섹션이 갱신되었습니다.` });
             }
           } catch (e: any) {
-            updateCard(agent.id, { state: "error", error: String(e?.message ?? e), endedAt: Date.now() });
+            updateCard(agent.id, { state: "error", phase: undefined, error: String(e?.message ?? e), endedAt: Date.now() });
             setAgentStatus(agent.id, "error");
-            log(`⚠️ ${agent.name} 실패: ${e?.message ?? e}`);
+            pushFeed({ from: "system", kind: "error", text: `⚠️ ${agent.name} 작업 실패: ${String(e?.message ?? e).slice(0, 120)}` });
           }
         }
       };
@@ -452,44 +574,43 @@ export const useVE = create<VEState>()((set, get) => {
       await Promise.all(Array.from({ length: n }, () => worker()));
 
       if (get().stopRequested) {
-        log("사용자 요청으로 중단됨");
+        pushFeed({ from: "system", kind: "status", text: "사용자 요청으로 오케스트레이션이 중단되었습니다." });
         set({ orchRunning: false });
         return;
       }
 
       if (results.length > 0) {
-        const pm = AGENT_MAP["pm"];
         const pmInstruction = pmSummaryPrompt(req, results);
-        updateCard("pm", { state: "running", startedAt: Date.now(), instruction: pmInstruction });
+        updateCard("pm", { state: "running", phase: "산출물 통합 중", startedAt: Date.now(), instruction: pmInstruction });
         setAgentStatus("pm", "running");
-        log(`🎯 PM: 산출물 ${results.length}건 취합 — 개요 통합 작성 시작`);
+        pushFeed({ from: "pm", kind: "status", text: `산출물 ${results.length}건을 취합해 "1. 개요"를 통합 작성합니다.` });
         try {
           const r = await gateway.runAgent("pm", pmInstruction, runTag);
           const clean = sanitizeAgentOutput(r.text);
           addUsage(r.usage, clean);
-          updateCard("pm", { state: "done", output: clean, endedAt: Date.now() });
+          updateCard("pm", { state: "done", phase: undefined, output: clean, endedAt: Date.now() });
           setAgentStatus("pm", "done");
+          pushFeed({ from: "pm", kind: "summary", text: clean });
           if (get().autoReflect) {
             await get().reflectToGdd("pm", clean);
             updateCard("pm", { reflected: true });
+            pushFeed({ from: "system", kind: "status", text: `📄 마스터 GDD "개요" 섹션이 갱신되었습니다. 오케스트레이션 완료.` });
           }
-          log(`${pm.emoji} PM: 개요 통합 완료 — GDD 갱신됨`);
         } catch (e: any) {
-          updateCard("pm", { state: "error", error: String(e?.message ?? e), endedAt: Date.now() });
+          updateCard("pm", { state: "error", phase: undefined, error: String(e?.message ?? e), endedAt: Date.now() });
           setAgentStatus("pm", "error");
-          log(`⚠️ PM 통합 실패: ${e?.message ?? e}`);
+          pushFeed({ from: "system", kind: "error", text: `⚠️ PM 통합 실패: ${String(e?.message ?? e).slice(0, 120)}` });
         }
       }
       set({ orchRunning: false });
-      log("오케스트레이션 종료");
     },
 
     stopOrch: () => {
       set({ stopRequested: true });
-      log("중단 요청됨 — 진행 중인 호출이 끝나는 대로 멈춥니다");
+      pushFeed({ from: "system", kind: "status", text: "중단 요청됨 — 진행 중인 호출이 끝나는 대로 멈춥니다." });
     },
 
-    /* ── 에이전트 헬스체크 (8명 전원 실행 확인) ────── */
+    /* ── 에이전트 헬스체크 ─────────────────────────── */
 
     healthCheck: async () => {
       if (get().healthRunning) return;
@@ -503,18 +624,14 @@ export const useVE = create<VEState>()((set, get) => {
           const t0 = Date.now();
           setAgentStatus(a.id, "running");
           try {
-            // "상태 점검" 같은 표현은 모델이 세션 조회 도구를 호출하게 만들어(컨텍스트 폭증)
-            // 응답이 크게 느려진다 — 도구 금지를 명시한 단순 에코 요청으로 유지할 것.
+            // "상태 점검"류 표현은 모델이 세션 도구를 호출하게 만들어 컨텍스트가 폭증한다 — 에코 요청 유지
             const r = await gateway.runAgent(
               a.id,
               "단순 연결 테스트다. 어떤 도구도 사용하지 말고 다른 행동 없이 '이상 없음'만 출력해라.",
               tag
             );
             set((s) => ({
-              agentHealth: {
-                ...s.agentHealth,
-                [a.id]: { ok: true, ms: Date.now() - t0, reply: r.text.slice(0, 40) },
-              },
+              agentHealth: { ...s.agentHealth, [a.id]: { ok: true, ms: Date.now() - t0, reply: r.text.slice(0, 40) } },
             }));
             setAgentStatus(a.id, "done");
           } catch (e: any) {
@@ -528,11 +645,11 @@ export const useVE = create<VEState>()((set, get) => {
           }
         }
       };
-      await Promise.all([worker(), worker()]); // 동시 2
+      await Promise.all([worker(), worker()]);
       set({ healthRunning: false });
     },
 
-    /* ── GDD ─────────────────────────────────────── */
+    /* ── GDD + 버전 히스토리 ───────────────────────── */
 
     reflectToGdd: async (agentId, text) => {
       const agent = AGENT_MAP[agentId];
@@ -558,7 +675,7 @@ export const useVE = create<VEState>()((set, get) => {
         const { markdown, mtime } = await fetchGdd(project);
         if (mtime !== get().gddMtime) set({ gdd: markdown, gddMtime: mtime });
       } catch {
-        /* dev 서버 미들웨어 없으면 무시 */
+        /* noop */
       }
     },
 
@@ -574,6 +691,30 @@ export const useVE = create<VEState>()((set, get) => {
       } finally {
         set({ gddSaving: false });
       }
+    },
+
+    loadGddVersions: async () => {
+      const project = get().activeProject;
+      if (!project) return;
+      const versions = await listGddVersions(project);
+      set({ gddVersions: versions });
+    },
+
+    previewGddVersion: async (ts) => {
+      const project = get().activeProject;
+      if (!project) return;
+      const markdown = await fetchGddVersion(project, ts);
+      set({ gddPreview: { ts, markdown }, gddEditing: false });
+    },
+
+    closeGddPreview: () => set({ gddPreview: null }),
+
+    restoreGdd: async (ts) => {
+      const project = get().activeProject;
+      if (!project) return;
+      const { markdown, mtime } = await restoreGddVersion(project, ts);
+      set({ gdd: markdown, gddMtime: mtime, gddPreview: null });
+      await get().loadGddVersions();
     },
   };
 });
