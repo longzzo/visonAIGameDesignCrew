@@ -768,7 +768,8 @@ export const useVE = create<VEState>()((set, get) => {
         }
       };
 
-      const n = Math.max(1, Math.min(2, st.concurrency));
+      // 클라우드 모델이면 여러 명이 진짜 동시에 일한다. 로컬(GPU 1개)은 1을 권장.
+      const n = Math.max(1, Math.min(7, st.concurrency));
       await Promise.all(Array.from({ length: n }, () => worker()));
 
       if (get().stopRequested) {

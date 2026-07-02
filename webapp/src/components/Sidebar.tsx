@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AGENTS } from "../lib/agents";
 import { setBraveKey } from "../lib/gdd";
-import { getModelsInfo, registerModelKey, switchModel, type ModelsInfo } from "../lib/models";
+import { getModelsInfo, registerModelKey, setAgentModels, switchModel, type ModelsInfo } from "../lib/models";
 import { useVE } from "../store";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -34,12 +34,38 @@ export function Sidebar() {
 
   const [models, setModels] = useState<ModelsInfo | null>(null);
   const [switching, setSwitching] = useState(false);
+  /** 역할별 모델 초안 — "적용"을 눌러야 실제 반영(게이트웨이 재시작 1회) */
+  const [agentDraft, setAgentDraft] = useState<Record<string, string>>({});
   const refreshModels = () => {
     void getModelsInfo()
-      .then(setModels)
+      .then((info) => {
+        setModels(info);
+        setAgentDraft(info.agents);
+      })
       .catch(() => setModels(null));
   };
   useEffect(refreshModels, []);
+
+  const draftDirty =
+    models !== null && AGENTS.some((a) => (agentDraft[a.id] ?? models.current) !== (models.agents[a.id] ?? models.current));
+
+  const onApplyAgentModels = () => {
+    if (!models || !draftDirty || switching) return;
+    const changed: Record<string, string> = {};
+    for (const a of AGENTS) {
+      const next = agentDraft[a.id];
+      if (next && next !== models.agents[a.id]) changed[a.id] = next;
+    }
+    if (!window.confirm(`역할별 모델을 적용합니다 (${Object.keys(changed).length}명 변경).\n게이트웨이가 재시작됩니다(약 10초). 진행할까요?`)) return;
+    setSwitching(true);
+    void setAgentModels(changed)
+      .then(() => {
+        setModels({ ...models, agents: { ...models.agents, ...changed } });
+        window.alert("역할별 모델 적용 완료 — 게이트웨이 재시작 중입니다. 10초 뒤 🩺 전원 점검으로 확인해 보세요.");
+      })
+      .catch((e) => window.alert(`적용 실패: ${e.message}`))
+      .finally(() => setSwitching(false));
+  };
 
   const onBraveKey = () => {
     const key = window.prompt(
@@ -77,7 +103,9 @@ export function Sidebar() {
     void switchModel(id)
       .then(() => {
         setModelName(id);
-        setModels({ ...models, current: id });
+        const agents = Object.fromEntries(AGENTS.map((a) => [a.id, id]));
+        setModels({ ...models, current: id, agents });
+        setAgentDraft(agents);
         window.alert("모델 전환 완료 — 게이트웨이 재시작 중입니다. 10초 뒤 🩺 전원 점검으로 확인해 보세요.");
       })
       .catch((e) => window.alert(`전환 실패: ${e.message}`))
@@ -138,6 +166,33 @@ export function Sidebar() {
                   </option>
                 ))}
               </select>
+              <details className="agent-models">
+                <summary title="PM은 헤드급 모델, 팀원은 경량 모델처럼 역할마다 다른 모델을 배정할 수 있습니다">
+                  ⚙️ 역할별 모델 (PM만 강하게 등)
+                </summary>
+                {AGENTS.map((a) => (
+                  <div key={a.id} className="agent-model-row">
+                    <span className="agent-model-name" title={a.role}>
+                      {a.emoji} {a.name.replace(" 디자이너", "").replace(" 라이터", "").replace(" 전략가", "").replace(" 디렉터", "")}
+                    </span>
+                    <select
+                      className="model-select mini"
+                      value={agentDraft[a.id] ?? models.current}
+                      disabled={switching}
+                      onChange={(e) => setAgentDraft((d) => ({ ...d, [a.id]: e.target.value }))}
+                    >
+                      {models.options.map((o) => (
+                        <option key={o.id} value={o.id} title={o.note}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+                <button className="btn small" onClick={onApplyAgentModels} disabled={!draftDirty || switching}>
+                  {switching ? "적용 중…" : draftDirty ? "✅ 적용 (게이트웨이 재시작)" : "변경 없음"}
+                </button>
+              </details>
               {!models.providers.github && (
                 <button className="btn small" onClick={() => onRegisterKey("github")} title="GitHub Models(GPT-5 계열)를 쓰려면 PAT 등록">
                   🔑 GitHub Models 토큰 등록

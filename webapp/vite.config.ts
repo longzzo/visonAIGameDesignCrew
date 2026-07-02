@@ -542,6 +542,9 @@ function modelsApiPlugin(): Plugin {
             if (req.method === "GET") {
               const current =
                 cfg?.agents?.defaults?.model?.primary ?? cfg?.agents?.list?.[0]?.model ?? "ollama/qwen3:8b";
+              // 에이전트별 현재 모델 (역할별 배정 UI용)
+              const agents: Record<string, string> = {};
+              for (const a of cfg?.agents?.list ?? []) agents[a.id] = a.model ?? current;
               const providers = {
                 ollama: true,
                 github: hasProviderKey(cfg, "github"),
@@ -559,7 +562,7 @@ function modelsApiPlugin(): Plugin {
                   options.push({ id, ...(MODEL_LABELS[id] ?? { label: m.name ?? m.id }) });
                 }
               }
-              res.end(JSON.stringify({ current, providers, options }));
+              res.end(JSON.stringify({ current, agents, providers, options }));
               return;
             }
 
@@ -584,7 +587,49 @@ function modelsApiPlugin(): Plugin {
                 return;
               }
 
-              // ② 전 에이전트 모델 전환
+              // ② 역할별 모델 배정 (배치 — 게이트웨이 재시작 1회)
+              //    body: { agentModels: { pm: "github/openai/gpt-5", scenario: "ollama/qwen3:8b", ... } }
+              if (j.agentModels && typeof j.agentModels === "object") {
+                const entries = Object.entries(j.agentModels as Record<string, string>);
+                if (entries.length === 0) {
+                  res.statusCode = 400;
+                  res.end(JSON.stringify({ ok: false, error: "agentModels 비어 있음" }));
+                  return;
+                }
+                const validModel = (model: string): string | null => {
+                  const slash = model.indexOf("/");
+                  const provider = slash > 0 ? model.slice(0, slash) : "";
+                  const modelId = slash > 0 ? model.slice(slash + 1) : "";
+                  const known = (cfg?.models?.providers?.[provider]?.models ?? []).some((m: any) => m.id === modelId);
+                  if (!known) return `알 수 없는 모델: ${model}`;
+                  if (provider !== "ollama" && !hasProviderKey(cfg, provider)) return `${provider} API 키를 먼저 등록하세요`;
+                  return null;
+                };
+                const agentIds = new Set((cfg?.agents?.list ?? []).map((a: any) => a.id));
+                for (const [agentId, model] of entries) {
+                  if (!agentIds.has(agentId)) {
+                    res.statusCode = 400;
+                    res.end(JSON.stringify({ ok: false, error: `알 수 없는 에이전트: ${agentId}` }));
+                    return;
+                  }
+                  const err = validModel(String(model));
+                  if (err) {
+                    res.statusCode = 400;
+                    res.end(JSON.stringify({ ok: false, error: err }));
+                    return;
+                  }
+                }
+                for (const a of cfg.agents.list ?? []) {
+                  const next = (j.agentModels as Record<string, string>)[a.id];
+                  if (next) a.model = next;
+                }
+                fs.writeFileSync(OPENCLAW_CFG, JSON.stringify(cfg, null, 2), "utf-8");
+                restartGateway();
+                res.end(JSON.stringify({ ok: true }));
+                return;
+              }
+
+              // ③ 전 에이전트 모델 전환
               if (typeof j.model === "string" && j.model) {
                 const model = j.model.trim();
                 const slash = model.indexOf("/");
@@ -612,7 +657,7 @@ function modelsApiPlugin(): Plugin {
               }
 
               res.statusCode = 400;
-              res.end(JSON.stringify({ ok: false, error: "registerKey 또는 model 필요" }));
+              res.end(JSON.stringify({ ok: false, error: "registerKey, agentModels 또는 model 필요" }));
               return;
             }
 

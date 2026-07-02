@@ -10,6 +10,8 @@ export interface ModelOption {
 
 export interface ModelsInfo {
   current: string;
+  /** 에이전트별 현재 모델 — 역할별 배정 UI용 (예: pm은 헤드급, 나머지는 경량) */
+  agents: Record<string, string>;
   providers: { ollama: boolean; github: boolean; nvidia: boolean };
   options: ModelOption[];
 }
@@ -29,6 +31,17 @@ export async function registerModelKey(provider: "github" | "nvidia", key: strin
   });
   const j = await r.json();
   if (!r.ok || !j.ok) throw new Error(j.error || "키 등록 실패");
+}
+
+/** 역할별 모델 일괄 배정 — 변경분만 넘기면 되고, 게이트웨이는 1회만 재시작된다 */
+export async function setAgentModels(agentModels: Record<string, string>): Promise<void> {
+  const r = await fetch("/api/models", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ agentModels }),
+  });
+  const j = await r.json();
+  if (!r.ok || !j.ok) throw new Error(j.error || "역할별 모델 배정 실패");
 }
 
 /** 전 에이전트의 모델 전환 — 게이트웨이가 자동 재시작된다 */

@@ -172,11 +172,13 @@ export function OrchestrationView() {
               <input type="checkbox" checked={autoReflect} onChange={(e) => setAutoReflect(e.target.checked)} />
               GDD 자동 반영
             </label>
-            <label title="로컬 GPU(8GB)에서는 1을 권장">
+            <label title="동시에 일하는 에이전트 수 — 로컬 모델(GPU 1개)은 1 권장, 클라우드 모델(GitHub/NVIDIA)이면 4~7로 올려 전원이 동시에 일하는 모습을 볼 수 있습니다">
               동시{" "}
               <select value={concurrency} onChange={(e) => setConcurrency(Number(e.target.value))} disabled={orchRunning}>
                 <option value={1}>1</option>
                 <option value={2}>2</option>
+                <option value={4}>4</option>
+                <option value={7}>7</option>
               </select>
             </label>
             {orchRunning ? (

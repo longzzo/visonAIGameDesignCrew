@@ -96,6 +96,15 @@ button { font-family: inherit; }
 }
 .model-select:hover:not(:disabled) { border-color: var(--accent); }
 .chips-hint { font-size: 11px; align-self: center; }
+
+/* 역할별 모델 배정 */
+.agent-models summary { font-size: 11.5px; color: var(--text-dim); cursor: pointer; }
+.agent-models summary:hover { color: var(--accent); }
+.agent-models[open] { display: flex; flex-direction: column; gap: 5px; }
+.agent-model-row { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+.agent-model-name { font-size: 11.5px; white-space: nowrap; flex-shrink: 0; width: 86px; overflow: hidden; text-overflow: ellipsis; }
+.model-select.mini { flex: 1; min-width: 0; padding: 4px 6px; font-size: 11px; }
+.agent-models .btn { margin-top: 6px; }
 .webchat-link { font-size: 11px; color: var(--text-dim); text-decoration: none; }
 .webchat-link:hover { color: var(--accent); }
 
