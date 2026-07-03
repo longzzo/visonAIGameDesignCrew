@@ -31,6 +31,17 @@ import {
   planDistributePrompt,
   parsePlanBriefs,
   planReviewPrompt,
+  buildGddPanorama,
+  qaScorePrompt,
+  parseQaScore,
+  qaRevisePrompt,
+  decisionExtractPrompt,
+  parseDecisions,
+  parseFileBlocks,
+  balanceDataPrompt,
+  assetManifestPrompt,
+  unityKitPrompt,
+  DEFAULT_REPORT_TOPIC,
   type AgentDef,
   type WebMode,
 } from "./lib/agents";
@@ -71,6 +82,15 @@ import {
   type OfficeBgMeta,
 } from "./lib/art";
 import { listPrototypes, savePrototype, deletePrototype, type ProtoDoc } from "./lib/proto";
+import {
+  listKitFiles,
+  saveKitFiles,
+  listDecisions,
+  appendDecisions,
+  decisionsBlock,
+  type KitFile,
+  type DecisionItem,
+} from "./lib/kit";
 import {
   fetchGdd,
   saveGdd,
@@ -265,6 +285,16 @@ interface VEState {
   planReviewBusy: boolean;
   planReviewPhase: string;
 
+  /** QA 게이트 — 산출물을 QA 디렉터가 채점, 미달이면 1회 반려·재작성 (localStorage 영속) */
+  qaGate: boolean;
+  /** 결정사항 원장 — 회의 결론이 적립되어 다음 회의에 자동 주입되는 조직의 기억 */
+  decisions: DecisionItem[];
+  /** 개발 착수 킷 */
+  kitFiles: KitFile[];
+  devKitBusy: boolean;
+  devKitPhase: string;
+  devKitLog: string[];
+
   gdd: string;
   gddMtime: number;
   gddEditing: boolean;
@@ -334,7 +364,7 @@ interface VEState {
 
   /** 개발 인턴 — 선임 개발자(td)가 확정한 명세 중 기능 하나를 골라 HTML 페이퍼 프로토타입을 뽑는다 */
   loadProto: () => Promise<void>;
-  generatePrototype: (feature: string) => Promise<void>;
+  generatePrototype: (feature: string, playable?: boolean) => Promise<void>;
   removePrototype: (ts: number) => Promise<void>;
 
   /** 사무실 배경 — 테마 선택 + 아트 인턴에게 새 배경 그리게 하기 */
@@ -384,6 +414,14 @@ interface VEState {
 
   /** 기존 기획 팀 리뷰 — PM이 GDD를 읽고 역할별 브리핑 → 각자 학습 후 보완점/평가 취합 */
   reviewExistingPlan: () => Promise<void>;
+
+  /** QA 게이트 토글 */
+  setQaGate: (b: boolean) => void;
+  /** 결정사항 원장 로드 */
+  loadDecisions: () => Promise<void>;
+  /** 개발 착수 킷 — 유니티 문서·밸런스 CSV·에셋 매니페스트·스켈레톤·그레이박스를 체인으로 생성 */
+  buildDevKit: () => Promise<void>;
+  loadKit: () => Promise<void>;
 
   reflectToGdd: (agentId: string, text: string) => Promise<void>;
   loadGdd: () => Promise<void>;
@@ -560,6 +598,21 @@ export const useVE = create<VEState>()((set, get) => {
     const title = `협업 결론 — ${topic.slice(0, 40)}${topic.length > 40 ? "…" : ""}`;
     await saveReport(project, lead.id, title, `# ${title}\n\n## 결론\n${conclusion}\n\n## 대화 전문\n${transcript}`);
     await get().loadReports();
+    // 협업 결론도 결정사항 원장에 적립 (백그라운드)
+    void (async () => {
+      try {
+        const dr = await gateway.runAgent("pm", decisionExtractPrompt(topic, conclusion), `${runTag}-dec`);
+        const ds = parseDecisions(sanitizeAgentOutput(dr.text));
+        addUsage(dr.usage, dr.text);
+        if (ds.length > 0) {
+          await appendDecisions(project, ds, `협업: ${topic.slice(0, 40)}`);
+          await get().loadDecisions();
+          pushFeed({ from: "system", kind: "status", text: `🧾 결정사항 ${ds.length}건이 원장에 적립되었습니다.` });
+        }
+      } catch {
+        /* 원장 적립 실패는 무시 */
+      }
+    })();
     } finally {
       set({ meetingMembers: [] });
     }
@@ -653,6 +706,18 @@ export const useVE = create<VEState>()((set, get) => {
     meetingMembers: [],
     planReviewBusy: false,
     planReviewPhase: "",
+    qaGate: ((): boolean => {
+      try {
+        return localStorage.getItem("ve-qa-gate") !== "off";
+      } catch {
+        return true;
+      }
+    })(),
+    decisions: [],
+    kitFiles: [],
+    devKitBusy: false,
+    devKitPhase: "",
+    devKitLog: [],
 
     gdd: "",
     gddMtime: 0,
@@ -681,6 +746,8 @@ export const useVE = create<VEState>()((set, get) => {
         void get().loadReports();
         void get().loadArt();
         void get().loadProto();
+        void get().loadDecisions();
+        void get().loadKit();
       }
       void get().checkArtStatus();
       void get().loadOfficeBg();
@@ -772,6 +839,9 @@ export const useVE = create<VEState>()((set, get) => {
         reportPreview: null,
         artImages: [],
         protoList: [],
+        decisions: [],
+        kitFiles: [],
+        devKitLog: [],
       });
       await get().loadGdd();
       const feed = await loadFeedHistory(id);
@@ -780,6 +850,8 @@ export const useVE = create<VEState>()((set, get) => {
       void get().loadReports();
       void get().loadArt();
       void get().loadProto();
+      void get().loadDecisions();
+      void get().loadKit();
     },
 
     createProjectAction: async (name) => {
@@ -996,6 +1068,9 @@ export const useVE = create<VEState>()((set, get) => {
         /* 저장본을 못 읽으면 화면의 최신 상태 사용 */
       }
       const overview = getSectionBody(baseMd, "## 1.");
+      // 전체 조감도(비-LLM 요약) + 결정사항 원장 — 에이전트가 조각이 아닌 전체 그림을 보고 쓴다
+      const panorama = buildGddPanorama(baseMd);
+      const decisionsText = decisionsBlock(get().decisions);
       // 회의 전 스냅샷 — 끝난 뒤 "🔍 변경 확인"(diff)과 "⏪ 되돌리기"의 기준이 된다
       set({ orchBaseline: baseMd, meetingDiffOpen: false });
 
@@ -1101,7 +1176,9 @@ export const useVE = create<VEState>()((set, get) => {
             getSectionBody(baseMd, agent.section),
             overview,
             focusMap[agent.id] ?? "",
-            knowledgeBlockFor(agent.id, get().knowledge, req)
+            knowledgeBlockFor(agent.id, get().knowledge, req),
+            panorama,
+            decisionsText
           );
           updateCard(agent.id, { state: "running", phase: "초안 작성 중", startedAt: Date.now(), instruction });
           setAgentStatus(agent.id, "running");
@@ -1149,6 +1226,55 @@ export const useVE = create<VEState>()((set, get) => {
                   from: "system",
                   kind: "status",
                   text: `⚠️ ${AGENT_MAP[reviewerId].name} 검토 단계 실패 (${String(e?.message ?? e).slice(0, 80)}) — ${agent.name}의 초안을 그대로 사용합니다.`,
+                });
+              }
+            }
+
+            // 품질 게이트 — QA 디렉터가 루브릭 채점, 미달이면 1회 반려·재작성
+            if (get().qaGate && !get().stopRequested) {
+              try {
+                updateCard(agent.id, { phase: "QA 채점 중" });
+                setAgentStatus("qa", "running");
+                const qres = await gateway.runAgent("qa", qaScorePrompt(agent, final, panorama, req), `${runTag}-qa`, signal);
+                addUsage(qres.usage, qres.text);
+                const verdict = parseQaScore(sanitizeAgentOutput(qres.text));
+                setAgentStatus("qa", "done");
+                if (!verdict) {
+                  pushFeed({ from: "system", kind: "status", text: `⚠️ QA 채점 결과를 해석하지 못해 통과 처리합니다 (${agent.name}).` });
+                } else {
+                  const scoreLine = Object.entries(verdict.scores)
+                    .map(([k, v]) => `${k} ${v}`)
+                    .join(" · ");
+                  if (verdict.pass) {
+                    pushFeed({
+                      from: "qa",
+                      to: agent.id,
+                      kind: "review",
+                      text: `✅ 품질 통과 (평균 ${verdict.avg.toFixed(1)}/10) — ${scoreLine}\n${verdict.summary}`,
+                    });
+                  } else {
+                    pushFeed({
+                      from: "qa",
+                      to: agent.id,
+                      kind: "review",
+                      text: `🔴 반려 (평균 ${verdict.avg.toFixed(1)}/10) — ${scoreLine}\n${verdict.notes || verdict.summary}`,
+                    });
+                    updateCard(agent.id, { phase: "QA 반려 — 재작성 중" });
+                    setAgentStatus(agent.id, "running");
+                    const rr = await gateway.runAgent(agent.id, qaRevisePrompt(agent, verdict), runTag, signal);
+                    const rewritten = sanitizeAgentOutput(rr.text);
+                    addUsage(rr.usage, rewritten);
+                    if (rewritten && rewritten.length > 30) final = rewritten;
+                    pushFeed({ from: agent.id, to: "qa", kind: "revision", text: final });
+                  }
+                }
+              } catch (e: any) {
+                setAgentStatus("qa", "idle");
+                if (get().stopRequested) return;
+                pushFeed({
+                  from: "system",
+                  kind: "status",
+                  text: `⚠️ QA 게이트 실패 (${String(e?.message ?? e).slice(0, 80)}) — 채점 없이 진행합니다.`,
                 });
               }
             }
@@ -1230,6 +1356,28 @@ export const useVE = create<VEState>()((set, get) => {
               /* 회의록 저장 실패는 치명적이지 않음 */
             }
           }
+          // 결정사항 원장 적립 — 조직의 기억 (백그라운드, 실패해도 회의에 영향 없음)
+          void (async () => {
+            try {
+              const digest =
+                results.map(({ agent, text }) => `[${agent.sectionTitle}] ${text.slice(0, 300)}`).join("\n") +
+                `\n[개요 통합] ${clean.slice(0, 300)}`;
+              const dr = await gateway.runAgent("pm", decisionExtractPrompt(req, digest), `${runTag}-dec`);
+              const ds = parseDecisions(sanitizeAgentOutput(dr.text));
+              addUsage(dr.usage, dr.text);
+              if (ds.length > 0) {
+                await appendDecisions(project, ds, `회의: ${req.slice(0, 40)}`);
+                await get().loadDecisions();
+                pushFeed({
+                  from: "system",
+                  kind: "status",
+                  text: `🧾 결정사항 ${ds.length}건이 원장에 적립되었습니다 — 다음 회의부터 전 에이전트가 자동 참조합니다.`,
+                });
+              }
+            } catch {
+              /* 원장 적립 실패는 무시 */
+            }
+          })();
         } catch (e: any) {
           updateCard("pm", { state: "error", phase: undefined, error: String(e?.message ?? e), endedAt: Date.now() });
           setAgentStatus("pm", "error");
@@ -1534,11 +1682,16 @@ export const useVE = create<VEState>()((set, get) => {
       if (get().activeProject === project) set({ protoList });
     },
 
-    generatePrototype: async (feature) => {
+    generatePrototype: async (feature, playable = false) => {
       const project = get().activeProject;
       const f = feature.trim();
       if (!project || !f || get().protoBusy) return;
-      set({ protoBusy: true, protoPhase: "🛠️ 개발 인턴이 명세를 확인하고 프로토타입을 만드는 중…" });
+      set({
+        protoBusy: true,
+        protoPhase: playable
+          ? "🕹️ 개발 인턴이 플레이 가능한 그레이박스를 만드는 중… (와이어프레임보다 오래 걸림)"
+          : "🛠️ 개발 인턴이 명세를 확인하고 프로토타입을 만드는 중…",
+      });
       setAgentStatus("td", "running");
       try {
         let baseMd = get().gdd;
@@ -1549,7 +1702,7 @@ export const useVE = create<VEState>()((set, get) => {
         }
         const r = await gateway.runAgent(
           "td",
-          devPrototypePrompt(f, getSectionBody(baseMd, "## 9."), getSectionBody(baseMd, "## 1.")),
+          devPrototypePrompt(f, getSectionBody(baseMd, "## 9."), getSectionBody(baseMd, "## 1."), playable),
           `devproto-${project}-${Date.now().toString(36)}`
         );
         addUsage(r.usage, r.text);
@@ -1962,6 +2115,165 @@ export const useVE = create<VEState>()((set, get) => {
         pushFeed({ from: "system", kind: "error", text: `⚠️ 팀 리뷰 실패: ${String(e?.message ?? e).slice(0, 120)}` });
       }
       set({ planReviewBusy: false, planReviewPhase: "", meetingMembers: [] });
+    },
+
+    /* ── v1.7: QA 게이트 · 결정 원장 · 개발 착수 킷 ── */
+
+    setQaGate: (b) => {
+      try {
+        localStorage.setItem("ve-qa-gate", b ? "on" : "off");
+      } catch {
+        /* noop */
+      }
+      set({ qaGate: b });
+    },
+
+    loadDecisions: async () => {
+      const project = get().activeProject;
+      if (!project) return;
+      const decisions = await listDecisions(project);
+      if (get().activeProject === project) set({ decisions });
+    },
+
+    loadKit: async () => {
+      const project = get().activeProject;
+      if (!project) return;
+      const kitFiles = await listKitFiles(project);
+      if (get().activeProject === project) set({ kitFiles });
+    },
+
+    buildDevKit: async () => {
+      const st = get();
+      if (st.devKitBusy || st.orchRunning) return;
+      const project = st.activeProject;
+      if (!project) return;
+      let baseMd = st.gdd;
+      try {
+        baseMd = (await fetchGdd(project)).markdown;
+      } catch {
+        /* 화면 상태 사용 */
+      }
+      const panorama = buildGddPanorama(baseMd);
+      if (panorama.length < 150) {
+        pushFeed({ from: "system", kind: "error", text: "⚠️ 개발 착수 킷은 기획(GDD)이 채워진 뒤에 만들 수 있습니다 — 먼저 회의를 진행하세요." });
+        return;
+      }
+      const log = (m: string) => set((s) => ({ devKitLog: [...s.devKitLog, m] }));
+      set({ devKitBusy: true, devKitPhase: "", devKitLog: [] });
+      pushFeed({ from: "user", kind: "request", text: "🚀 개발 착수 킷 생성" });
+      const tag = `kit-${project}-${Date.now().toString(36)}`;
+      const decisionsText = decisionsBlock(get().decisions);
+      const overview = getSectionBody(baseMd, "## 1.");
+      const techSection = getSectionBody(baseMd, "## 9.");
+
+      // 1) 선임 개발자 — 유니티 개발 문서 (보고서함)
+      try {
+        set({ devKitPhase: "🛠️ 선임 개발자 — 유니티 개발 문서 작성 중… (1/5)" });
+        setAgentStatus("td", "running");
+        const r = await gateway.runAgent(
+          "td",
+          reportPrompt(AGENT_MAP["td"], DEFAULT_REPORT_TOPIC["td"], baseMd, knowledgeBlockFor("td", get().knowledge, "유니티 개발")),
+          `${tag}-doc`
+        );
+        const md = sanitizeAgentOutput(r.text);
+        addUsage(r.usage, md);
+        await saveReport(project, "td", DEFAULT_REPORT_TOPIC["td"], md);
+        await get().loadReports();
+        setAgentStatus("td", "done");
+        log("✅ 유니티 개발 문서 → 보고서함 (ZIP에 포함)");
+      } catch (e: any) {
+        setAgentStatus("td", "error");
+        log(`⚠️ 유니티 개발 문서 실패: ${String(e?.message ?? e).slice(0, 80)}`);
+      }
+
+      // 2) 밸런스 디자이너 — CSV 데이터 테이블
+      try {
+        set({ devKitPhase: "⚖️ 밸런스 디자이너 — 데이터 테이블(CSV) 작성 중… (2/5)" });
+        setAgentStatus("balance", "running");
+        const r = await gateway.runAgent("balance", balanceDataPrompt(baseMd, decisionsText), `${tag}-bal`);
+        addUsage(r.usage, r.text);
+        const files = parseFileBlocks(sanitizeAgentOutput(r.text));
+        setAgentStatus("balance", "done");
+        if (files.length > 0) {
+          const saved = await saveKitFiles(project, files);
+          log(`✅ 밸런스 데이터 ${saved}개 파일 (${files.map((f) => f.path.split("/").pop()).join(", ")})`);
+        } else {
+          log("⚠️ 밸런스 데이터: FILE 블록을 해석하지 못함 — 건너뜀");
+        }
+      } catch (e: any) {
+        setAgentStatus("balance", "error");
+        log(`⚠️ 밸런스 데이터 실패: ${String(e?.message ?? e).slice(0, 80)}`);
+      }
+
+      // 3) 아트 디렉터 — 에셋 매니페스트
+      try {
+        set({ devKitPhase: "🎨 아트 디렉터 — 에셋 매니페스트 작성 중… (3/5)" });
+        setAgentStatus("visual", "running");
+        const r = await gateway.runAgent("visual", assetManifestPrompt(baseMd), `${tag}-asset`);
+        addUsage(r.usage, r.text);
+        const files = parseFileBlocks(sanitizeAgentOutput(r.text));
+        setAgentStatus("visual", "done");
+        if (files.length > 0) {
+          await saveKitFiles(project, files);
+          log(`✅ 에셋 매니페스트 (${files[0].path})`);
+        } else {
+          log("⚠️ 에셋 매니페스트: FILE 블록을 해석하지 못함 — 건너뜀");
+        }
+      } catch (e: any) {
+        setAgentStatus("visual", "error");
+        log(`⚠️ 에셋 매니페스트 실패: ${String(e?.message ?? e).slice(0, 80)}`);
+      }
+
+      // 4) 선임 개발자 — 유니티 프로젝트 스켈레톤 (.cs 스텁)
+      try {
+        set({ devKitPhase: "🛠️ 선임 개발자 — 유니티 스켈레톤 코드 작성 중… (4/5)" });
+        setAgentStatus("td", "running");
+        const r = await gateway.runAgent("td", unityKitPrompt(baseMd, techSection), `${tag}-unity`);
+        addUsage(r.usage, r.text);
+        const files = parseFileBlocks(sanitizeAgentOutput(r.text));
+        setAgentStatus("td", "done");
+        if (files.length > 0) {
+          const saved = await saveKitFiles(project, files);
+          log(`✅ 유니티 스켈레톤 ${saved}개 파일 (unity/…)`);
+        } else {
+          log("⚠️ 유니티 스켈레톤: FILE 블록을 해석하지 못함 — 건너뜀");
+        }
+      } catch (e: any) {
+        setAgentStatus("td", "error");
+        log(`⚠️ 유니티 스켈레톤 실패: ${String(e?.message ?? e).slice(0, 80)}`);
+      }
+
+      // 5) 개발 인턴 — 플레이 가능한 그레이박스
+      try {
+        set({ devKitPhase: "🧑‍💻 개발 인턴 — 그레이박스 프로토타입 제작 중… (5/5)" });
+        setAgentStatus("td", "running");
+        const r = await gateway.runAgent(
+          "td",
+          devPrototypePrompt("코어 게임플레이 루프 (기획의 핵심 재미 1개)", techSection, overview, true),
+          `${tag}-gray`
+        );
+        addUsage(r.usage, r.text);
+        const html = extractHtml(sanitizeAgentOutput(r.text));
+        setAgentStatus("td", "done");
+        if (html) {
+          await saveKitFiles(project, [{ path: "prototype/graybox.html", content: html }]);
+          log("✅ 그레이박스 프로토타입 (prototype/graybox.html — 브라우저에서 플레이 가능)");
+        } else {
+          log("⚠️ 그레이박스: HTML을 해석하지 못함 — 건너뜀");
+        }
+      } catch (e: any) {
+        setAgentStatus("td", "error");
+        log(`⚠️ 그레이박스 실패: ${String(e?.message ?? e).slice(0, 80)}`);
+      }
+
+      await get().loadKit();
+      const n = get().kitFiles.length;
+      set({ devKitBusy: false, devKitPhase: "" });
+      pushFeed({
+        from: "system",
+        kind: "status",
+        text: n > 0 ? `🚀 개발 착수 킷 완성 — 파일 ${n}개. ZIP으로 내려받아 유니티 프로젝트를 시작하세요.` : "⚠️ 개발 착수 킷 생성 실패 — 로그를 확인하세요.",
+      });
     },
 
     /* ── GDD + 버전 히스토리 ───────────────────────── */

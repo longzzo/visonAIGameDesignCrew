@@ -440,6 +440,7 @@ export function OfficeView() {
         </div>
         <div className="office-row pm-row">
           <Desk agentId="pm" big />
+          <Desk agentId="qa" />
         </div>
         <div className="office-row">
           {row1.map((id) => (

@@ -11,6 +11,7 @@ import { useVE } from "../store";
 export function PrototypeStudio({ onClose }: { onClose: () => void }) {
   const { activeProject, protoList, protoBusy, protoPhase, generatePrototype, removePrototype } = useVE();
   const [feature, setFeature] = useState("");
+  const [playable, setPlayable] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -42,14 +43,23 @@ export function PrototypeStudio({ onClose }: { onClose: () => void }) {
             rows={2}
             disabled={protoBusy}
           />
-          <button
-            className="btn primary"
-            disabled={protoBusy || !feature.trim()}
-            onClick={() => void generatePrototype(feature)}
-            title="선임 개발자 명세 확인 → 개발 인턴이 HTML 프로토타입 생성"
-          >
-            {protoBusy ? "작업 중…" : "🧑‍💻 프로토타입 생성"}
-          </button>
+          <div className="proto-actions">
+            <label
+              className="proto-mode"
+              title="끄면 화면 흐름만 보여주는 와이어프레임, 켜면 canvas로 실제 조작 가능한 그레이박스 (더 오래 걸림)"
+            >
+              <input type="checkbox" checked={playable} onChange={(e) => setPlayable(e.target.checked)} disabled={protoBusy} />
+              🕹️ 플레이어블
+            </label>
+            <button
+              className="btn primary"
+              disabled={protoBusy || !feature.trim()}
+              onClick={() => void generatePrototype(feature, playable)}
+              title="선임 개발자 명세 확인 → 개발 인턴이 HTML 프로토타입 생성"
+            >
+              {protoBusy ? "작업 중…" : playable ? "🕹️ 그레이박스 생성" : "🧑‍💻 프로토타입 생성"}
+            </button>
+          </div>
         </div>
         {(protoBusy || protoPhase) && (
           <div className={`art-phase ${protoPhase.startsWith("⚠️") ? "error" : ""}`}>

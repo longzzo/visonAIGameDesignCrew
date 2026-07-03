@@ -1,0 +1,2 @@
+scenario_id,cause,consequence,prevention_mechanic
+1,"player reaches level 50 with 15+ attack speed, but movement speed caps at 125, making evasion impossible against level 50+ enemies with 1.3x defense and 0.8s skill timing window","player cannot dodge boss attacks, clear rate drops below 10%, churn spikes","introduce level 55+ \"Tearful Cheese Sword\" as auto-unlocked reward after 10+ throws, which ignores movement speed penalty and adds +30% attack speed, and reduce enemy defense scaling to Lv*1.1+10 after level 50"

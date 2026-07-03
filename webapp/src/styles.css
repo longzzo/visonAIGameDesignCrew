@@ -162,6 +162,8 @@ button { font-family: inherit; }
 .art-caption { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
 .proto-frame { width: 100%; aspect-ratio: 3/2; display: block; border: 0; background: #fff; pointer-events: none; }
 .proto-item figcaption { flex-wrap: wrap; }
+.proto-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; justify-content: center; }
+.proto-mode { font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 5px; white-space: nowrap; cursor: pointer; }
 
 /* ── 사무실 살아있는 배경 ─────────────────────────── */
 .office-window {
@@ -269,6 +271,17 @@ button { font-family: inherit; }
 }
 .desk.away { opacity: 0.35; }
 .desk.away .office-avatar { filter: grayscale(0.6); }
+
+/* 개발 착수 킷 패널 */
+.devkit-panel {
+  margin: 8px 12px 0; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--panel-2); font-size: 12.5px;
+}
+.devkit-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.devkit-log { margin: 8px 0 0 4px; padding-left: 16px; line-height: 1.7; }
+.devkit-files { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; }
+.devkit-files a { color: var(--text-dim); text-decoration: none; }
+.devkit-files a:hover { color: var(--accent); text-decoration: underline; }
 
 /* 아트 코너 (아트 디렉터 + 인턴 세로 배치) */
 .art-corner { display: flex; flex-direction: column; align-items: center; gap: 4px; }

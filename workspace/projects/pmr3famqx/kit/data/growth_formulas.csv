@@ -1,0 +1,7 @@
+stat,formula,level_start,level_end,notes
+health,100 * 1.12^(level-1),1,60,"base HP grows exponentially"
+attack_speed,15 * 1.09^(level-1),1,60,"base attack scales with compounding growth"
+movement_speed,80 + 0.9*(level-1) + max(0,1.5*(level-30)),1,60,"linear growth + boost after level 30"
+attack_range,120 + 1.8*(level-1),1,60,"gradual range increase with level"
+mana,0,1,60,"no mana system"
+cooldown,3.0,1,60,"fixed 3s cooldown for all attacks"

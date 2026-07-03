@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import zlib from "node:zlib";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WORKSPACE = path.resolve(__dirname, "../workspace");
@@ -1306,6 +1307,301 @@ function protoApiPlugin(): Plugin {
   };
 }
 
+/* ── 플러그인: 결정사항 원장 (조직의 기억) ── */
+
+/**
+ * 회의가 끝날 때마다 PM이 추출한 "확정 결정사항"을 projects/<id>/decisions.json에 적립한다.
+ * 다음 회의의 모든 에이전트 프롬프트에 최근 결정이 자동 주입된다.
+ */
+function decisionsApiPlugin(): Plugin {
+  const file = (id: string) => path.join(projectDir(id), "decisions.json");
+  return {
+    name: "vision-engine-decisions-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/decisions", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            const url = new URL(req.url ?? "/", "http://local");
+            const project = url.searchParams.get("project") ?? "";
+            if (!isSafeId(project) || !fs.existsSync(projectDir(project))) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: "project 확인 필요" }));
+              return;
+            }
+            const f = file(project);
+            const load = (): any[] => {
+              try {
+                return JSON.parse(fs.readFileSync(f, "utf-8"));
+              } catch {
+                return [];
+              }
+            };
+            if (req.method === "GET") {
+              res.end(JSON.stringify({ items: load() }));
+              return;
+            }
+            if (req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
+              const j = JSON.parse((await readBody(req)) || "{}");
+              const texts: string[] = Array.isArray(j.items) ? j.items.map((s: any) => String(s).slice(0, 300)).filter(Boolean) : [];
+              const source = String(j.source ?? "").slice(0, 80);
+              if (texts.length === 0) {
+                res.end(JSON.stringify({ ok: true, added: 0 }));
+                return;
+              }
+              const items = load();
+              const ts = Date.now();
+              for (const text of texts) {
+                // 동일 문구 중복 적립 방지
+                if (!items.some((it) => it.text === text)) items.push({ ts, text, source });
+              }
+              // 원장은 최근 200개까지 유지
+              fs.writeFileSync(f, JSON.stringify(items.slice(-200), null, 1), "utf-8");
+              res.end(JSON.stringify({ ok: true, added: texts.length }));
+              return;
+            }
+            res.statusCode = 405;
+            res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 300) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
+/* ── 플러그인: 개발 착수 킷 (파일 저장소 + ZIP 내보내기) ── */
+
+/** CRC32 (ZIP 포맷용) */
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(buf: Buffer): number {
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+/** 의존성 없는 ZIP 생성 (deflate) — 개발 착수 킷 다운로드용 */
+function buildZip(entries: { name: string; data: Buffer }[]): Buffer {
+  const locals: Buffer[] = [];
+  const centrals: Buffer[] = [];
+  let offset = 0;
+  const now = new Date();
+  const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | Math.floor(now.getSeconds() / 2);
+  const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 4) | now.getDate();
+  for (const e of entries) {
+    const name = Buffer.from(e.name.replace(/\\/g, "/"), "utf-8");
+    const crc = crc32(e.data);
+    const comp = zlib.deflateRawSync(e.data);
+    const lh = Buffer.alloc(30);
+    lh.writeUInt32LE(0x04034b50, 0);
+    lh.writeUInt16LE(20, 4); // version needed
+    lh.writeUInt16LE(0x0800, 6); // UTF-8 파일명 플래그
+    lh.writeUInt16LE(8, 8); // deflate
+    lh.writeUInt16LE(dosTime, 10);
+    lh.writeUInt16LE(dosDate, 12);
+    lh.writeUInt32LE(crc, 14);
+    lh.writeUInt32LE(comp.length, 18);
+    lh.writeUInt32LE(e.data.length, 22);
+    lh.writeUInt16LE(name.length, 26);
+    lh.writeUInt16LE(0, 28);
+    locals.push(lh, name, comp);
+    const ch = Buffer.alloc(46);
+    ch.writeUInt32LE(0x02014b50, 0);
+    ch.writeUInt16LE(20, 4); // made by
+    ch.writeUInt16LE(20, 6); // needed
+    ch.writeUInt16LE(0x0800, 8);
+    ch.writeUInt16LE(8, 10);
+    ch.writeUInt16LE(dosTime, 12);
+    ch.writeUInt16LE(dosDate, 14);
+    ch.writeUInt32LE(crc, 16);
+    ch.writeUInt32LE(comp.length, 20);
+    ch.writeUInt32LE(e.data.length, 24);
+    ch.writeUInt16LE(name.length, 28);
+    // extra/comment/disk/attrs 전부 0
+    ch.writeUInt32LE(offset, 42);
+    centrals.push(ch, name);
+    offset += 30 + name.length + comp.length;
+  }
+  const cdirSize = centrals.reduce((s, b) => s + b.length, 0);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(cdirSize, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, ...centrals, end]);
+}
+
+/** kit/ 하위 경로만 허용 (경로 탈출·이상 문자 차단) */
+function safeKitPath(p: string): string | null {
+  const clean = p.replace(/\\/g, "/").replace(/^\/+/, "");
+  if (!clean || clean.includes("..") || clean.length > 180) return null;
+  if (!/^[\w\-./ ()가-힣]+$/.test(clean)) return null;
+  return clean;
+}
+
+function walkDir(dir: string, base = ""): { path: string; size: number }[] {
+  if (!fs.existsSync(dir)) return [];
+  const out: { path: string; size: number }[] = [];
+  for (const name of fs.readdirSync(dir)) {
+    if (name === ".trash") continue;
+    const full = path.join(dir, name);
+    const rel = base ? `${base}/${name}` : name;
+    const st = fs.statSync(full);
+    if (st.isDirectory()) out.push(...walkDir(full, rel));
+    else out.push({ path: rel, size: st.size });
+  }
+  return out;
+}
+
+/**
+ * 개발 착수 킷 — 에이전트들이 만든 실파일(밸런스 CSV·에셋 매니페스트·유니티 스켈레톤·그레이박스)을
+ * projects/<id>/kit/ 에 저장하고, GDD·결정 원장·최근 보고서와 함께 ZIP 하나로 내보낸다.
+ */
+function kitApiPlugin(): Plugin {
+  const kitDir = (id: string) => path.join(projectDir(id), "kit");
+  return {
+    name: "vision-engine-kit-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/kit", (req, res) => {
+        void (async () => {
+          try {
+            const url = new URL(req.url ?? "/", "http://local");
+            const sub = url.pathname.replace(/\/+$/, "");
+            const project = url.searchParams.get("project") ?? "";
+            if (!isSafeId(project) || !fs.existsSync(projectDir(project))) {
+              res.statusCode = 400;
+              res.setHeader("Content-Type", "application/json; charset=utf-8");
+              res.end(JSON.stringify({ ok: false, error: "project 확인 필요" }));
+              return;
+            }
+            const dir = kitDir(project);
+
+            // ZIP 내보내기 — kit/** + GDD + 결정 원장 + 최근 보고서 5건
+            if (sub === "/zip" && req.method === "GET") {
+              const entries: { name: string; data: Buffer }[] = [];
+              for (const f of walkDir(dir)) entries.push({ name: f.path, data: fs.readFileSync(path.join(dir, f.path)) });
+              const gddFile = path.join(projectDir(project), "GDD.md");
+              if (fs.existsSync(gddFile)) entries.push({ name: "GDD.md", data: fs.readFileSync(gddFile) });
+              const decFile = path.join(projectDir(project), "decisions.json");
+              if (fs.existsSync(decFile)) {
+                try {
+                  const items = JSON.parse(fs.readFileSync(decFile, "utf-8"));
+                  const md = ["# 결정사항 원장", "", ...items.map((it: any) => `- ${new Date(it.ts).toLocaleDateString("ko-KR")} ${it.text}`)].join("\n");
+                  entries.push({ name: "decisions.md", data: Buffer.from(md, "utf-8") });
+                } catch {
+                  /* 원장 손상 시 생략 */
+                }
+              }
+              const repDir = path.join(projectDir(project), "reports");
+              if (fs.existsSync(repDir)) {
+                const reps = fs
+                  .readdirSync(repDir)
+                  .filter((f) => /^\d+\.json$/.test(f))
+                  .sort()
+                  .slice(-5);
+                for (const f of reps) {
+                  try {
+                    const r = JSON.parse(fs.readFileSync(path.join(repDir, f), "utf-8"));
+                    const safe = String(r.title ?? "report").replace(/[\\/:*?"<>|]/g, "_").slice(0, 60);
+                    entries.push({ name: `reports/${f.replace(".json", "")}-${safe}.md`, data: Buffer.from(String(r.markdown ?? ""), "utf-8") });
+                  } catch {
+                    /* 개별 보고서 손상 시 생략 */
+                  }
+                }
+              }
+              if (entries.length === 0) {
+                res.statusCode = 404;
+                res.setHeader("Content-Type", "application/json; charset=utf-8");
+                res.end(JSON.stringify({ ok: false, error: "킷이 비어 있습니다 — 먼저 개발 착수 킷을 생성하세요" }));
+                return;
+              }
+              const zip = buildZip(entries);
+              res.setHeader("Content-Type", "application/zip");
+              res.setHeader("Content-Disposition", `attachment; filename="dev-kit-${project}.zip"`);
+              res.end(zip);
+              return;
+            }
+
+            // 개별 파일 서빙 (미리보기)
+            if (sub === "/file" && req.method === "GET") {
+              const rel = safeKitPath(url.searchParams.get("path") ?? "");
+              const f = rel ? path.join(dir, rel) : "";
+              if (!rel || !f.startsWith(dir) || !fs.existsSync(f)) {
+                res.statusCode = 404;
+                res.end("not found");
+                return;
+              }
+              const mime = f.endsWith(".html") ? "text/html" : f.endsWith(".csv") ? "text/csv" : "text/plain";
+              res.setHeader("Content-Type", `${mime}; charset=utf-8`);
+              fs.createReadStream(f).pipe(res);
+              return;
+            }
+
+            res.setHeader("Content-Type", "application/json; charset=utf-8");
+
+            // 파일 목록
+            if (req.method === "GET") {
+              res.end(JSON.stringify({ files: walkDir(dir) }));
+              return;
+            }
+
+            // 파일 일괄 저장 (에이전트 산출물)
+            if (sub === "/files" && req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
+              const j = JSON.parse((await readBody(req)) || "{}");
+              const files: any[] = Array.isArray(j.files) ? j.files : [];
+              let saved = 0;
+              for (const it of files.slice(0, 30)) {
+                const rel = safeKitPath(String(it?.path ?? ""));
+                const content = String(it?.content ?? "");
+                if (!rel || !content || content.length > 300_000) continue;
+                const full = path.join(dir, rel);
+                if (!full.startsWith(dir)) continue;
+                fs.mkdirSync(path.dirname(full), { recursive: true });
+                fs.writeFileSync(full, content, "utf-8");
+                saved++;
+              }
+              res.end(JSON.stringify({ ok: true, saved }));
+              return;
+            }
+
+            // 킷 비우기 (휴지통으로)
+            if (req.method === "DELETE") {
+              if (blockRemoteWrite(req, res)) return;
+              for (const f of walkDir(dir)) trashFile(path.join(dir, f.path));
+              res.end(JSON.stringify({ ok: true }));
+              return;
+            }
+
+            res.statusCode = 405;
+            res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            try {
+              res.setHeader("Content-Type", "application/json; charset=utf-8");
+            } catch {
+              /* 헤더 이미 전송됨 */
+            }
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 300) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
 /* ── 플러그인: 사무실 배경 (아트 인턴이 그리는 커스텀 배경) ── */
 
 /**
@@ -1796,6 +2092,8 @@ export default defineConfig({
     reportsApiPlugin(),
     artApiPlugin(),
     protoApiPlugin(),
+    decisionsApiPlugin(),
+    kitApiPlugin(),
     officeBgPlugin(),
     knowledgeApiPlugin(),
     obsidianApiPlugin(),

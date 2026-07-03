@@ -122,6 +122,14 @@ export function OrchestrationView() {
     modelName,
     orchBaseline,
     setMeetingDiffOpen,
+    qaGate,
+    setQaGate,
+    buildDevKit,
+    devKitBusy,
+    devKitPhase,
+    devKitLog,
+    kitFiles,
+    activeProject,
   } = useVE();
   const bottomRef = useRef<HTMLDivElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
@@ -215,6 +223,10 @@ export function OrchestrationView() {
               <input type="checkbox" checked={crossReview} onChange={(e) => setCrossReview(e.target.checked)} disabled={orchRunning} />
               교차 검토
             </label>
+            <label title="QA 디렉터가 산출물을 루브릭(완결성·구체성·일관성·구현가능성)으로 채점하고, 미달이면 1회 반려·재작성시킵니다 (호출 수 증가)">
+              <input type="checkbox" checked={qaGate} onChange={(e) => setQaGate(e.target.checked)} disabled={orchRunning} />
+              🧪 QA 게이트
+            </label>
             <label
               title={
                 braveOk
@@ -291,6 +303,20 @@ export function OrchestrationView() {
                 >
                   🎪 풀 기획 회의
                 </button>
+                <button
+                  className="btn"
+                  onClick={() => void buildDevKit()}
+                  disabled={devKitBusy}
+                  title="현재 GDD를 근거로 유니티 개발 문서 + 밸런스 CSV + 에셋 매니페스트 + 유니티 스켈레톤 코드 + 플레이 가능한 그레이박스를 체인으로 생성하고 ZIP 하나로 내보냅니다"
+                >
+                  {devKitBusy ? (
+                    <>
+                      <span className="spinner" /> 킷 생성 중…
+                    </>
+                  ) : (
+                    "📦 개발 착수 킷"
+                  )}
+                </button>
                 <button className="btn primary" onClick={() => void startOrch()} disabled={!orchRequest.trim()}>
                   🚀 시작
                 </button>
@@ -321,6 +347,47 @@ export function OrchestrationView() {
           </div>
         );
       })()}
+
+      {/* 개발 착수 킷 — 진행 로그 + 완성 파일 목록 + ZIP 다운로드 */}
+      {(devKitBusy || devKitLog.length > 0) && (
+        <div className="devkit-panel">
+          <div className="devkit-head">
+            <b>📦 개발 착수 킷</b>
+            {devKitBusy && devKitPhase && (
+              <span className="dim">
+                <span className="spinner" /> {devKitPhase}
+              </span>
+            )}
+            {!devKitBusy && kitFiles.length > 0 && (
+              <a className="btn small primary" href={`/api/kit/zip?project=${encodeURIComponent(activeProject)}`}>
+                ⬇️ ZIP 다운로드 ({kitFiles.length}개 파일 + GDD/보고서)
+              </a>
+            )}
+          </div>
+          {devKitLog.length > 0 && (
+            <ul className="devkit-log">
+              {devKitLog.map((l, i) => (
+                <li key={i}>{l}</li>
+              ))}
+            </ul>
+          )}
+          {!devKitBusy && kitFiles.length > 0 && (
+            <div className="devkit-files dim">
+              {kitFiles.map((f) => (
+                <a
+                  key={f.path}
+                  href={`/api/kit/file?project=${encodeURIComponent(activeProject)}&path=${encodeURIComponent(f.path)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={`${(f.size / 1000).toFixed(1)}KB`}
+                >
+                  {f.path.endsWith(".html") ? "🕹️" : f.path.endsWith(".csv") ? "📊" : "📄"} {f.path}
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 진행 상태 스트립 */}
       {cardList.length > 0 && (

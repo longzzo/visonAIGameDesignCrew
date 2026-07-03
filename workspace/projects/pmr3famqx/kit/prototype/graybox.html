@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>물리 기반 수리검 스킨 시스템 - 그레이박스 프로토타입 — 개발 인턴 draft</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+      font-family: 'Segoe UI', sans-serif; 
+      background: #1a1a1a; 
+      color: #e0e0e0; 
+      overflow: hidden; 
+      touch-action: none; 
+      height: 100vh; 
+      display: flex; 
+      flex-direction: column; 
+    }
+    #header { 
+      padding: 12px; 
+      text-align: center; 
+      font-size: 16px; 
+      font-weight: 500; 
+      background: #2d2d2d; 
+      border-bottom: 1px solid #444; 
+    }
+    #game-container { 
+      flex: 1; 
+      position: relative; 
+      overflow: hidden; 
+      display: flex; 
+      justify-content: center; 
+      align-items: center; 
+    }
+    #canvas { 
+      background: #0a1a0a; 
+      max-width: 100%; 
+      max-height: 100%; 
+    }
+    #instructions { 
+      padding: 14px; 
+      text-align: center; 
+      font-size: 14px; 
+      background: #222; 
+      border-top: 1px solid #444; 
+      line-height: 1.4; 
+    }
+    #stats { 
+      padding: 8px 12px; 
+      font-size: 12px; 
+      background: #1a1a1a; 
+      color: #aaa; 
+      text-align: center; 
+    }
+
+    /* Mobile layout */
+    @media (max-width: 480px) {
+      #header { font-size: 14px; padding: 10px; }
+      #instructions { font-size: 13px; padding: 12px; }
+      #stats { font-size: 11px; }
+    }
+
+    /* UI elements */
+    .control-label { 
+      display: block; 
+      margin-top: 8px; 
+      font-weight: 500; 
+      color: #888; 
+    }
+    .value-display { 
+      font-family: monospace; 
+      font-weight: bold; 
+      color: #00ff88; 
+    }
+  </style>
+</head>
+<body>
+  <div id="header">물리 기반 수리검 스킨 시스템 - 그레이박스 프로토타입 — 개발 인턴 draft</div>
+  <div id="game-container">
+    <canvas id="canvas" width="400" height="600"></canvas>
+  </div>
+  <div id="instructions">
+    <div>손가락으로 밀거나 키보드 방향키로 던지세요</div>
+    <div>치즈: 튕김 | 생선: 미끄러짐 | 김치: 폭발</div>
+    <div>3회 클리어 시 보상: 무기 레벨 +1, 아이템 확률 +15%</div>
+  </div>
+  <div id="stats">레벨: <span class="value-display" id="level">1</span> | 클리어: <span class="value-display" id="clears">0</span> | 점수: <span class="value-display" id="score">0</span></div>
+
+  <script>
+    // CONFIG - 오너가 즉시 튜닝 가능
+    const CONFIG = {
+      // 물리 속성 (Box2D 기반)
+      PHYSICS: {
+        GRAVITY: 9.8,
+        CHEESE_RESTITUTION: 0.85,   // 튕김 계수 (0~1)
+        FISH_FRICTION: 0.05,        // 미끄러짐 계수 (0=매우 미끄러움)
+        KIMCHI_EXPLOSION_FORCE: 15, // 폭발 힘 (N)
+        MAX_BOUNCE_COUNT: 3,        // 최대 충돌 회수
+        COOLDOWN: 0.1               // 충돌 쿨다운 (초)
+      },
+      // 입력 및 애니메이션
+      INPUT: {
+        SWIPE_MIN_DISTANCE: 40,     // 스와이프 감지 최소 거리 (px)
+        SWIPE_MIN_DURATION: 80,     // 최소 스와이프 지속시간 (ms)
+        ANIMATION_DELAY: 0.05,      // 무게감 지연 (초) — 이동 중 무시
+        MAX_FORCE: 12               // 최대 던지기 힘 (임의 단위)
+      },
+      // 게임 로직
+      GAME: {
+        MAP_SIZE: 12,
+        CELL_SIZE: 30,
+        TARGET_CLEAR_COUNT: 3,
+        SCORE_PER_HIT: 10,
+        ITEM_PROBABILITY_BONUS: 0.15, // 15% 증가
+        LEVEL_UP_BONUS: 1
+      }
+    };
+
+    // 상태
+    let state = {
+      level: 1,
+      clears: 0,
+      score: 0,
+      skin: 'cheese', // cheese, fish, kimchi
+      lastBounceTime: 0,
+      bounceCount: 0,
+      weaponPower: 1,
+      gameOver: false,
+      lastTouch: null,
+      touchStart: null,
+      touchEnd: null,
+      isDragging: false,
+      isThrown: false,
+      lastThrowTime: 0
+    };
+
+    // 캔버스 초기화
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    const width = canvas.width = rect.width;
+    const height = canvas.height = rect.height;
+
+    // 게임 오브젝트
+    let sword = {
+      x: width / 2,
+      y: height - 100,
+      vx: 0,
+      vy: 0,
+      radius: 12,
+      color: '#a0d8f1',
+      skin: 'cheese',
+      lastBounce: 0,
+      bounceCount: 0,
+      isMoving: false,
+      isOnGround: false
+    };
+
+    let obstacles = [];
+    let items = [];
+
+    // 초기 맵 생성
+    function generateMap() {
+      obstacles = [];
+      items = [];
+      const cellSize = CONFIG.GAME.CELL_SIZE;
+      const cols = Math.floor(width / cellSize);
+      const rows = Math.floor(height / cellSize);
+
+      // 장애물 생성 (확률: 20%)
+      for (let i = 0; i < cols; i++) {
+        for (let j = 0; j < rows; j++) {
+          if (Math.random() < 0.2 && !(i === Math.floor(cols/2) && j === Math.floor(rows/2))) {
+            obstacles.push({
+              x: i * cellSize + cellSize/2,
+              y: j * cellSize + cellSize/2,
+              width: cellSize,
+              height: cellSize,
+              color: '#3a5a3a'
+            });
+          }
+        }
+      }
+
+      // 아이템 생성 (확률: 10%)
+      for (let i = 0; i < cols; i++) {
+        for (let j = 0; j < rows; j++) {
+          if (Math.random() < 0.1 && Math.abs(i - Math.floor(cols/2)) > 2 && Math.abs(j - Math.floor(rows/2)) > 2) {
+            items.push({
+              x: i * cellSize + cellSize/2,
+              y: j * cellSize + cellSize/2,
+              radius: 8,
+              color: '#ffd700'
+            });
+          }
+        }
+      }
+    }
+
+    // 스킨 변경 (P0 기능)
+    function changeSkin() {
+      const skins = ['cheese', 'fish', 'kimchi'];
+      const currentIndex = skins.indexOf(state.skin);
+      state.skin = skins[(currentIndex + 1) % skins.length];
+      sword.skin = state.skin;
+      sword.bounceCount = 0;
+      sword.lastBounce = 0;
+    }
+
+    // 터치/마우스 이벤트
+    function handleTouchStart(e) {
+      e.preventDefault();
+      const touch = e.touches[0];
+      state.touchStart = { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+      state.isDragging = true;
+      state.lastTouch = state.touchStart;
+    }
+
+    function handleTouchMove(e) {
+      e.preventDefault();
+      if (!state.isDragging) return;
+      const touch = e.touches[0];
+      state.lastTouch = { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+    }
+
+    function handleTouchEnd(e) {
+      e.preventDefault();
+      if (!state.isDragging) return;
+      state.isDragging = false;
+      state.touchEnd = { x: state.lastTouch.x, y: state.lastTouch.y };
+      if (state.touchStart) {
+        const dx = state.touchEnd.x - state.touchStart.x;
+        const dy = state.touchEnd.y - state.touchStart.y;
+        const distance = Math.sqrt(dx*dx + dy*dy);
+        const duration = Date.now() - state.touchStart.time;
+        
+        if (distance >= CONFIG.INPUT.SWIPE_MIN_DISTANCE && duration >= CONFIG.INPUT.SWIPE_MIN_DURATION) {
+          const force = Math.min(distance / 20, CONFIG.INPUT.MAX_FORCE);
+          const angle = Math.atan2(dy, dx);
+          sword.vx = Math.cos(angle) * force;
+          sword.vy = Math.sin(angle) * force;
+          sword.isMoving = true;
+          state.lastThrowTime = Date.now();
+          state.isThrown = true;
+        }
+      }
+      state.touchStart = null;
+      state.touchEnd = null;
+    }
+
+    // 키보드 이벤트
+    document.addEventListener('keydown', (e) => {
+      if (state.gameOver) return;
+      if (e.key === ' ') {
+        changeSkin();
+      } else if (e.key === 'ArrowUp' || e.key === 'w') {
+        sword.vx = 0;
+        sword.vy = -CONFIG.INPUT.MAX_FORCE * 1.5;
+        sword.isMoving = true;
+        state.lastThrowTime = Date.now();
+        state.isThrown = true;
+      } else if (e.key === 'ArrowDown' || e.key === 's') {
+        sword.vx = 0;
+        sword.vy = CONFIG.INPUT.MAX_FORCE * 1.5;
+        sword.isMoving = true;
+        state.lastThrowTime = Date.now();
+        state.isThrown = true;
+      } else if (e.key === 'ArrowLeft' || e.key === 'a') {
+        sword.vx = -CONFIG.INPUT.MAX_FORCE * 1.5;
+        sword.vy = 0;
+        sword.isMoving = true;
+        state.lastThrowTime = Date.now();
+        state.isThrown = true;
+      } else if (e.key === 'ArrowRight' || e.key === 'd') {
+        sword.vx = CONFIG.INPUT.MAX_FORCE * 1.5;
+        sword.vy = 0;
+        sword.isMoving = true;
+        state.lastThrowTime = Date.now();
+        state.isThrown = true;
+      }
+    });
+
+    // 충돌 감지 및 처리
+    function checkCollisions() {
+      // 장애물 충돌
+      for (let obs of obstacles) {
+        if (sword.x + sword.radius > obs.x - obs.width/2 &&
+            sword.x - sword.radius < obs.x + obs.width/2 &&
+            sword.y + sword.radius > obs.y - obs.height/2 &&
+            sword.y - sword.radius < obs.y + obs.height/2) {
+          
+          // 충돌 방향 계산
+          const dx = sword.x - obs.x;
+          const dy = sword.y - obs.y;
+          const dist = Math.sqrt(dx*dx + dy*dy);
+          if (dist === 0) continue;
+
+          const nx = dx / dist;
+          const ny = dy / dist;
+
+          // 속도 반사
+          const dot = sword.vx * nx + sword.vy * ny;
+          sword.vx -= 2 * dot * nx;
+          sword.vy -= 2 * dot * ny;
+
+          // 스킨별 물리 효과
+          const now = Date.now();
+          if (now - sword.lastBounce > CONFIG.PHYSICS.COOLDOWN * 1000) {
+            sword.bounceCount++;
+            sword.lastBounce = now;
+            
+            if (sword.bounceCount > CONFIG.PHYSICS.MAX_BOUNCE_COUNT) {
+              sword.vx *= 0.5;
+              sword.vy *= 0.5;
+              sword.bounceCount = CONFIG.PHYSICS.MAX_BOUNCE_COUNT;
+            }
+            
+            if (sword.skin === 'cheese') {
+              sword.vx *= CONFIG.PHYSICS.CHEESE_RESTITUTION;
+              sword.vy *= CONFIG.PHYSICS.CHEESE_RESTITUTION;
+            } else if (sword.skin === 'fish') {
+              sword.vx *= 0.95;
+              sword.vy *= 0.95;
+            } else if (sword.skin === 'kimchi') {
+              sword.vx += (Math.random() - 0.5) * CONFIG.PHYSICS.KIMCHI_EXPLOSION_FORCE;
+              sword.vy += (Math.random() - 0.5) * CONFIG.PHYSICS.KIMCHI_EXPLOSION_FORCE;
+            }
+          }
+          
+          // 위치 보정
+          const overlap = sword.radius + Math.max(obs.width, obs.height)/2 - dist;
+          if (overlap > 0) {
+            sword.x += nx * overlap * 1.1;
+            sword.y += ny * overlap * 1.1;
+          }
+        }
+      }
+
+      // 아이템 수집
+      for (let i = items.length - 1; i >= 0; i--) {
+        const item = items[i];
+        const dx = sword.x - item.x;
+        const dy = sword.y - item.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        
+        if (dist < sword.radius + item.radius) {
+          items.splice(i, 1);
+          state.score += CONFIG.GAME.SCORE_PER_HIT;
+          updateStats();
+          
+          // 아이템 확률 보상 적용
+          if (state.clears >= CONFIG.GAME.TARGET_CLEAR_COUNT) {
+            state.weaponPower += CONFIG.GAME.LEVEL_UP_BONUS;
+            state.level += CONFIG.GAME.LEVEL_UP_BONUS;
+            state.clears = 0;
+            updateStats();
+          }
+        }
+      }
+
+      // 바닥 충돌
+      if (sword.y + sword.radius > height) {
+        sword.y = height - sword.radius;
+        sword.vy *= -0.7;
+        if (Math.abs(sword.vy) < 0.5) sword.vy = 0;
+        state.isOnGround = true;
+      } else {
+        state.isOnGround = false;
+      }
+
+      // 벽 충돌
+      if (sword.x + sword.radius > width) {
+        sword.x = width - sword.radius;
+        sword.vx *= -0.7;
+      } else if (sword.x - sword.radius < 0) {
+        sword.x = sword.radius;
+        sword.vx *= -0.7;
+      }
+    }
+
+    // 게임 루프
+    function update() {
+      if (state.gameOver) return;
+
+      // 중력 적용
+      sword.vy += CONFIG.PHYSICS.GRAVITY * 0.016;
+
+      // 무게감 시각화 지연 (0.05s만 적용, 이동 중 무시)
+      if (state.isThrown && Date.now() - state.lastThrowTime < CONFIG.INPUT.ANIMATION_DELAY * 1000) {
+        // 지연 적용 - 애니메이션 효과 없이 물리만 진행
+      }
+
+      // 이동
+      sword.x += sword.vx;
+      sword.y += sword.vy;
+
+      // 마찰력 (기본)
+      sword.vx *= 0.99;
+      sword.vy *= 0.99;
+
+      // 속도 제한
+      if (Math.abs(sword.vx) < 0.1) sword.vx = 0;
+      if (Math.abs(sword.vy) < 0.1) sword.vy = 0;
+
+      // 충돌 처리
+      checkCollisions();
+
+      // 떨어진 경우 게임 오버
+      if (sword.y > height + 100) {
+        state.gameOver = true;
+        setTimeout(() => {
+          resetGame();
+        }, 1000);
+      }
+
+      // 아이템이 없으면 랜덤 맵 재생성
+      if (items.length === 0 && !state.gameOver) {
+        state.clears++;
+        updateStats();
+        generateMap();
+      }
+    }
+
+    function render() {
+      ctx.clearRect(0, 0, width, height);
+      
+      // 배경
+      ctx.fillStyle = '#0a1a0a';
+      ctx.fillRect(0, 0, width, height);
+      
+      // 장애물
+      ctx.fillStyle = '#3a5a3a';
+      for (let obs of obstacles) {
+        ctx.fillRect(obs.x - obs.width/2, obs.y - obs.height/2, obs.width, obs.height);
+      }
+      
+      // 아이템
+      ctx.fillStyle = '#ffd700';
+      for (let item of items) {
+        ctx.beginPath();
+        ctx.arc(item.x, item.y, item.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      
+      // 수리검
+      ctx.fillStyle = sword.skin === 'cheese' ? '#f0e68c' : 
+                     sword.skin === 'fish' ? '#4682b4' : '#8b0000';
+      ctx.beginPath();
+      ctx.arc(sword.x, sword.y, sword.radius, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // 검날
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sword.x, sword.y);
+      const angle = Math.atan2(sword.vy, sword.vx);
+      ctx.lineTo(sword.x + Math.cos(angle) * 20, sword.y + Math.sin(angle) * 20);
+      ctx.stroke();
+      
+      // 스킨 라벨
+      ctx.fillStyle = '#fff';
+      ctx.font = '12px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(sword.skin.toUpperCase(), sword.x, sword.y - 25);
+      
+      // 터치 가이드
+      if (state.isDragging && !state.isThrown) {
+        ctx.strokeStyle = 'rgba(0,255,255,0.5)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5,5]);
+        ctx.beginPath();
+        ctx.moveTo(sword.x, sword.y);
+        ctx.lineTo(state.lastTouch.x, state.lastTouch.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+
+    function updateStats() {
+      document.getElementById('level').textContent = state.level;
+      document.getElementById('clears').textContent = state.clears;
+      document.getElementById('score').textContent = state.score;
+    }
+
+    function resetGame() {
+      sword.x = width / 2;
+      sword.y = height - 100;
+      sword.vx = 0;
+      sword.vy = 0;
+      sword.bounceCount = 0;
+      sword.lastBounce = 0;
+      state.gameOver = false;
+      state.isThrown = false;
+      generateMap();
+      updateStats();
+    }
+
+    // 이벤트 리스너 등록
+    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+    canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+    canvas.addEventListener('mousedown', handleTouchStart, { passive: false });
+    canvas.addEventListener('mousemove', handleTouchMove, { passive: false });
+    canvas.addEventListener('mouseup', handleTouchEnd, { passive: false });
+
+    // 초기화
+    generateMap();
+    updateStats();
+
+    // 게임 루프
+    function gameLoop() {
+      update();
+      render();
+      requestAnimationFrame(gameLoop);
+    }
+
+    gameLoop();
+  </script>
+</body>
+</html>

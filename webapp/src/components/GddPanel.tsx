@@ -239,7 +239,7 @@ export function GddPanel() {
       )}
 
       <div className="section-chips">
-        {AGENTS.map((a) => (
+        {AGENTS.filter((a) => !a.staff).map((a) => (
           <button key={a.id} className="chip mini" onClick={() => scrollToSection(a.section)} title={a.name}>
             {a.emoji} {a.sectionTitle}
           </button>

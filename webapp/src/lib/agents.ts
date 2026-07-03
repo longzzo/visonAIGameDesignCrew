@@ -9,6 +9,8 @@ export interface AgentDef {
   section: string;
   sectionTitle: string;
   color: string;
+  /** 지원 역할(GDD 섹션 없음) — 오케스트레이션 팬아웃·팀 리뷰 대상에서 제외 */
+  staff?: boolean;
 }
 
 export const AGENTS: AgentDef[] = [
@@ -23,14 +25,15 @@ export const AGENTS: AgentDef[] = [
   { id: "td", name: "선임 개발자", emoji: "🛠️", role: "개발 명세·기능 목록·개발 순서(로드맵)·기술 리스크", section: "## 9.", sectionTitle: "기술", color: "#38bdf8" },
   { id: "scheduler", name: "스케줄러", emoji: "📅", role: "일정 설계·마일스톤·대회 역산", section: "## 10.", sectionTitle: "일정", color: "#fb923c" },
   { id: "marketing", name: "마케팅 담당관", emoji: "📢", role: "마케팅 전략·트렌드 조사 (웹서치 기본)", section: "## 11.", sectionTitle: "마케팅", color: "#f87171" },
+  { id: "qa", name: "QA 디렉터", emoji: "🧪", role: "산출물 품질 채점·반려 (섹션 없음)", section: "## —", sectionTitle: "품질", color: "#94a3b8", staff: true },
 ];
 
 export const AGENT_MAP: Record<string, AgentDef> = Object.fromEntries(
   AGENTS.map((a) => [a.id, a])
 );
 
-/** PM을 제외한 전문 에이전트 목록 (오케스트레이션 팬아웃 대상) */
-export const SPECIALISTS = AGENTS.filter((a) => a.id !== "pm");
+/** PM·지원 역할을 제외한 전문 에이전트 목록 (오케스트레이션 팬아웃 대상) */
+export const SPECIALISTS = AGENTS.filter((a) => a.id !== "pm" && !a.staff);
 
 /**
  * 교차 검토 배정 — 각 산출물을 가장 이해관계가 얽힌 동료가 검토한다.
@@ -73,12 +76,20 @@ export function specialistPrompt(
   currentSection = "",
   overview = "",
   focus = "",
-  knowledge = ""
+  knowledge = "",
+  panorama = "",
+  decisions = ""
 ): string {
   const hasExisting = currentSection.trim().length > 0;
   const parts: string[] = [];
   if (overview.trim()) {
     parts.push(`[프로젝트 개요 — 참고용]`, overview.trim().slice(0, 400), ``);
+  }
+  if (panorama.trim()) {
+    parts.push(`[전체 기획 조감도 — 모든 섹션의 현재 요약. 다른 파트와 모순되게 쓰지 마라]`, panorama.trim().slice(0, 2600), ``);
+  }
+  if (decisions.trim()) {
+    parts.push(`[확정된 결정사항 — 지난 회의들의 결론이다. 뒤집으려면 명시적 근거를 대라]`, decisions.trim().slice(0, 900), ``);
   }
   if (knowledge.trim()) {
     parts.push(`[스튜디오가 학습한 이론 — 판단에 활용해라]`, knowledge.trim().slice(0, 1200), ``);
@@ -184,6 +195,7 @@ export const DEFAULT_REPORT_TOPIC: Record<string, string> = {
   td: "유니티 개발 문서 (아키텍처 + 폴더구조 + 핵심 스크립트 설계 + 개발 순서/로드맵)",
   scheduler: "개발 일정표 (목표일과 요구 수준을 함께 적어주세요)",
   marketing: "마케팅 전략 보고서 (최신 트렌드 웹 조사 포함)",
+  qa: "품질 감사 보고서 (GDD 전 섹션 루브릭 채점 + 반려 지적)",
 };
 
 /**
@@ -290,10 +302,11 @@ export function sdPromptPrompt(request: string, artSection: string, overview: st
  * 개발 인턴 페이퍼 프로토타입 — 선임 개발자(td)가 확정한 개발 명세 중 기능 하나를 골라
  * 클릭 가능한 정적 HTML 와이어프레임 한 장으로 뽑아낸다 (실제 프론트엔드 코드가 아님).
  */
-export function devPrototypePrompt(feature: string, techSpec: string, overview: string): string {
+export function devPrototypePrompt(feature: string, techSpec: string, overview: string, playable = false): string {
   return [
-    `너는 개발 인턴이다. 선임 개발자(테크니컬 디렉터)가 확정한 개발 명세 중 아래 기능 하나의`,
-    `종이 프로토타입(paper prototype)을 자기완결적 HTML 한 장으로 만들어라.`,
+    playable
+      ? `너는 개발 인턴이다. 아래 기능의 **플레이 가능한 그레이박스**를 자기완결적 HTML 한 장으로 만들어라 — 실제로 조작해서 코어 루프를 느낄 수 있어야 한다.`
+      : `너는 개발 인턴이다. 선임 개발자가 확정한 개발 명세 중 아래 기능 하나의 종이 프로토타입(paper prototype)을 자기완결적 HTML 한 장으로 만들어라.`,
     overview.trim() ? `[프로젝트 개요]\n${overview.trim().slice(0, 300)}` : ``,
     techSpec.trim() ? `[선임 개발자가 확정한 개발 명세 — 이 안에서 기능을 찾아 구현해라]\n${techSpec.slice(0, 1500)}` : ``,
     `[만들 기능]`,
@@ -305,9 +318,18 @@ export function devPrototypePrompt(feature: string, techSpec: string, overview: 
     `- 반응형 웹앱으로 만들어라: <meta name="viewport" content="width=device-width, initial-scale=1">를 반드시 넣고,`,
     `  고정 px 박스 대신 %/vw·max-width·flex/grid로 레이아웃해서 모바일(360px)부터 데스크톱까지 자연스럽게 리플로우되게 해라.`,
     `  최소 1개의 @media (max-width: 480px) 규칙으로 좁은 화면에서 레이아웃(예: 그리드 열 수·폰트 크기)을 조정해라.`,
-    `- 손그림 와이어프레임 느낌으로: 굵은 테두리 박스, 회색조 배경, 손글씨풍 폰트(cursive/sans-serif), 버튼은 사각형 테두리로 표현.`,
-    `- 화면이 여러 개면 <script> 안의 순수 JS로 탭/버튼 클릭 시 화면을 전환하는 정도만 (실제 로직 구현 금지, 화면 흐름만 보여주면 됨).`,
-    `- 상단에 기능명과 "페이퍼 프로토타입 — 개발 인턴 draft" 라벨을 표시해라.`,
+    ...(playable
+      ? [
+          `- <canvas> + 순수 JS(requestAnimationFrame)로 코어 루프 1개를 실제로 돌아가게 구현해라: 조작 입력 → 반응 → 점수/자원 변화 → 실패/리셋.`,
+          `- 그래픽은 도형(사각형·원)만 — 그레이박스다. 아트 금지, 게임필(조작감)에 집중해라.`,
+          `- 키보드와 터치(모바일) 입력 둘 다 지원해라. 화면에 조작법을 표시해라.`,
+          `- 수치(속도·쿨다운·점수)는 코드 상단 const CONFIG 객체로 모아라 — 오너가 열어서 바로 튜닝할 수 있게.`,
+        ]
+      : [
+          `- 손그림 와이어프레임 느낌으로: 굵은 테두리 박스, 회색조 배경, 손글씨풍 폰트(cursive/sans-serif), 버튼은 사각형 테두리로 표현.`,
+          `- 화면이 여러 개면 <script> 안의 순수 JS로 탭/버튼 클릭 시 화면을 전환하는 정도만 (실제 로직 구현 금지, 화면 흐름만 보여주면 됨).`,
+        ]),
+    `- 상단에 기능명과 "${playable ? "그레이박스 프로토타입" : "페이퍼 프로토타입"} — 개발 인턴 draft" 라벨을 표시해라.`,
     `- 한국어 라벨 사용.`,
     `- 도구/함수 호출(파일 쓰기·읽기·실행 등) 절대 금지. 파일로 저장하지 말고 HTML 전체를 바로 이 응답의 텍스트로 출력해라.`,
   ]
@@ -542,6 +564,219 @@ export function planReviewPrompt(agent: AgentDef, brief: string, ownSection: str
     `- <개선이 필요한 구체적 지점 최대 3개, 없으면 "특이사항 없음">`,
     `### 총평`,
     `<이 기획에 대한 한줄 평가 — 강점과 우려를 균형있게>`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/* ═══════════ v1.7: 품질 게이트 · 결정 원장 · 개발 착수 킷 ═══════════ */
+
+/**
+ * GDD 전체 조감도 — 각 "## " 섹션의 앞부분만 잘라 이어붙인 비-LLM 요약.
+ * 에이전트가 조각이 아니라 전체 그림을 보고 쓰게 한다 (LLM 호출 없음, 무료).
+ */
+export function buildGddPanorama(md: string, perSection = 200): string {
+  const out: string[] = [];
+  const re = /^##\s+(.+)$/gm;
+  const heads: { title: string; idx: number }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(md)) !== null) heads.push({ title: m[1].trim(), idx: m.index + m[0].length });
+  for (let i = 0; i < heads.length; i++) {
+    const end = i + 1 < heads.length ? md.lastIndexOf("##", heads[i + 1].idx - 3) : md.length;
+    const body = md
+      .slice(heads[i].idx, end)
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, "") // 이미지 제거
+      .replace(/\s+/g, " ")
+      .trim();
+    if (body) out.push(`▸ ${heads[i].title}: ${body.slice(0, perSection)}${body.length > perSection ? "…" : ""}`);
+  }
+  return out.join("\n").slice(0, 2600);
+}
+
+/**
+ * QA 디렉터 루브릭 채점 — 산출물을 4개 항목 10점 척도로 채점하고
+ * 미달이면 실행 가능한 반려 지적을 남긴다.
+ */
+export function qaScorePrompt(author: AgentDef, draft: string, panorama: string, request: string): string {
+  return [
+    `너는 QA 디렉터다. ${author.name}(${author.role})가 작성한 "${author.sectionTitle}" 산출물을 채점해라.`,
+    ``,
+    `[원래 지시]`,
+    request.trim().slice(0, 400),
+    ``,
+    panorama.trim() ? `[전체 기획 조감도 — 일관성 판정 기준]\n${panorama.slice(0, 2000)}\n` : ``,
+    `[채점 대상 산출물]`,
+    draft.slice(0, 3000),
+    ``,
+    `4개 항목을 1~10점으로 채점해라. 9~10점은 상용 기획서 수준일 때만. 두루뭉술하면 구체성에 5점 이하를 줘라.`,
+    `출력은 정확히 아래 형식만 (다른 말·도구 호출 금지):`,
+    `완결성: <1-10>`,
+    `구체성: <1-10>`,
+    `일관성: <1-10>`,
+    `구현가능성: <1-10>`,
+    `총평: <한 줄 — 근거 문장을 인용해서>`,
+    `반려지적: <7점 미만 항목이 있으면 고칠 것을 불릿 최대 3개로. 전부 7점 이상이면 "없음">`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export interface QaVerdict {
+  scores: Record<string, number>;
+  avg: number;
+  min: number;
+  pass: boolean;
+  summary: string;
+  notes: string;
+}
+
+/** qaScorePrompt 응답 파싱 — 평균 7 미만 또는 5점 이하 항목 존재 시 반려 */
+export function parseQaScore(text: string): QaVerdict | null {
+  const cats = ["완결성", "구체성", "일관성", "구현가능성"];
+  const scores: Record<string, number> = {};
+  for (const c of cats) {
+    const m = new RegExp(`${c}\\s*[:：]\\s*\\**\\s*(10|[1-9])`, "m").exec(text);
+    if (!m) return null;
+    scores[c] = Number(m[1]);
+  }
+  const vals = cats.map((c) => scores[c]);
+  const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+  const min = Math.min(...vals);
+  const summary = /총평\s*[:：]\s*(.+)/.exec(text)?.[1]?.trim() ?? "";
+  const nm = /반려지적\s*[:：]\s*([\s\S]*?)$/m.exec(text);
+  let notes = nm?.[1]?.trim() ?? "";
+  if (/^없음/.test(notes)) notes = "";
+  return { scores, avg, min, pass: avg >= 7 && min > 5, summary, notes };
+}
+
+/** QA 반려 후 재작성 지시 — 원 작성자 세션에 QA 지적을 전달 */
+export function qaRevisePrompt(author: AgentDef, verdict: QaVerdict): string {
+  return [
+    `QA 디렉터가 네 "${author.sectionTitle}" 산출물을 반려했다 (평균 ${verdict.avg.toFixed(1)}/10).`,
+    `[반려 지적]`,
+    verdict.notes || verdict.summary,
+    ``,
+    `지적을 반영해 산출물을 다시 써라. 수정된 최종본 전체만 출력해라.`,
+    `- 지적받지 않은 부분은 유지해라. 25줄 이내, 순수 마크다운, 도구 호출 금지, 사족 금지.`,
+  ].join("\n");
+}
+
+/**
+ * 결정사항 추출 — 회의가 끝난 뒤 PM이 "이번에 확정된 것"만 뽑아 원장에 적립.
+ * 다음 회의에 자동 주입되는 조직의 기억이다.
+ */
+export function decisionExtractPrompt(request: string, digest: string): string {
+  return [
+    `너는 PM이다. 방금 끝난 회의에서 **확정된 결정사항**만 추출해라.`,
+    ``,
+    `[오너 지시]`,
+    request.trim().slice(0, 300),
+    ``,
+    `[회의 산출물 요약]`,
+    digest.slice(0, 4000),
+    ``,
+    `규칙: 제안·논의 중인 것 말고 확정된 것만. 한 줄에 하나, 최대 5개. 다른 말 금지.`,
+    `결정: <확정 사항 한 줄 — 구체적 수치·이름 포함>`,
+  ].join("\n");
+}
+
+/** decisionExtractPrompt 응답 파싱 */
+export function parseDecisions(text: string): string[] {
+  const out: string[] = [];
+  const re = /^[^\n]{0,8}?결정\s*[:：]\s*(.+)$/gim;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const t = m[1].trim().replace(/\**$/, "");
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out.slice(0, 5);
+}
+
+/**
+ * FILE 블록 파서 — 에이전트가 "FILE: 경로" + 펜스 코드블록으로 출력한
+ * 여러 파일을 추출한다 (개발 착수 킷 공용).
+ */
+export function parseFileBlocks(text: string): { path: string; content: string }[] {
+  const out: { path: string; content: string }[] = [];
+  const re = /FILE\s*[:：]\s*([^\n`]+)\n+```[a-zA-Z0-9]*\n([\s\S]*?)```/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const p = m[1].trim().replace(/\\/g, "/").replace(/^\/+/, "");
+    if (p && !p.includes("..") && m[2].trim()) out.push({ path: p, content: m[2].replace(/\s+$/, "") + "\n" });
+  }
+  return out;
+}
+
+/** 개발 착수 킷 — 밸런스 디자이너가 유니티에서 바로 import할 CSV 데이터 테이블을 만든다 */
+export function balanceDataPrompt(gddFull: string, decisions: string): string {
+  return [
+    `너는 밸런스 디자이너다. 아래 기획을 근거로 개발에서 바로 쓸 **밸런스 데이터 테이블 실파일**을 만들어라.`,
+    decisions.trim() ? `[확정된 결정사항]\n${decisions.slice(0, 600)}\n` : ``,
+    `[마스터 GDD]`,
+    gddFull.slice(0, 10000),
+    ``,
+    `규칙:`,
+    `- 이 게임에 필요한 CSV 테이블 2~4개를 만들어라 (예: 캐릭터 스탯, 성장 곡선, 아이템/스킬, 경제 상수).`,
+    `- 각 파일은 아래 형식으로. 헤더 행 포함, 최소 8행 이상의 실데이터. 값은 전부 확정 수치 (범위·물음표 금지).`,
+    `- 수치는 서로 계산이 맞아야 한다 (성장 곡선과 스탯 표가 모순되면 안 됨).`,
+    ``,
+    `FILE: data/<파일명>.csv`,
+    "```csv",
+    `<헤더>,...`,
+    `<데이터 행>...`,
+    "```",
+    ``,
+    `- 마지막에 FILE: data/README.md 로 각 테이블의 용도·단위·계산 공식을 문서화해라.`,
+    `- 다른 설명·인사·도구 호출 금지. FILE 블록만 출력해라.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** 개발 착수 킷 — 아트 디렉터가 씬별 필요 에셋 목록(매니페스트)을 만든다 */
+export function assetManifestPrompt(gddFull: string): string {
+  return [
+    `너는 아트 디렉터다. 아래 기획을 근거로 개발에 필요한 **에셋 매니페스트**를 만들어라.`,
+    `[마스터 GDD]`,
+    gddFull.slice(0, 10000),
+    ``,
+    `규칙:`,
+    `- 씬/화면 단위로 필요한 아트·사운드 에셋을 전부 나열해라 (최소 15행). 우선순위 P0(수직절편 필수)~P2.`,
+    `- SD프롬프트 열에는 아트 인턴(Stable Diffusion)이 바로 쓸 영어 태그 프롬프트를 써라.`,
+    ``,
+    `FILE: assets/asset-manifest.csv`,
+    "```csv",
+    `씬,에셋명,타입,규격,우선순위,설명,SD프롬프트`,
+    `<데이터 행>...`,
+    "```",
+    ``,
+    `- 다른 설명·인사·도구 호출 금지. FILE 블록만 출력해라.`,
+  ].join("\n");
+}
+
+/** 개발 착수 킷 — 선임 개발자가 유니티 프로젝트 스켈레톤(.cs 스텁 + 구조 문서)을 만든다 */
+export function unityKitPrompt(gddFull: string, techSection: string): string {
+  return [
+    `너는 선임 개발자다. 아래 기획을 근거로 **유니티 프로젝트 스켈레톤**을 만들어라 — 주니어가 열어서 바로 살을 붙일 시작점이다.`,
+    techSection.trim() ? `[확정된 기술 명세]\n${techSection.slice(0, 1500)}\n` : ``,
+    `[마스터 GDD]`,
+    gddFull.slice(0, 9000),
+    ``,
+    `규칙:`,
+    `- FILE 블록으로 5~8개 파일을 출력해라. 반드시 포함:`,
+    `  1) unity/README.md — 폴더 구조 트리(Assets/_Project/...), 씬 구성, 개발 순서(P0 마일스톤부터)`,
+    `  2) unity/Scripts/Data/ 아래 ScriptableObject 정의 .cs 2~3개 (게임의 핵심 데이터 — [CreateAssetMenu] 포함)`,
+    `  3) unity/Scripts/Core/ 아래 핵심 매니저/컨트롤러 MonoBehaviour 스텁 .cs 2~3개`,
+    `     (필드·메서드 시그니처·이벤트 선언 + 각 메서드에 // TODO: 구현 주석. 본문 로직은 비워라)`,
+    `- C#은 컴파일 가능한 문법으로. 파일당 80줄 이내. namespace 통일.`,
+    `- CSV 데이터 테이블(data/*.csv)을 로드하는 구조를 전제로 해라.`,
+    ``,
+    `FILE: unity/<경로>`,
+    "```csharp",
+    `<내용>`,
+    "```",
+    ``,
+    `- 다른 설명·인사·도구 호출 금지. FILE 블록만 출력해라.`,
   ]
     .filter(Boolean)
     .join("\n");

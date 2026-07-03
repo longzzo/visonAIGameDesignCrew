@@ -108,6 +108,15 @@ function Accessory({ id, c }: { id: string; c: string }) {
           <path d="M26.5 34 h1.4 M29.5 34 h1.4 M26.5 35.6 h1.4" stroke="#c96a2c" strokeWidth="0.9" />
         </>
       );
+    case "qa": // 돋보기 + 체크리스트
+      return (
+        <>
+          <circle cx="27.5" cy="31" r="3.2" fill="none" stroke="#3b4252" strokeWidth="1.4" />
+          <path d="M29.8 33.4 l2.6 2.6" stroke="#3b4252" strokeWidth="1.6" strokeLinecap="round" />
+          <rect x="9" y="29.5" width="7" height="7" rx="1" fill="#fff" stroke="#94a3b8" strokeWidth="1" />
+          <path d="M10.5 32 l1.2 1.2 2.2-2.4" stroke="#3ba55d" strokeWidth="1.2" fill="none" />
+        </>
+      );
     default:
       return null;
   }
