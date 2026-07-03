@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { AGENT_MAP, REVIEWERS } from "../lib/agents";
+import { uiAlert, uiConfirm, uiPrompt } from "../lib/dialog";
 import { getModelsInfo, registerModelKey, setAgentModels, type ModelsInfo } from "../lib/models";
 import { AgentSprite } from "./AgentSprite";
 import { useVE } from "../store";
@@ -55,37 +56,39 @@ export function AgentProfile() {
     .filter(Boolean);
   const health = agentHealth[id];
 
-  const onApply = () => {
+  const onApply = async () => {
     if (!models || !dirty || applying) return;
-    if (
-      !window.confirm(
-        `${a.name}의 모델을 "${draftOpt?.label ?? draft}"(으)로 바꿉니다.\n게이트웨이가 재시작됩니다(약 10초). 진행할까요?`
-      )
-    )
-      return;
+    const ok = await uiConfirm(`${a.name}의 모델 교체`, {
+      message: `"${draftOpt?.label ?? draft}"(으)로 바꿉니다. 게이트웨이가 재시작됩니다(약 10초).`,
+      confirmLabel: "✅ 적용",
+    });
+    if (!ok) return;
     setApplying(true);
     void setAgentModels({ [id]: draft })
       .then(() => {
-        window.alert("적용 완료 — 게이트웨이 재시작 중입니다. 10초 뒤부터 새 모델로 응답합니다.");
+        void uiAlert("적용 완료", "게이트웨이 재시작 중입니다. 10초 뒤부터 새 모델로 응답합니다.");
         refresh();
       })
-      .catch((e) => window.alert(`적용 실패: ${e.message}`))
+      .catch((e) => void uiAlert("적용 실패", e.message))
       .finally(() => setApplying(false));
   };
 
-  const onRegisterKey = (provider: "github" | "nvidia") => {
+  const onRegisterKey = async (provider: "github" | "nvidia") => {
     const guide =
       provider === "github"
-        ? "GitHub 개인 액세스 토큰(PAT)을 붙여넣으세요.\n(⚠️ GitHub Models는 무료 티어 4,000토큰 제한 — 유료 결제 필요)"
-        : "NVIDIA API 키(nvapi-…)를 붙여넣으세요.\n(발급: https://build.nvidia.com — 무료 크레딧 제공)";
-    const key = window.prompt(`${guide}\n저장하면 게이트웨이가 자동 재시작됩니다(약 10초).`);
+        ? "GitHub PAT (⚠️ GitHub Models는 무료 티어 4,000토큰 제한 — 유료 결제 필요)"
+        : "NVIDIA API 키 (발급: https://build.nvidia.com — 무료 크레딧 제공)";
+    const key = await uiPrompt(`${provider === "github" ? "GitHub 토큰" : "NVIDIA 키"} 등록`, {
+      message: `${guide}\n저장하면 게이트웨이가 자동 재시작됩니다(약 10초).`,
+      placeholder: provider === "nvidia" ? "nvapi-…" : "github_pat_…",
+    });
     if (!key?.trim()) return;
     void registerModelKey(provider, key.trim())
       .then(() => {
-        window.alert("키 등록 완료 — 이제 모델 목록에서 선택할 수 있습니다.");
+        void uiAlert("키 등록 완료", "이제 모델 목록에서 선택할 수 있습니다.");
         setTimeout(refresh, 1000);
       })
-      .catch((e) => window.alert(`실패: ${e.message}`));
+      .catch((e) => void uiAlert("실패", e.message));
   };
 
   return (
@@ -151,18 +154,18 @@ export function AgentProfile() {
                       </option>
                     ))}
                   </select>
-                  <button className="btn small primary" onClick={onApply} disabled={!dirty || applying}>
+                  <button className="btn small primary" onClick={() => void onApply()} disabled={!dirty || applying}>
                     {applying ? "적용 중…" : dirty ? "✅ 이 에이전트만 적용" : "변경 없음"}
                   </button>
                 </div>
                 <div className="profile-keys">
                   {!models.providers.nvidia && (
-                    <button className="btn tiny" onClick={() => onRegisterKey("nvidia")}>
+                    <button className="btn tiny" onClick={() => void onRegisterKey("nvidia")}>
                       🔑 NVIDIA 키 등록
                     </button>
                   )}
                   {!models.providers.github && (
-                    <button className="btn tiny" onClick={() => onRegisterKey("github")}>
+                    <button className="btn tiny" onClick={() => void onRegisterKey("github")}>
                       🔑 GitHub 토큰 등록
                     </button>
                   )}

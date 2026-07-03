@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AGENTS, AGENT_MAP } from "../lib/agents";
+import { uiConfirm } from "../lib/dialog";
 import { downloadReport } from "../lib/reports";
 import { useVE } from "../store";
 import { Markdown } from "./Markdown";
@@ -38,6 +39,7 @@ export function GddPanel() {
   const [dragOver, setDragOver] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
   const [showReports, setShowReports] = useState(false);
+  const [reportQuery, setReportQuery] = useState("");
 
   const toggleVersions = () => {
     const next = !showVersions;
@@ -54,10 +56,15 @@ export function GddPanel() {
   };
 
   const onRestore = (ts: number) => {
-    if (window.confirm(`${fmtTs(ts)} 버전으로 GDD를 되돌릴까요?\n(현재 버전도 히스토리에 남으므로 다시 되돌릴 수 있습니다)`)) {
-      void restoreGdd(ts);
-      setShowVersions(false);
-    }
+    void uiConfirm(`${fmtTs(ts)} 버전으로 GDD를 되돌릴까요?`, {
+      message: "현재 버전도 히스토리에 남으므로 다시 되돌릴 수 있습니다.",
+      confirmLabel: "⏪ 복원",
+    }).then((ok) => {
+      if (ok) {
+        void restoreGdd(ts);
+        setShowVersions(false);
+      }
+    });
   };
 
   const scrollToSection = (prefix: string) => {
@@ -143,7 +150,24 @@ export function GddPanel() {
               아직 보고서가 없습니다. 에이전트 1:1 대화의 <b>📋 보고서</b> 버튼으로 명세서를 요청해 보세요.
             </div>
           )}
-          {reports.map((r) => {
+          {reports.length > 4 && (
+            <input
+              className="list-search"
+              value={reportQuery}
+              onChange={(e) => setReportQuery(e.target.value)}
+              placeholder="🔎 보고서 검색 (제목·작성자)"
+            />
+          )}
+          {reports
+            .filter((r) => {
+              if (!reportQuery.trim()) return true;
+              const q = reportQuery.trim().toLowerCase();
+              return (
+                r.title.toLowerCase().includes(q) ||
+                (AGENT_MAP[r.agent]?.name ?? r.agent).toLowerCase().includes(q)
+              );
+            })
+            .map((r) => {
             const a = AGENT_MAP[r.agent];
             return (
               <div key={r.ts} className={`version-item ${reportPreview?.ts === r.ts ? "active" : ""}`}>
@@ -153,9 +177,13 @@ export function GddPanel() {
                 <button
                   className="btn tiny"
                   onClick={() => {
-                    if (window.confirm(`보고서 "${r.title}"를 삭제할까요?`)) void removeReport(r.ts);
+                    void uiConfirm(`보고서 "${r.title}"를 삭제할까요?`, {
+                      message: "휴지통(.trash)으로 이동합니다 — 실수라면 파일 탐색기에서 복구할 수 있습니다.",
+                      confirmLabel: "🗑 삭제",
+                      danger: true,
+                    }).then((ok) => ok && void removeReport(r.ts));
                   }}
-                  title="삭제"
+                  title="삭제 (휴지통으로)"
                 >
                   🗑
                 </button>

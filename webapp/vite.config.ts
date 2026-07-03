@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import react from "@vitejs/plugin-react";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { spawn, execFileSync } from "node:child_process";
@@ -116,6 +117,31 @@ function readBody(req: any): Promise<string> {
   });
 }
 
+/**
+ * 원격 읽기전용 모드 — VE_REMOTE_MODE=readonly 로 실행하면 tailnet(폰) 기기는
+ * 조회만 가능하고 실행·수정·삭제는 전부 403. 폰 분실 시 피해를 열람으로 제한한다.
+ * 기본값은 기존과 동일한 "full"(원격 실행 허용).
+ */
+const REMOTE_READONLY = (process.env.VE_REMOTE_MODE ?? "full").toLowerCase() === "readonly";
+
+function blockRemoteWrite(req: any, res: any): boolean {
+  if (!REMOTE_READONLY || isLocalReq(req)) return false;
+  res.statusCode = 403;
+  res.end(JSON.stringify({ ok: false, error: "원격 읽기전용 모드입니다 — 이 작업은 PC에서만 가능합니다 (VE_REMOTE_MODE=readonly)" }));
+  return true;
+}
+
+/**
+ * 소프트 삭제 — 즉시 지우지 않고 같은 위치의 .trash/ 폴더로 옮긴다.
+ * 실수 삭제 시 파일 탐색기에서 꺼내오면 복구된다. (UI 복원은 추후)
+ */
+function trashFile(file: string): void {
+  if (!fs.existsSync(file)) return;
+  const dir = path.join(path.dirname(file), ".trash");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.renameSync(file, path.join(dir, `${Date.now()}-${path.basename(file)}`));
+}
+
 /* ── 옵시디안 연동 헬퍼 (볼트 = 지식 원천 + 산출물 아카이브) ── */
 
 /** 볼트에서 학습 후보로 인식하는 태그 (본문 #ve-학습 또는 frontmatter tags) */
@@ -182,6 +208,17 @@ function hasLearnTag(md: string): boolean {
   return parseFrontmatter(md).tags.some((t) => t === OBSIDIAN_LEARN_TAG);
 }
 
+/**
+ * 내부망 주소 제거 — 외부에서 온 문서/노트가 에이전트에게 내부 API(게이트웨이 등)
+ * 조회를 유도하는 것(SSRF류 프롬프트 인젝션)을 차단한다.
+ */
+function stripInternalUrls(s: string): string {
+  return s.replace(
+    /https?:\/\/(?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|0\.0\.0\.0|\[?::1\]?|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|100\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(?::\d+)?[^\s)"'\]]*/gi,
+    "[내부 주소 제거됨]"
+  );
+}
+
 /** 볼트의 .md 파일 순회 — .obsidian/휴지통/산출물 폴더는 건너뛴다 */
 function walkVaultMd(root: string): string[] {
   const skip = new Set([".obsidian", ".trash", ".git", "node_modules", OBSIDIAN_EXPORT_DIR]);
@@ -224,7 +261,7 @@ function exportToVault(projectId: string, kind: "gdd" | "report", data: { agent?
     const pad = (n: number) => String(n).padStart(2, "0");
     if (kind === "gdd") {
       fs.mkdirSync(base, { recursive: true });
-      const fm = `---\nsource: vision-engine\ntype: GDD\nproject: "${pname}"\nupdated: ${now.toISOString()}\ntags: [vision-engine]\n---\n\n`;
+      const fm = `---\nsource: vision-engine\ntype: GDD\nproject: "${pname}"\nupdated: ${now.toISOString()}\ntags: [vision-engine]\n---\n\n> ⚠️ Vision Engine이 내보낸 **사본**입니다 — 여기서 수정해도 앱에 반영되지 않습니다. 수정은 앱의 GDD 패널에서 하세요.\n\n`;
       fs.writeFileSync(path.join(base, "GDD.md"), fm + data.markdown, "utf-8");
     } else {
       const dir = path.join(base, "보고서");
@@ -256,6 +293,7 @@ function projectsApiPlugin(): Plugin {
               return;
             }
             if (req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
               const j = JSON.parse((await readBody(req)) || "{}");
               const name = String(j.name ?? "").trim();
               if (!name) {
@@ -292,13 +330,17 @@ function projectsApiPlugin(): Plugin {
               return;
             }
             if (req.method === "DELETE") {
+              if (blockRemoteWrite(req, res)) return;
               const id = url.searchParams.get("id") ?? "";
               if (!isSafeId(id) || !fs.existsSync(projectDir(id))) {
                 res.statusCode = 404;
                 res.end(JSON.stringify({ ok: false, error: "프로젝트 없음" }));
                 return;
               }
-              fs.rmSync(projectDir(id), { recursive: true, force: true });
+              // 소프트 삭제 — workspace/.trash/ 로 이동 (실수 삭제 복구 가능)
+              const trashDir = path.join(WORKSPACE, ".trash");
+              fs.mkdirSync(trashDir, { recursive: true });
+              fs.renameSync(projectDir(id), path.join(trashDir, `${id}-${Date.now()}`));
               res.end(JSON.stringify({ ok: true }));
               return;
             }
@@ -374,6 +416,7 @@ function gddApiPlugin(): Plugin {
 
             // 과거 버전으로 복원 (복원 직전 현재본도 스냅샷됨)
             if (sub === "/restore" && req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
               const { ts } = JSON.parse((await readBody(req)) || "{}");
               const dir = project && isSafeId(project) ? historyDirOf(project) : "";
               const f = dir ? path.join(dir, `${Number(ts)}.md`) : "";
@@ -399,6 +442,7 @@ function gddApiPlugin(): Plugin {
               return;
             }
             if (req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
               const { markdown } = JSON.parse((await readBody(req)) || "{}");
               if (typeof markdown !== "string") {
                 res.statusCode = 400;
@@ -451,6 +495,7 @@ function chatsApiPlugin(): Plugin {
               return;
             }
             if (req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
               const { messages } = JSON.parse((await readBody(req)) || "{}");
               if (!Array.isArray(messages)) {
                 res.statusCode = 400;
@@ -641,6 +686,7 @@ function reportsApiPlugin(): Plugin {
             }
 
             if (req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
               const j = JSON.parse((await readBody(req)) || "{}");
               const agent = String(j.agent ?? "");
               const title = String(j.title ?? "").trim().slice(0, 120);
@@ -663,6 +709,7 @@ function reportsApiPlugin(): Plugin {
             }
 
             if (req.method === "DELETE") {
+              if (blockRemoteWrite(req, res)) return;
               const ts = Number(url.searchParams.get("ts") ?? 0);
               const f = path.join(dir, `${ts}.json`);
               if (!fs.existsSync(f)) {
@@ -670,7 +717,7 @@ function reportsApiPlugin(): Plugin {
                 res.end(JSON.stringify({ ok: false, error: "보고서 없음" }));
                 return;
               }
-              fs.rmSync(f, { force: true });
+              trashFile(f);
               res.end(JSON.stringify({ ok: true }));
               return;
             }
@@ -722,6 +769,7 @@ function knowledgeApiPlugin(): Plugin {
             }
 
             if (req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
               const j = JSON.parse((await readBody(req)) || "{}");
               const title = String(j.title ?? "").trim().slice(0, 120);
               const summary = String(j.summary ?? "").trim();
@@ -761,8 +809,9 @@ function knowledgeApiPlugin(): Plugin {
             }
 
             if (req.method === "DELETE") {
+              if (blockRemoteWrite(req, res)) return;
               const ts = Number(url.searchParams.get("ts") ?? 0);
-              fs.rmSync(path.join(dir, `${ts}.json`), { force: true });
+              trashFile(path.join(dir, `${ts}.json`));
               res.end(JSON.stringify({ ok: true }));
               return;
             }
@@ -891,7 +940,7 @@ function obsidianApiPlugin(): Plugin {
               res.end(
                 JSON.stringify({
                   title: path.basename(abs, ".md"),
-                  content: stripWikiLinks(body).slice(0, 30000),
+                  content: stripInternalUrls(stripWikiLinks(body)).slice(0, 30000),
                   agents,
                   mtime: Math.floor(fs.statSync(abs).mtimeMs),
                 })
@@ -904,6 +953,80 @@ function obsidianApiPlugin(): Plugin {
           } catch (e: any) {
             res.statusCode = 500;
             res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 300) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
+/* ── 플러그인: 시스템 헬스 (신호등) ─────────────────── */
+
+/**
+ * GET  /api/health → 각 구성요소(게이트웨이/Ollama/SD/볼트) 생존 여부
+ * POST /api/health {restart:"gateway"} → 게이트웨이 재시작 (PC 로컬 전용)
+ * Vite 자신이 죽으면 이 API도 안 뜨므로 "응답 없음 = 웹 서버가 죽음"이다.
+ */
+function healthApiPlugin(): Plugin {
+  const checkTcp = (port: number, timeoutMs = 1200): Promise<boolean> =>
+    new Promise((resolve) => {
+      const sock = net.connect({ port, host: "127.0.0.1" });
+      const t = setTimeout(() => {
+        sock.destroy();
+        resolve(false);
+      }, timeoutMs);
+      sock.on("connect", () => {
+        clearTimeout(t);
+        sock.destroy();
+        resolve(true);
+      });
+      sock.on("error", () => {
+        clearTimeout(t);
+        resolve(false);
+      });
+    });
+  return {
+    name: "vision-engine-health-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/health", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            if (req.method === "GET") {
+              const [gatewayUp, ollama, sd] = await Promise.all([checkTcp(18789), checkTcp(11434), checkTcp(7860)]);
+              res.end(
+                JSON.stringify({
+                  gateway: gatewayUp,
+                  ollama,
+                  sd,
+                  vault: !!resolveVault(),
+                  remoteReadonly: REMOTE_READONLY,
+                  ts: Date.now(),
+                })
+              );
+              return;
+            }
+            if (req.method === "POST") {
+              if (!isLocalReq(req)) {
+                res.statusCode = 403;
+                res.end(JSON.stringify({ ok: false, error: "재시작은 PC(로컬)에서만 가능합니다" }));
+                return;
+              }
+              const j = JSON.parse((await readBody(req)) || "{}");
+              if (j.restart === "gateway") {
+                restartGateway();
+                res.end(JSON.stringify({ ok: true }));
+                return;
+              }
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: "지원: {restart:\"gateway\"}" }));
+              return;
+            }
+            res.statusCode = 405;
+            res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 200) }));
           }
         })();
       });
@@ -997,6 +1120,7 @@ function artApiPlugin(): Plugin {
 
             // 생성
             if (req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
               const j = JSON.parse((await readBody(req)) || "{}");
               const prompt = String(j.prompt ?? "").trim();
               const negative = String(j.negative ?? "").trim();
@@ -1044,11 +1168,12 @@ function artApiPlugin(): Plugin {
               return;
             }
 
-            // 삭제
+            // 삭제 (휴지통으로)
             if (req.method === "DELETE") {
+              if (blockRemoteWrite(req, res)) return;
               const ts = Number(url.searchParams.get("ts") ?? 0);
-              fs.rmSync(path.join(dir, `${ts}.png`), { force: true });
-              fs.rmSync(path.join(dir, `${ts}.json`), { force: true });
+              trashFile(path.join(dir, `${ts}.png`));
+              trashFile(path.join(dir, `${ts}.json`));
               res.end(JSON.stringify({ ok: true }));
               return;
             }
@@ -1453,6 +1578,8 @@ function agentBridgePlugin(): Plugin {
           res.end(JSON.stringify({ ok: false, error: "POST only" }));
           return;
         }
+        // 원격 읽기전용 모드에서는 에이전트 실행도 차단 (열람만 허용)
+        if (blockRemoteWrite(req, res)) return;
         let body = "";
         req.on("data", (c) => (body += c));
         req.on("end", () => {
@@ -1560,6 +1687,7 @@ export default defineConfig({
     officeBgPlugin(),
     knowledgeApiPlugin(),
     obsidianApiPlugin(),
+    healthApiPlugin(),
     braveKeyPlugin(),
     modelsApiPlugin(),
     agentBridgePlugin(),

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { AGENT_MAP } from "../lib/agents";
+import { uiPrompt } from "../lib/dialog";
 import { AgentSprite } from "./AgentSprite";
 import { ArtStudio } from "./ArtStudio";
 import { DocViewer } from "./DocViewer";
@@ -210,11 +211,13 @@ export function OfficeView() {
   const bgUrl = themeImage(officeTheme, officeBg?.ts);
 
   const onNewBg = () => {
-    const req = window.prompt(
-      "아트 인턴에게 어떤 사무실 배경을 그리게 할까요?\n(아트 디렉터가 지금 만드는 게임의 분위기를 반영해 프롬프트를 쓰고, 인턴이 그립니다)",
-      officeBg?.request || "지금 만드는 게임의 분위기가 느껴지는 아늑한 게임 스튜디오 사무실"
-    );
-    if (req?.trim()) void generateOfficeBg(req.trim());
+    void uiPrompt("아트 인턴에게 어떤 사무실 배경을 그리게 할까요?", {
+      message: "아트 디렉터가 지금 만드는 게임의 분위기를 반영해 프롬프트를 쓰고, 인턴이 그립니다.",
+      defaultValue: officeBg?.request || "지금 만드는 게임의 분위기가 느껴지는 아늑한 게임 스튜디오 사무실",
+      confirmLabel: "🖌️ 그리기",
+    }).then((req) => {
+      if (req?.trim()) void generateOfficeBg(req.trim());
+    });
   };
 
   return (

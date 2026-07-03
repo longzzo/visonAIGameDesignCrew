@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AGENT_MAP, DEFAULT_REPORT_TOPIC } from "../lib/agents";
+import { uiPrompt } from "../lib/dialog";
 import { useVE } from "../store";
 import { Markdown } from "./Markdown";
 
@@ -96,11 +97,13 @@ export function ChatPanel() {
           className="btn small"
           disabled={busy || rBusy}
           onClick={() => {
-            const topic = window.prompt(
-              `${agent.name}에게 요청할 보고서 주제를 입력하세요.\n(현재 GDD 전체를 근거로 정식 명세서 수준의 문서를 작성해 보고서함에 저장합니다)`,
-              DEFAULT_REPORT_TOPIC[activeAgent] ?? `${agent.sectionTitle} 명세서`
-            );
-            if (topic?.trim()) void generateReport(activeAgent, topic.trim());
+            void uiPrompt(`${agent.name}에게 요청할 보고서 주제`, {
+              message: "현재 GDD 전체를 근거로 정식 명세서 수준의 문서를 작성해 보고서함에 저장합니다.",
+              defaultValue: DEFAULT_REPORT_TOPIC[activeAgent] ?? `${agent.sectionTitle} 명세서`,
+              confirmLabel: "📋 작성 요청",
+            }).then((topic) => {
+              if (topic?.trim()) void generateReport(activeAgent, topic.trim());
+            });
           }}
           title="현재 GDD를 근거로 정식 보고서(명세서)를 작성해 프로젝트 보고서함에 저장합니다. 아트 명세서, 개발 명세서, 일정표 등."
         >

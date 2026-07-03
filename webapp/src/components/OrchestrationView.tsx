@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AGENT_MAP, SPECIALISTS } from "../lib/agents";
+import { uiAlert, uiConfirm } from "../lib/dialog";
 import { useVE, type FeedMsg } from "../store";
 import { Markdown } from "./Markdown";
 
@@ -118,6 +119,9 @@ export function OrchestrationView() {
     gdd,
     dailyBriefing,
     briefingBusy,
+    modelName,
+    orchBaseline,
+    setMeetingDiffOpen,
   } = useVE();
   const bottomRef = useRef<HTMLDivElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
@@ -132,13 +136,14 @@ export function OrchestrationView() {
     reader.onload = () => {
       const text = String(reader.result ?? "");
       if (!text.trim()) {
-        window.alert("빈 파일입니다.");
+        void uiAlert("빈 파일입니다");
         return;
       }
-      const integrate = window.confirm(
-        `"${f.name}" (${(text.length / 1000).toFixed(1)}천자)\n\n원문은 보고서함에 보관됩니다.\n\n확인 = PM 분배로 GDD에 통합까지 진행 (기존 기획 유지·증분 반영)\n취소 = 보고서함에 보관만`
-      );
-      void importDocument(f.name.replace(/\.(md|txt)$/i, ""), text, integrate);
+      void uiConfirm(`"${f.name}" (${(text.length / 1000).toFixed(1)}천자) 가져오기`, {
+        message: "원문은 보고서함에 보관됩니다.\n\n[통합까지 진행] = PM 분배로 GDD에 통합 (기존 기획 유지·증분 반영)\n[보관만] = 보고서함에 저장만",
+        confirmLabel: "통합까지 진행",
+        cancelLabel: "보관만",
+      }).then((integrate) => void importDocument(f.name.replace(/\.(md|txt)$/i, ""), text, integrate));
     };
     reader.readAsText(f);
   };
@@ -295,6 +300,28 @@ export function OrchestrationView() {
         </div>
       </div>
 
+      {/* 진행률 요약 — 몇 명 끝났고 얼마나 걸리고 있는지 한 줄 */}
+      {orchRunning && cardList.length > 0 && (() => {
+        const done = cardList.filter((c) => c.state === "done").length;
+        const total = cardList.length;
+        const started = Math.min(...cardList.map((c) => c.startedAt ?? Date.now()));
+        const elapsed = Math.round((Date.now() - started) / 1000);
+        const eta = done > 0 ? Math.round((elapsed / done) * (total - done)) : null;
+        const isLocal = modelName.startsWith("ollama/");
+        return (
+          <div className="orch-progress">
+            <div className="orch-progress-bar">
+              <i style={{ width: `${Math.round((done / total) * 100)}%` }} />
+            </div>
+            <span>
+              {done}/{total} 완료 · 경과 {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")}
+              {eta !== null && eta > 5 ? ` · 남은 예상 ~${Math.max(1, Math.round(eta / 60))}분` : ""}
+              {isLocal ? " · ⚠️ 로컬 모델은 오래 걸립니다 (동시 1 권장)" : ""}
+            </span>
+          </div>
+        );
+      })()}
+
       {/* 진행 상태 스트립 */}
       {cardList.length > 0 && (
         <div className="status-strip">
@@ -349,6 +376,15 @@ export function OrchestrationView() {
           <button className="btn tiny" onClick={clearFeed} title="이 프로젝트의 대화 기록을 지웁니다">
             🧹 피드 비우기
           </button>
+          {orchBaseline !== null && orchBaseline !== gdd && (
+            <button
+              className="btn tiny primary"
+              onClick={() => setMeetingDiffOpen(true)}
+              title="이번 회의가 GDD를 어떻게 바꿨는지 섹션별 diff로 확인하고, 원하면 통째로 되돌립니다"
+            >
+              🔍 이번 회의 변경 확인
+            </button>
+          )}
           <span className="dim">피드는 프로젝트별로 자동 저장됩니다 ({feed.length}건)</span>
         </div>
       )}

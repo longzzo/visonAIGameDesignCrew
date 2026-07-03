@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AGENT_MAP } from "../lib/agents";
+import { uiConfirm } from "../lib/dialog";
 import { useVE } from "../store";
 import { Markdown } from "./Markdown";
 
@@ -24,6 +25,7 @@ export function KnowledgeStudio({ onClose }: { onClose: () => void }) {
   } = useVE();
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [query, setQuery] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -215,7 +217,21 @@ export function KnowledgeStudio({ onClose }: { onClose: () => void }) {
               <span className="dim">재미 이론, 몰입 이론, 과금 심리학 등 알고 계신 이론을 위에 붙여넣어 보세요.</span>
             </div>
           )}
-          {knowledge.map((k) => (
+          {knowledge.length > 3 && (
+            <input
+              className="list-search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="🔎 지식 검색 (제목·요약)"
+            />
+          )}
+          {knowledge
+            .filter(
+              (k) =>
+                !query.trim() ||
+                `${k.title} ${k.summary}`.toLowerCase().includes(query.trim().toLowerCase())
+            )
+            .map((k) => (
             <details key={k.ts} className="knowledge-item">
               <summary>
                 <b>📖 {k.title}</b>
@@ -228,7 +244,11 @@ export function KnowledgeStudio({ onClose }: { onClose: () => void }) {
                   className="btn tiny"
                   onClick={(e) => {
                     e.preventDefault();
-                    if (window.confirm(`"${k.title}" 지식을 잊게 할까요?`)) void removeKnowledge(k.ts);
+                    void uiConfirm(`"${k.title}" 지식을 잊게 할까요?`, {
+                      message: "휴지통(workspace/knowledge/.trash)으로 이동합니다.",
+                      confirmLabel: "🗑 잊기",
+                      danger: true,
+                    }).then((ok) => ok && void removeKnowledge(k.ts));
                   }}
                 >
                   🗑

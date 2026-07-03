@@ -114,3 +114,20 @@ Write-Host "    기본 WebChat: http://127.0.0.1:18789"
 if ($Mobile) { Write-Host "    📱 폰에서: $appUrl  (폰에 Tailscale 앱 로그인 필요)" -ForegroundColor Cyan }
 Write-Host "    종료: 'Vision Engine 웹앱' 창을 닫으면 웹앱만 꺼집니다 (게이트웨이/Ollama는 유지)"
 Write-Host ""
+
+# ── 6) 워치독 — 이 창을 열어두면 30초마다 상태를 감시하고, 죽은 것을 자동 재기동한다 ──
+Write-Host "  🐕 워치독 가동 — 이 창을 열어두면 웹앱/게이트웨이가 죽었을 때 자동으로 되살립니다." -ForegroundColor Cyan
+Write-Host "     (이 창을 닫아도 서비스는 계속 돕니다 — 자동 복구만 꺼짐)" -ForegroundColor DarkGray
+$npmScript = if ($Mobile) { 'dev:mobile' } else { 'dev' }
+while ($true) {
+  Start-Sleep -Seconds 30
+  $stamp = Get-Date -Format 'HH:mm:ss'
+  if (-not (Test-Port $appIp 5199)) {
+    Write-Host "  [$stamp] ⚠️ 웹앱(5199)이 죽음 - 재기동" -ForegroundColor Yellow
+    Start-Process cmd -ArgumentList '/k', "title Vision Engine 웹앱 && cd /d `"$webapp`" && npm run $npmScript" -WindowStyle Minimized
+  }
+  if (-not (Test-Port '127.0.0.1' 18789)) {
+    Write-Host "  [$stamp] ⚠️ 게이트웨이(18789)가 죽음 - 재기동" -ForegroundColor Yellow
+    schtasks /Run /TN "OpenClaw Gateway" | Out-Null
+  }
+}

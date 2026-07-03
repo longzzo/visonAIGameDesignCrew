@@ -40,6 +40,8 @@ export class GatewayClient {
   private pending = new Map<string, Pending>();
   private eventListeners = new Set<(f: EventFrame) => void>();
   private statusListeners = new Set<(s: ConnStatus, detail: string) => void>();
+  /** 에이전트 실행 실패 알림 — 크레딧 소진 등 반복 오류 감지용 */
+  private runErrorListeners = new Set<(msg: string) => void>();
   private seq = 0;
   private connectSent = false;
   private connectResolve: ((ok: boolean) => void) | null = null;
@@ -68,6 +70,11 @@ export class GatewayClient {
   onStatus(fn: (s: ConnStatus, detail: string) => void): () => void {
     this.statusListeners.add(fn);
     return () => this.statusListeners.delete(fn);
+  }
+
+  onRunError(fn: (msg: string) => void): () => void {
+    this.runErrorListeners.add(fn);
+    return () => this.runErrorListeners.delete(fn);
   }
 
   private setStatus(s: ConnStatus, detail = "") {
@@ -280,12 +287,20 @@ export class GatewayClient {
       }),
     });
     const j = await r.json().catch(() => null);
-    if (!r.ok || !j?.ok) throw new Error(j?.error || `에이전트 실행 실패 (HTTP ${r.status})`);
+    if (!r.ok || !j?.ok) {
+      const msg = j?.error || `에이전트 실행 실패 (HTTP ${r.status})`;
+      this.runErrorListeners.forEach((f) => f(msg));
+      throw new Error(msg);
+    }
     const payload = j.run;
     const parsed = this.parseRunPayload(payload);
     if (!parsed.text) {
       const status = payload?.status ?? payload?.result?.status;
-      if (status && status !== "ok") throw new Error(payload?.summary || "에이전트 실행 실패");
+      if (status && status !== "ok") {
+        const msg = payload?.summary || "에이전트 실행 실패";
+        this.runErrorListeners.forEach((f) => f(String(msg)));
+        throw new Error(msg);
+      }
       parsed.text = "(빈 응답)";
     }
     return parsed;

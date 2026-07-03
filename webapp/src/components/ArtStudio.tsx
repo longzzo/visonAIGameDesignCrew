@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { artFileUrl } from "../lib/art";
+import { uiConfirm } from "../lib/dialog";
 import { useVE } from "../store";
 
 /**
@@ -121,7 +122,11 @@ export function ArtStudio({ onClose }: { onClose: () => void }) {
                 <button
                   className="btn tiny"
                   onClick={() => {
-                    if (window.confirm("이 컨셉 아트를 삭제할까요?")) void removeArt(img.ts);
+                    void uiConfirm("이 컨셉 아트를 삭제할까요?", {
+                      message: "휴지통(.trash)으로 이동합니다.",
+                      confirmLabel: "🗑 삭제",
+                      danger: true,
+                    }).then((ok) => ok && void removeArt(img.ts));
                   }}
                 >
                   🗑

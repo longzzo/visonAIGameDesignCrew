@@ -48,11 +48,37 @@ export async function deleteKnowledge(ts: number): Promise<void> {
   await fetch(`/api/knowledge?ts=${ts}`, { method: "DELETE" });
 }
 
-/** 특정 에이전트에게 주입할 지식 블록 (최신 2건, 요약만) */
-export function knowledgeBlockFor(agentId: string, items: KnowledgeItem[]): string {
-  return items
-    .filter((k) => k.agents.includes("all") || k.agents.includes(agentId))
-    .slice(0, 2)
+/**
+ * 특정 에이전트에게 주입할 지식 선정 (최대 3건).
+ * context(지시문·보고서 주제)가 있으면 제목·요약 토큰이 겹치는 지식을 우선하고,
+ * 동점이면 최신순 — 지식이 쌓여도 "관련 있는 것"이 주입되게 한다.
+ */
+export function knowledgePickFor(agentId: string, items: KnowledgeItem[], context = ""): KnowledgeItem[] {
+  const pool = items.filter((k) => k.agents.includes("all") || k.agents.includes(agentId));
+  if (pool.length === 0) return [];
+  const ctx = context.toLowerCase();
+  const score = (k: KnowledgeItem): number => {
+    if (!ctx) return 0;
+    let s = 0;
+    const tokens = new Set(
+      `${k.title} ${k.summary}`
+        .toLowerCase()
+        .split(/[^0-9a-z가-힣]+/)
+        .filter((t) => t.length >= 2)
+    );
+    for (const t of tokens) if (ctx.includes(t)) s++;
+    return s;
+  };
+  return pool
+    .map((k) => ({ k, s: score(k) }))
+    .sort((x, y) => y.s - x.s || y.k.ts - x.k.ts)
+    .slice(0, 3)
+    .map(({ k }) => k);
+}
+
+/** 특정 에이전트에게 주입할 지식 블록 (요약만) */
+export function knowledgeBlockFor(agentId: string, items: KnowledgeItem[], context = ""): string {
+  return knowledgePickFor(agentId, items, context)
     .map((k) => `◆ ${k.title}\n${k.summary}`)
     .join("\n\n");
 }
