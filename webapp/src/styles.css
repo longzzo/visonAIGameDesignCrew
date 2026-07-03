@@ -161,6 +161,50 @@ button { font-family: inherit; }
 .art-item figcaption { display: flex; align-items: center; gap: 6px; padding: 6px 8px; font-size: 11.5px; }
 .art-caption { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
 
+/* ── 사무실 살아있는 배경 ─────────────────────────── */
+.office-window {
+  position: relative; width: 120px; height: 64px; border-radius: 10px;
+  border: 3px solid #4a4237; overflow: hidden; flex-shrink: 0;
+  background: linear-gradient(180deg, #7fb2e5 0%, #b7d7f0 70%, #d9ead9 100%);
+  box-shadow: inset 0 0 12px rgba(255, 255, 255, 0.35);
+}
+.office-window::after {
+  content: ""; position: absolute; inset: 0;
+  border-left: 2px solid #4a4237; border-top: 2px solid #4a4237;
+  left: 50%; top: 50%; width: 50%; height: 50%; pointer-events: none;
+  transform: translate(-1px, -1px); border-right: none; border-bottom: none;
+  box-shadow: -60px -33px 0 -30px transparent;
+}
+.office-window .celestial { position: absolute; top: 6px; right: 10px; font-size: 16px; animation: celestial-glow 5s ease-in-out infinite; }
+@keyframes celestial-glow { 50% { transform: scale(1.12); filter: brightness(1.15); } }
+.office-window .cloud {
+  position: absolute; height: 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.85);
+  animation: cloud-drift linear infinite;
+}
+.office-window .cloud.c1 { width: 34px; top: 12px; animation-duration: 26s; }
+.office-window .cloud.c2 { width: 22px; top: 30px; animation-duration: 38s; animation-delay: -14s; opacity: 0.7; }
+.office-window .cloud.c3 { width: 28px; top: 44px; animation-duration: 32s; animation-delay: -25s; opacity: 0.55; }
+@keyframes cloud-drift { from { left: -40px; } to { left: 130px; } }
+.office-clock {
+  font-size: 12px; color: var(--text-dim); border: 1px solid var(--border);
+  border-radius: 8px; padding: 5px 9px; background: var(--panel-2); flex-shrink: 0;
+}
+.office-plant { font-size: 22px; align-self: flex-end; animation: plant-sway 4.5s ease-in-out infinite; transform-origin: bottom center; }
+.office-plant.p2 { animation-delay: -2.2s; font-size: 18px; }
+@keyframes plant-sway { 50% { transform: rotate(4deg); } }
+
+/* 캐릭터 유휴/작업 모션 */
+.desk .office-avatar svg { animation: idle-bob 3.4s ease-in-out infinite; }
+.desk:nth-child(2n) .office-avatar svg { animation-delay: -1.7s; }
+@keyframes idle-bob { 50% { transform: translateY(-2.5px); } }
+.desk.st-running .office-avatar svg { animation: work-bounce 0.55s ease-in-out infinite; }
+@keyframes work-bounce { 30% { transform: translateY(-3px) rotate(-2deg); } 70% { transform: translateY(0) rotate(2deg); } }
+
+/* 채팅 탭 + 작업 기록 */
+.chat-tabs { display: flex; gap: 5px; margin-right: 4px; }
+.work-entry { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; background: var(--panel-2); }
+.work-entry .work-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+
 /* 협업 세션 피드 라벨 */
 .feed-kind.k-talk { background: #14532d; color: #86efac; }
 
@@ -536,7 +580,8 @@ button { font-family: inherit; }
   border: 1px solid var(--border);
   display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 12px 26px;
 }
-.office-wall { width: 100%; display: flex; justify-content: flex-end; padding: 0 12px; }
+.office-wall { width: 100%; display: flex; align-items: center; gap: 14px; padding: 0 12px; }
+.office-wall .gdd-board { margin-left: auto; }
 .gdd-board {
   display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
   background: #1c2431; border: 1px solid var(--border); border-radius: 8px;

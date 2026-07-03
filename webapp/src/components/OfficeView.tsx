@@ -182,10 +182,21 @@ export function OfficeView() {
       </div>
       <div className="office-room">
         <div className="office-wall">
+          <div className="office-window" title={new Date().getHours() >= 6 && new Date().getHours() < 18 ? "낮" : "밤"}>
+            <span className="celestial">{new Date().getHours() >= 6 && new Date().getHours() < 18 ? "☀️" : "🌙"}</span>
+            <span className="cloud c1" />
+            <span className="cloud c2" />
+            <span className="cloud c3" />
+          </div>
           <button className="gdd-board" onClick={() => setDocViewer("gdd")} title="GDD를 큰 화면으로 보기">
             📄 마스터 GDD 보드
             <span className="dim">{gddMtime ? `갱신 ${new Date(gddMtime).toLocaleTimeString("ko-KR", { hour12: false })}` : "대기"}</span>
           </button>
+          <div className="office-clock" title="현재 시각">
+            🕐 {new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false })}
+          </div>
+          <span className="office-plant p1">🪴</span>
+          <span className="office-plant p2">🌿</span>
         </div>
         <div className="office-row pm-row">
           <Desk agentId="pm" big />

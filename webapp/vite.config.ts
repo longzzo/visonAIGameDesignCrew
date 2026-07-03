@@ -389,6 +389,15 @@ function chatsApiPlugin(): Plugin {
 
 const OPENCLAW_CFG = path.join(os.homedir(), ".openclaw", "openclaw.json");
 
+/**
+ * 보안: 설정을 바꾸는 API(모델 전환·키 등록)는 PC 로컬 요청만 허용.
+ * tailnet 노출 모드에서 폰은 조회·실행은 가능하지만 시스템 설정은 못 바꾼다.
+ */
+function isLocalReq(req: any): boolean {
+  const a = String(req?.socket?.remoteAddress ?? "");
+  return a === "127.0.0.1" || a === "::1" || a === "::ffff:127.0.0.1";
+}
+
 /** 예약작업으로 게이트웨이 재시작 — 설정 변경(키/모델) 반영용 */
 function restartGateway(): void {
   spawn("schtasks", ["/End", "/TN", "OpenClaw Gateway"], { shell: false, windowsHide: true }).on("close", () => {
@@ -416,6 +425,11 @@ function braveKeyPlugin(): Plugin {
               return;
             }
             if (req.method === "POST") {
+              if (!isLocalReq(req)) {
+                res.statusCode = 403;
+                res.end(JSON.stringify({ ok: false, error: "보안: 키 등록은 PC(로컬)에서만 가능합니다" }));
+                return;
+              }
               const { key } = JSON.parse((await readBody(req)) || "{}");
               if (typeof key !== "string" || key.trim().length < 10) {
                 res.statusCode = 400;
@@ -425,7 +439,8 @@ function braveKeyPlugin(): Plugin {
               const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
               cfg.tools = cfg.tools || {};
               cfg.tools.web = cfg.tools.web || {};
-              cfg.tools.web.search = { ...(cfg.tools.web.search || {}), enabled: true, apiKey: key.trim() };
+              // provider를 명시하지 않으면 게이트웨이가 다른 검색 프로바이더(MiniMax 등)로 기본 설정될 수 있다
+              cfg.tools.web.search = { ...(cfg.tools.web.search || {}), enabled: true, provider: "brave", apiKey: key.trim() };
               fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), "utf-8");
               restartGateway(); // 키 반영
               res.end(JSON.stringify({ ok: true }));
@@ -927,6 +942,11 @@ function modelsApiPlugin(): Plugin {
             }
 
             if (req.method === "POST") {
+              if (!isLocalReq(req)) {
+                res.statusCode = 403;
+                res.end(JSON.stringify({ ok: false, error: "보안: 모델·키 설정 변경은 PC(로컬)에서만 가능합니다" }));
+                return;
+              }
               const j = JSON.parse((await readBody(req)) || "{}");
 
               // ① 프로바이더 키 등록

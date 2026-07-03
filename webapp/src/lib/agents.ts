@@ -113,7 +113,7 @@ export function specialistPrompt(
     `- 순수 마크다운 텍스트로만. 소제목(###) 사용.`,
     `- 20줄 이내로 간결하고 구체적으로.`,
     web === "full"
-      ? `- 최신 정보·레퍼런스가 필요하면 web_search / web_fetch 도구로 조사해도 된다(다른 도구는 금지). 조사한 내용은 출처와 함께 본문에 녹여라.`
+      ? `- 최신 정보·레퍼런스가 필요하면 web_search / web_fetch 도구로 조사해도 된다(다른 도구는 금지). 검색은 꼭 필요한 만큼만 — 작업당 최대 3회. 조사한 내용은 출처와 함께 본문에 녹여라.`
       : web === "fetch"
         ? `- 필요하면 web_fetch 도구로 알고 있는 URL의 페이지를 조회해도 된다. web_search는 지금 사용 불가이니 호출하지 마라(다른 도구도 금지).`
         : `- 도구/함수 호출 금지.`
@@ -142,9 +142,32 @@ export function pmRoutePrompt(request: string, pool: AgentDef[]): string {
     ``,
     `할당: <id> | <그 담당자에게 전달할 구체적 한 줄 지시>`,
     ``,
+    `- 단, 이 지시가 여러 역할이 **서로 토론해야** 좋은 답이 나오는 문제라면(예: 수익모델과 UI의 절충),`,
+    `  할당 대신 아래 형식 한 줄만 출력해서 협업 회의를 소집해라 (2~4명):`,
+    ``,
+    `협업: <id>,<id>,<id> | <논의 주제 한 줄>`,
+    ``,
     `예시:`,
     `할당: scenario | 주인공과 라이벌의 관계 설정을 세계관에 추가해라`,
+    `협업: bm,uiux,systems | 과금 노출을 화면 흐름에 자연스럽게 녹이는 방안`,
   ].join("\n");
+}
+
+/** PM 라우팅 응답에서 협업 소집 지시 파싱 — "협업: id,id | 주제" (앞에 이모지 등 잡문자 허용) */
+export function parseCollabPlan(text: string, validIds: string[]): { members: string[]; topic: string } | null {
+  const m = /^[^\n]{0,12}?(?:협업|collab)\s*[:：]\s*([a-z,\s]+)\|\s*(.+)$/im.exec(text);
+  if (!m) return null;
+  const members = Array.from(
+    new Set(
+      m[1]
+        .split(/[,\s]+/)
+        .map((s) => s.trim().toLowerCase())
+        .filter((s) => validIds.includes(s))
+    )
+  );
+  const topic = m[2].trim().replace(/\**$/, "");
+  if (members.length < 2 || members.length > 4 || !topic) return null;
+  return { members, topic };
 }
 
 /** 역할별 기본 보고서 주제 — 📋 버튼을 눌렀을 때 입력창의 기본값 */
@@ -329,7 +352,8 @@ export function collabPrompt(
 export function parseRoutePlan(text: string, validIds: string[]): { id: string; directive: string }[] {
   const out: { id: string; directive: string }[] = [];
   const seen = new Set<string>();
-  const re = /^[\s*>-]*(?:할당|assign)\s*[:：]\s*\**([a-z]+)\**\s*[|｜]\s*(.+)$/gim;
+  // 앞의 [\s*>-] 외에 이모지 등 잡문자도 허용 (로컬/클라우드 모델이 불릿·이모지를 붙이는 경우)
+  const re = /^[^\n]{0,12}?(?:할당|assign)\s*[:：]\s*\**([a-z]+)\**\s*[|｜]\s*(.+)$/gim;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     const id = m[1].toLowerCase();

@@ -22,6 +22,7 @@ import {
   knowledgeVerifyPrompt,
   parseKnowledgeVerdict,
   collabPrompt,
+  parseCollabPlan,
   type AgentDef,
   type WebMode,
 } from "./lib/agents";
@@ -406,6 +407,60 @@ export const useVE = create<VEState>()((set, get) => {
         return { chats: { ...s.chats, [agentId]: msgs } };
       });
     }
+  };
+
+  /**
+   * 협업 라운드 코어 — 멤버들이 2라운드 상호 대화 후 리드가 결론을 내고
+   * 보고서함에 저장한다. 오너의 🤝 버튼과 PM 주도 소집이 공용으로 쓴다.
+   */
+  const runCollabRounds = async (
+    members: AgentDef[],
+    topic: string,
+    project: string,
+    runTag: string,
+    signal: AbortSignal | undefined,
+    overview: string
+  ) => {
+    let transcript = "";
+    const lead = members[0];
+    for (let round = 0; round < 2 && !get().stopRequested; round++) {
+      for (const agent of members) {
+        if (get().stopRequested) break;
+        setAgentStatus(agent.id, "running");
+        const others = members.filter((m) => m.id !== agent.id);
+        const r = await gateway.runAgent(
+          agent.id,
+          collabPrompt(topic, agent, others, transcript, overview, false),
+          runTag,
+          signal
+        );
+        const say = sanitizeAgentOutput(r.text);
+        addUsage(r.usage, say);
+        transcript += `\n[${agent.name}] ${say}\n`;
+        pushFeed({ from: agent.id, kind: "talk", text: say });
+        setAgentStatus(agent.id, "done");
+      }
+    }
+    if (get().stopRequested) return;
+    setAgentStatus(lead.id, "running");
+    const r = await gateway.runAgent(
+      lead.id,
+      collabPrompt(topic, lead, members.filter((m) => m.id !== lead.id), transcript, overview, true),
+      runTag,
+      signal
+    );
+    const conclusion = sanitizeAgentOutput(r.text);
+    addUsage(r.usage, conclusion);
+    pushFeed({ from: lead.id, kind: "summary", text: conclusion });
+    setAgentStatus(lead.id, "done");
+    const title = `협업 결론 — ${topic.slice(0, 40)}${topic.length > 40 ? "…" : ""}`;
+    await saveReport(project, lead.id, title, `# ${title}\n\n## 결론\n${conclusion}\n\n## 대화 전문\n${transcript}`);
+    await get().loadReports();
+    pushFeed({
+      from: "system",
+      kind: "status",
+      text: "📋 협업 결론이 보고서함에 저장되었습니다 — PM 가치검증을 거쳐 GDD에 반영할 수 있습니다.",
+    });
   };
 
   /** 프로젝트의 저장된 채팅을 (아직 안 불렀으면) 불러온다 */
@@ -796,11 +851,30 @@ export const useVE = create<VEState>()((set, get) => {
         pushFeed({ from: "pm", kind: "status", text: "지시를 분석해 담당자를 배정하는 중…" });
         try {
           const r = await gateway.runAgent("pm", pmRoutePrompt(req, pool), `${runTag}-route`, signal);
-          const routed = parseRoutePlan(
-            sanitizeAgentOutput(r.text),
-            pool.map((a) => a.id)
-          );
+          const routeText = sanitizeAgentOutput(r.text);
           addUsage(r.usage, r.text);
+          // PM이 협업 회의를 소집했으면 개별 배정 대신 협업 세션 실행
+          const collab = parseCollabPlan(routeText, pool.map((a) => a.id));
+          if (collab) {
+            const members = collab.members.map((id) => AGENT_MAP[id]);
+            pushFeed({
+              from: "pm",
+              kind: "instruction",
+              text: `이 건은 개별 작업보다 **협업 회의**가 필요합니다. ${members.map((m) => `${m.emoji} ${m.name}`).join(" ↔ ")} 소집 — 주제: ${collab.topic}`,
+            });
+            setAgentStatus("pm", "done");
+            updateCard("pm", { state: "done", phase: undefined });
+            try {
+              await runCollabRounds(members, collab.topic, project, `${runTag}-collab`, signal, overview);
+            } catch (e: any) {
+              if (!get().stopRequested) {
+                pushFeed({ from: "system", kind: "error", text: `⚠️ 협업 실패: ${String(e?.message ?? e).slice(0, 120)}` });
+              }
+            }
+            set({ orchRunning: false });
+            return;
+          }
+          const routed = parseRoutePlan(routeText, pool.map((a) => a.id));
           if (routed.length > 0) {
             targets = routed.map((p) => AGENT_MAP[p.id]);
             for (const p of routed) focusMap[p.id] = p.directive;
@@ -1380,52 +1454,8 @@ export const useVE = create<VEState>()((set, get) => {
       } catch {
         /* noop */
       }
-      const overview = getSectionBody(baseMd, "## 1.");
-      let transcript = "";
-      const lead = members[0];
-
       try {
-        // 2라운드 순차 대화 — 각자 동료 발언에 반응하며 발전
-        for (let round = 0; round < 2 && !get().stopRequested; round++) {
-          for (const agent of members) {
-            if (get().stopRequested) break;
-            setAgentStatus(agent.id, "running");
-            const others = members.filter((m) => m.id !== agent.id);
-            const r = await gateway.runAgent(
-              agent.id,
-              collabPrompt(topic, agent, others, transcript, overview, false),
-              runTag,
-              signal
-            );
-            const say = sanitizeAgentOutput(r.text);
-            addUsage(r.usage, say);
-            transcript += `\n[${agent.name}] ${say}\n`;
-            pushFeed({ from: agent.id, kind: "talk", text: say });
-            setAgentStatus(agent.id, "done");
-          }
-        }
-        if (!get().stopRequested) {
-          // 리드가 결론 정리 → 보고서함 저장
-          setAgentStatus(lead.id, "running");
-          const r = await gateway.runAgent(
-            lead.id,
-            collabPrompt(topic, lead, members.filter((m) => m.id !== lead.id), transcript, overview, true),
-            runTag,
-            signal
-          );
-          const conclusion = sanitizeAgentOutput(r.text);
-          addUsage(r.usage, conclusion);
-          pushFeed({ from: lead.id, kind: "summary", text: conclusion });
-          setAgentStatus(lead.id, "done");
-          const title = `협업 결론 — ${topic.slice(0, 40)}${topic.length > 40 ? "…" : ""}`;
-          await saveReport(project, lead.id, title, `# ${title}\n\n## 결론\n${conclusion}\n\n## 대화 전문\n${transcript}`);
-          await get().loadReports();
-          pushFeed({
-            from: "system",
-            kind: "status",
-            text: "📋 협업 결론이 보고서함에 저장되었습니다 — PM 가치검증을 거쳐 GDD에 반영할 수 있습니다.",
-          });
-        }
+        await runCollabRounds(members, topic, project, runTag, signal, getSectionBody(baseMd, "## 1."));
       } catch (e: any) {
         if (!get().stopRequested) {
           pushFeed({ from: "system", kind: "error", text: `⚠️ 협업 세션 실패: ${String(e?.message ?? e).slice(0, 120)}` });

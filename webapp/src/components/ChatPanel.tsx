@@ -17,6 +17,7 @@ export function ChatPanel() {
     rejectVerify,
     generateReport,
     reportBusy,
+    feed,
   } = useVE();
   const agent = AGENT_MAP[activeAgent];
   const msgs = chats[activeAgent] ?? [];
@@ -24,7 +25,21 @@ export function ChatPanel() {
   const rBusy = reportBusy[activeAgent] ?? false;
   const pv = pendingVerify[activeAgent];
   const [input, setInput] = useState("");
+  /** "chat" = 오너와의 1:1 대화, "work" = 이 에이전트가 팀 안에서 한 일(피드 필터) */
+  const [tab, setTab] = useState<"chat" | "work">("chat");
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const WORK_LABEL: Record<string, string> = {
+    draft: "초안",
+    review: "동료 검토",
+    revision: "수정본",
+    summary: "통합/결론",
+    talk: "협업 발언",
+    instruction: "지시",
+  };
+  const workLog = feed.filter(
+    (m) => m.from === activeAgent && ["draft", "review", "revision", "summary", "talk"].includes(m.kind)
+  );
 
   const hasConclusion = msgs.some((m) => m.role === "assistant" && !m.error && m.text.trim());
 
@@ -48,6 +63,18 @@ export function ChatPanel() {
         <div className="head-meta">
           <div className="head-name">{agent.name}</div>
           <div className="head-role">{agent.role}</div>
+        </div>
+        <div className="chat-tabs">
+          <button className={`doc-tab ${tab === "chat" ? "on" : ""}`} onClick={() => setTab("chat")} title="오너와의 1:1 대화">
+            💬 대화
+          </button>
+          <button
+            className={`doc-tab ${tab === "work" ? "on" : ""}`}
+            onClick={() => setTab("work")}
+            title="이 에이전트가 회의·협업에서 한 일만 모아 봅니다"
+          >
+            📜 작업 기록{workLog.length > 0 ? ` ${workLog.length}` : ""}
+          </button>
         </div>
         {activeAgent !== "pm" && (
           <button
@@ -84,6 +111,32 @@ export function ChatPanel() {
         </button>
       </div>
 
+      {tab === "work" ? (
+        <div className="chat-scroll">
+          {workLog.length === 0 && (
+            <div className="empty-hint">
+              아직 작업 기록이 없습니다.
+              <br />
+              <span className="dim">오케스트레이션·협업 세션에서 {agent.name}가 한 발언과 산출물이 여기에 모입니다.</span>
+            </div>
+          )}
+          {workLog.map((m) => (
+            <div key={m.id} className="work-entry">
+              <div className="work-head">
+                <span className={`feed-kind k-${m.kind}`}>{WORK_LABEL[m.kind] ?? m.kind}</span>
+                {m.to && AGENT_MAP[m.to] && (
+                  <span className="dim">→ {AGENT_MAP[m.to].emoji} {AGENT_MAP[m.to].name}</span>
+                )}
+                <span className="feed-time">
+                  {new Date(m.ts).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}
+                </span>
+              </div>
+              <Markdown text={m.text} />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <>
       <div className="chat-scroll">
         {msgs.length === 0 && (
           <div className="empty-hint">
@@ -180,6 +233,8 @@ export function ChatPanel() {
           {busy ? "응답 대기…" : "전송 ➤"}
         </button>
       </div>
+        </>
+      )}
     </section>
   );
 }
