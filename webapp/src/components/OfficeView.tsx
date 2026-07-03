@@ -3,6 +3,7 @@ import { AGENT_MAP } from "../lib/agents";
 import { uiPrompt } from "../lib/dialog";
 import { AgentSprite } from "./AgentSprite";
 import { ArtStudio } from "./ArtStudio";
+import { PrototypeStudio } from "./PrototypeStudio";
 import { DocViewer } from "./DocViewer";
 import { useVE, type FeedMsg } from "../store";
 
@@ -37,10 +38,11 @@ function statusLabel(status: string, phase?: string): string {
 }
 
 function Desk({ agentId, big }: { agentId: string; big?: boolean }) {
-  const { agentStatus, cards, feed, selectAgent, livePeek, openProfile } = useVE();
+  const { agentStatus, cards, feed, selectAgent, livePeek, openProfile, meetingMembers } = useVE();
   const a = AGENT_MAP[agentId];
   const st = agentStatus[agentId] ?? "idle";
   const phase = cards[agentId]?.phase;
+  const inMeeting = meetingMembers.includes(agentId);
 
   // 이 에이전트의 최근 발언 (지시/초안/검토/수정/통합)
   let last: FeedMsg | undefined;
@@ -60,10 +62,10 @@ function Desk({ agentId, big }: { agentId: string; big?: boolean }) {
 
   return (
     <div
-      className={`desk st-${st} ${big ? "big" : ""}`}
+      className={`desk st-${st} ${big ? "big" : ""} ${inMeeting ? "away" : ""}`}
       data-agent={agentId}
       onClick={() => selectAgent(agentId)}
-      title={`${a.name} — 클릭하면 대화`}
+      title={inMeeting ? `${a.name} — 회의실에서 회의 중` : `${a.name} — 클릭하면 대화`}
     >
       {showBubble && bubbleText && (
         <div className="speech" style={{ borderColor: a.color + "66" }}>
@@ -100,7 +102,7 @@ function Desk({ agentId, big }: { agentId: string; big?: boolean }) {
       <div className="nameplate" style={{ borderColor: a.color + "55" }}>
         {a.name}
       </div>
-      <div className={`desk-status ds-${st}`}>{statusLabel(st, phase)}</div>
+      <div className={`desk-status ds-${st}`}>{inMeeting ? "회의실에 있음 🚶" : statusLabel(st, phase)}</div>
     </div>
   );
 }
@@ -150,6 +152,104 @@ function PmWalker() {
   );
 }
 
+/** 회의실 — 협업 세션·팀 리뷰 중일 때 참가자들이 실제로 걸어와 모이는 구역 */
+function MeetingRoom() {
+  const { meetingMembers } = useVE();
+  const active = meetingMembers.length > 0;
+  return (
+    <div className={`meeting-room ${active ? "active" : ""}`} data-meeting="room" title="회의실">
+      <span className="meeting-table">🪑 🟫 🪑</span>
+      <div className="meeting-label">{active ? "회의 중…" : "회의실"}</div>
+    </div>
+  );
+}
+
+/** 회의실로 걸어가는 참가자 하나 — 자리 이동은 CSS transition으로 부드럽게 처리 */
+function MeetingWalker({ agentId, atMeeting, seat }: { agentId: string; atMeeting: boolean; seat: number }) {
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const a = AGENT_MAP[agentId];
+
+  useEffect(() => {
+    const room = document.querySelector(".office-room");
+    if (!room) return;
+    const rr = room.getBoundingClientRect();
+    if (atMeeting) {
+      const table = room.querySelector('[data-meeting="room"]');
+      if (!table) return;
+      const tr = table.getBoundingClientRect();
+      const seats: [number, number][] = [
+        [-46, -4],
+        [-14, -4],
+        [18, -4],
+        [50, -4],
+        [-30, 20],
+        [34, 20],
+      ];
+      const [ox, oy] = seats[seat % seats.length];
+      setPos({ left: tr.left - rr.left + tr.width / 2 - 15 + ox, top: tr.top - rr.top + oy });
+    } else {
+      const desk = room.querySelector(`[data-agent="${agentId}"]`);
+      if (!desk) {
+        setPos(null);
+        return;
+      }
+      const dr = desk.getBoundingClientRect();
+      setPos({ left: dr.left - rr.left + dr.width / 2 - 15, top: dr.top - rr.top + 30 });
+    }
+  }, [agentId, atMeeting, seat]);
+
+  if (!pos) return null;
+  return (
+    <div
+      className="meeting-walker"
+      style={{ left: pos.left, top: pos.top }}
+      title={`${a.name} — ${atMeeting ? "회의 중" : "자리로 복귀 중"}`}
+    >
+      <AgentSprite id={agentId} size={28} />
+    </div>
+  );
+}
+
+/** meetingMembers 변화를 감지해 각 참가자의 등장(걸어오기)·퇴장(걸어가기)을 관리 */
+function MeetingWalkers() {
+  const { meetingMembers } = useVE();
+  const [atMeeting, setAtMeeting] = useState<Record<string, boolean>>({});
+  const key = meetingMembers.join(",");
+
+  useEffect(() => {
+    setAtMeeting((prev) => {
+      const next = { ...prev };
+      for (const id of meetingMembers) next[id] = true;
+      for (const id of Object.keys(prev)) if (!meetingMembers.includes(id)) next[id] = false;
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  useEffect(() => {
+    const leaving = Object.entries(atMeeting).filter(([, at]) => !at);
+    if (leaving.length === 0) return;
+    const t = setTimeout(() => {
+      setAtMeeting((prev) => {
+        const next = { ...prev };
+        for (const id of Object.keys(next)) if (!next[id]) delete next[id];
+        return next;
+      });
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [atMeeting]);
+
+  const ids = Object.keys(atMeeting);
+  if (ids.length === 0) return null;
+  return (
+    <>
+      {ids.map((id, i) => (
+        <MeetingWalker key={id} agentId={id} atMeeting={atMeeting[id]} seat={i} />
+      ))}
+    </>
+  );
+}
+
 /** 아트 인턴 미니 책상 — 아트 디렉터 바로 아래, 클릭하면 아트 스튜디오 */
 function InternDesk({ onOpen }: { onOpen: () => void }) {
   const { artBusy, artStatus, artPhase, officeBgBusy, officeBgPhase } = useVE();
@@ -177,6 +277,28 @@ function InternDesk({ onOpen }: { onOpen: () => void }) {
   );
 }
 
+/** 개발 인턴 미니 책상 — 선임 개발자(td) 바로 아래, 클릭하면 프로토타입 스튜디오 */
+function DevInternDesk({ onOpen }: { onOpen: () => void }) {
+  const { protoBusy, protoPhase } = useVE();
+  return (
+    <div
+      className={`desk intern ${protoBusy ? "st-running" : "st-done"}`}
+      onClick={onOpen}
+      title="개발 인턴 — 클릭하면 프로토타입 스튜디오"
+    >
+      {protoBusy && protoPhase && <div className="speech">{protoPhase.slice(0, 40)}</div>}
+      <div className="office-avatar" style={{ background: "#38bdf826", borderColor: "#38bdf855" }}>
+        <span className="intern-face">🧑‍💻</span>
+        {protoBusy ? <span className="zzz work">⚡</span> : <span className="zzz ok">✅</span>}
+      </div>
+      <div className="nameplate" style={{ borderColor: "#38bdf855" }}>
+        개발 인턴
+      </div>
+      <div className={`desk-status ${protoBusy ? "ds-running" : "ds-idle"}`}>{protoBusy ? "만드는 중…" : "대기 중"}</div>
+    </div>
+  );
+}
+
 export function OfficeView() {
   const {
     projects,
@@ -193,6 +315,9 @@ export function OfficeView() {
     artStatus,
     dailyBriefing,
     briefingBusy,
+    reviewExistingPlan,
+    planReviewBusy,
+    planReviewPhase,
   } = useVE();
   const projectName = projects.find((p) => p.id === activeProject)?.name ?? "";
   // 말풍선 TTL 갱신용 틱
@@ -204,8 +329,9 @@ export function OfficeView() {
 
   const [docViewer, setDocViewer] = useState<null | "gdd" | "reports">(null);
   const [studioOpen, setStudioOpen] = useState(false);
+  const [protoStudioOpen, setProtoStudioOpen] = useState(false);
 
-  const row1 = ["scenario", "gameplay", "systems", "uiux", "td"];
+  const row1 = ["scenario", "gameplay", "systems", "uiux"];
   const row2 = ["balance", "bm", "scheduler", "marketing"];
 
   const bgUrl = themeImage(officeTheme, officeBg?.ts);
@@ -269,6 +395,20 @@ export function OfficeView() {
             "☀️ 오늘의 브리핑"
           )}
         </button>
+        <button
+          className="btn small"
+          onClick={() => void reviewExistingPlan()}
+          disabled={planReviewBusy || orchRunning}
+          title="PM이 기존 기획(GDD) 전체를 읽고 역할별 브리핑을 넘겨, 각자 학습 후 보완점·평가를 회의실에서 취합합니다"
+        >
+          {planReviewBusy ? (
+            <>
+              <span className="spinner" /> 팀 리뷰…
+            </>
+          ) : (
+            "📥 기존 기획 리뷰"
+          )}
+        </button>
         <span className="office-doc-tabs">
           <button className="btn small" onClick={() => setDocViewer("gdd")} title="마스터 GDD를 큰 화면으로">
             📄 GDD
@@ -279,6 +419,7 @@ export function OfficeView() {
         </span>
       </div>
       {officeBgPhase && <div className="office-bg-phase dim">{officeBgPhase}</div>}
+      {planReviewPhase && <div className="office-bg-phase dim">{planReviewPhase}</div>}
       <div className={`office-room ${bgUrl ? "has-bg" : ""}`} style={bgUrl ? { backgroundImage: `url("${bgUrl}")` } : undefined}>
         <div className="office-wall">
           <div className="office-window" title={new Date().getHours() >= 6 && new Date().getHours() < 18 ? "낮" : "밤"}>
@@ -304,6 +445,10 @@ export function OfficeView() {
           {row1.map((id) => (
             <Desk key={id} agentId={id} />
           ))}
+          <div className="art-corner">
+            <Desk agentId="td" />
+            <DevInternDesk onOpen={() => setProtoStudioOpen(true)} />
+          </div>
         </div>
         <div className="office-row">
           {row2.map((id) => (
@@ -314,15 +459,20 @@ export function OfficeView() {
             <InternDesk onOpen={() => setStudioOpen(true)} />
           </div>
         </div>
+        <div className="office-row meeting-row">
+          <MeetingRoom />
+        </div>
         <div className="office-floor" />
         <PmWalker />
+        <MeetingWalkers />
       </div>
       <div className="office-hint dim">
-        캐릭터 클릭 → 1:1 대화 · ⚙ → 프로필(모델 교체) · 🖌️ 아트 인턴 → 컨셉 아트 · 상단 테마 셀렉터 → 사무실 배경
+        캐릭터 클릭 → 1:1 대화 · ⚙ → 프로필(모델 교체) · 🖌️ 아트 인턴 → 컨셉 아트 · 🧑‍💻 개발 인턴 → 페이퍼 프로토타입 · 상단 테마 셀렉터 → 사무실 배경
       </div>
 
       {docViewer && <DocViewer tab={docViewer} onTab={setDocViewer} onClose={() => setDocViewer(null)} />}
       {studioOpen && <ArtStudio onClose={() => setStudioOpen(false)} />}
+      {protoStudioOpen && <PrototypeStudio onClose={() => setProtoStudioOpen(false)} />}
     </section>
   );
 }

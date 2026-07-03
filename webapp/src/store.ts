@@ -21,11 +21,16 @@ import {
   sdPromptPrompt,
   parseSdPrompt,
   officeBgSdPrompt,
+  devPrototypePrompt,
+  extractHtml,
   briefingPrompt,
   knowledgeVerifyPrompt,
   parseKnowledgeVerdict,
   collabPrompt,
   parseCollabPlan,
+  planDistributePrompt,
+  parsePlanBriefs,
+  planReviewPrompt,
   type AgentDef,
   type WebMode,
 } from "./lib/agents";
@@ -65,6 +70,7 @@ import {
   type ArtStatus,
   type OfficeBgMeta,
 } from "./lib/art";
+import { listPrototypes, savePrototype, deletePrototype, type ProtoDoc } from "./lib/proto";
 import {
   fetchGdd,
   saveGdd,
@@ -203,6 +209,11 @@ interface VEState {
   /** 진행 단계 표시 ("프롬프트 의뢰 중" / "이미지 생성 중") */
   artPhase: string;
 
+  /** 개발 인턴 (기능별 HTML 페이퍼 프로토타입) */
+  protoList: ProtoDoc[];
+  protoBusy: boolean;
+  protoPhase: string;
+
   /** 작업 중인 에이전트의 부분 응답 미리보기 (사무실 말풍선 라이브) */
   livePeek: Record<string, string>;
 
@@ -247,6 +258,12 @@ interface VEState {
   /** 이번 회의 시작 시점의 GDD (diff·되돌리기 기준) */
   orchBaseline: string | null;
   meetingDiffOpen: boolean;
+
+  /** 지금 회의실에 모여 있는 에이전트 id들 (협업 세션·팀 리뷰 중 — 사무실 연출용) */
+  meetingMembers: string[];
+  /** 기존 기획 팀 리뷰 진행 상태 */
+  planReviewBusy: boolean;
+  planReviewPhase: string;
 
   gdd: string;
   gddMtime: number;
@@ -315,6 +332,11 @@ interface VEState {
   /** 컨셉 아트를 GDD "8. 아트" 섹션에 이미지로 삽입 */
   attachArtToGdd: (ts: number) => Promise<void>;
 
+  /** 개발 인턴 — 선임 개발자(td)가 확정한 명세 중 기능 하나를 골라 HTML 페이퍼 프로토타입을 뽑는다 */
+  loadProto: () => Promise<void>;
+  generatePrototype: (feature: string) => Promise<void>;
+  removePrototype: (ts: number) => Promise<void>;
+
   /** 사무실 배경 — 테마 선택 + 아트 인턴에게 새 배경 그리게 하기 */
   setOfficeTheme: (t: string) => void;
   loadOfficeBg: () => Promise<void>;
@@ -359,6 +381,9 @@ interface VEState {
 
   /** 협업 세션 — 선택된 에이전트 2~4명이 서로 대화하며 결론 도출 */
   collabSession: () => Promise<void>;
+
+  /** 기존 기획 팀 리뷰 — PM이 GDD를 읽고 역할별 브리핑 → 각자 학습 후 보완점/평가 취합 */
+  reviewExistingPlan: () => Promise<void>;
 
   reflectToGdd: (agentId: string, text: string) => Promise<void>;
   loadGdd: () => Promise<void>;
@@ -500,6 +525,8 @@ export const useVE = create<VEState>()((set, get) => {
   ) => {
     let transcript = "";
     const lead = members[0];
+    set({ meetingMembers: members.map((m) => m.id) });
+    try {
     for (let round = 0; round < 2 && !get().stopRequested; round++) {
       for (const agent of members) {
         if (get().stopRequested) break;
@@ -533,6 +560,9 @@ export const useVE = create<VEState>()((set, get) => {
     const title = `협업 결론 — ${topic.slice(0, 40)}${topic.length > 40 ? "…" : ""}`;
     await saveReport(project, lead.id, title, `# ${title}\n\n## 결론\n${conclusion}\n\n## 대화 전문\n${transcript}`);
     await get().loadReports();
+    } finally {
+      set({ meetingMembers: [] });
+    }
     pushFeed({
       from: "system",
       kind: "status",
@@ -596,6 +626,9 @@ export const useVE = create<VEState>()((set, get) => {
     artImages: [],
     artBusy: false,
     artPhase: "",
+    protoList: [],
+    protoBusy: false,
+    protoPhase: "",
     livePeek: {},
     officeTheme: ((): string => {
       try {
@@ -617,6 +650,9 @@ export const useVE = create<VEState>()((set, get) => {
     quotaSuspect: null,
     orchBaseline: null,
     meetingDiffOpen: false,
+    meetingMembers: [],
+    planReviewBusy: false,
+    planReviewPhase: "",
 
     gdd: "",
     gddMtime: 0,
@@ -644,6 +680,7 @@ export const useVE = create<VEState>()((set, get) => {
         void ensureChatLoaded(get().activeAgent);
         void get().loadReports();
         void get().loadArt();
+        void get().loadProto();
       }
       void get().checkArtStatus();
       void get().loadOfficeBg();
@@ -734,6 +771,7 @@ export const useVE = create<VEState>()((set, get) => {
         reportBusy: {},
         reportPreview: null,
         artImages: [],
+        protoList: [],
       });
       await get().loadGdd();
       const feed = await loadFeedHistory(id);
@@ -741,6 +779,7 @@ export const useVE = create<VEState>()((set, get) => {
       void ensureChatLoaded(get().activeAgent);
       void get().loadReports();
       void get().loadArt();
+      void get().loadProto();
     },
 
     createProjectAction: async (name) => {
@@ -1486,6 +1525,54 @@ export const useVE = create<VEState>()((set, get) => {
       await gddQueue;
     },
 
+    /* ── 개발 인턴 (기능별 HTML 페이퍼 프로토타입) ── */
+
+    loadProto: async () => {
+      const project = get().activeProject;
+      if (!project) return;
+      const protoList = await listPrototypes(project);
+      if (get().activeProject === project) set({ protoList });
+    },
+
+    generatePrototype: async (feature) => {
+      const project = get().activeProject;
+      const f = feature.trim();
+      if (!project || !f || get().protoBusy) return;
+      set({ protoBusy: true, protoPhase: "🛠️ 개발 인턴이 명세를 확인하고 프로토타입을 만드는 중…" });
+      setAgentStatus("td", "running");
+      try {
+        let baseMd = get().gdd;
+        try {
+          baseMd = (await fetchGdd(project)).markdown;
+        } catch {
+          /* 화면 상태 사용 */
+        }
+        const r = await gateway.runAgent(
+          "td",
+          devPrototypePrompt(f, getSectionBody(baseMd, "## 9."), getSectionBody(baseMd, "## 1.")),
+          `devproto-${project}-${Date.now().toString(36)}`
+        );
+        addUsage(r.usage, r.text);
+        const html = extractHtml(sanitizeAgentOutput(r.text));
+        if (!html) throw new Error("개발 인턴이 유효한 HTML을 만들지 못했습니다");
+        setAgentStatus("td", "done");
+        await savePrototype(project, f, html);
+        await get().loadProto();
+      } catch (e: any) {
+        setAgentStatus("td", "error");
+        set({ protoBusy: false, protoPhase: `⚠️ ${String(e?.message ?? e).slice(0, 120)}` });
+        return;
+      }
+      set({ protoBusy: false, protoPhase: "" });
+    },
+
+    removePrototype: async (ts) => {
+      const project = get().activeProject;
+      if (!project) return;
+      await deletePrototype(project, ts);
+      await get().loadProto();
+    },
+
     /* ── 사무실 배경 (아트 인턴이 그리는 스튜디오 인테리어) ── */
 
     setOfficeTheme: (t) => {
@@ -1808,6 +1895,73 @@ export const useVE = create<VEState>()((set, get) => {
         }
       }
       set({ orchRunning: false });
+    },
+
+    reviewExistingPlan: async () => {
+      const st = get();
+      if (st.planReviewBusy || st.orchRunning) return;
+      const project = st.activeProject;
+      if (!project) return;
+      let baseMd = st.gdd;
+      try {
+        baseMd = (await fetchGdd(project)).markdown;
+      } catch {
+        /* 화면 상태 사용 */
+      }
+      const overview = getSectionBody(baseMd, "## 1.");
+      set({ planReviewBusy: true, planReviewPhase: "🎯 PM이 기존 기획을 읽고 팀에 브리핑을 정리하는 중…" });
+      pushFeed({ from: "user", kind: "request", text: "📥 기존 기획 팀 리뷰 시작" });
+      try {
+        setAgentStatus("pm", "running");
+        const routeR = await gateway.runAgent(
+          "pm",
+          planDistributePrompt(baseMd, SPECIALISTS),
+          `planreview-${project}-${Date.now().toString(36)}`
+        );
+        addUsage(routeR.usage, routeR.text);
+        setAgentStatus("pm", "done");
+        const briefs = parsePlanBriefs(sanitizeAgentOutput(routeR.text), SPECIALISTS.map((a) => a.id));
+        if (briefs.length === 0) {
+          pushFeed({ from: "system", kind: "error", text: "⚠️ PM이 브리핑을 만들지 못했습니다 — 잠시 후 다시 시도해 주세요." });
+          return;
+        }
+        const members = briefs.map((b) => AGENT_MAP[b.id]);
+        set({ meetingMembers: members.map((m) => m.id) });
+        pushFeed({
+          from: "pm",
+          kind: "status",
+          text: `📥 팀 리뷰 소집: ${members.map((m) => `${m.emoji} ${m.name}`).join(", ")}`,
+        });
+        const sections: string[] = [];
+        try {
+          for (const { id, brief } of briefs) {
+            const agent = AGENT_MAP[id];
+            set({ planReviewPhase: `${agent.emoji} ${agent.name}가 기존 기획을 학습하는 중…` });
+            setAgentStatus(id, "running");
+            const r = await gateway.runAgent(
+              id,
+              planReviewPrompt(agent, brief, getSectionBody(baseMd, agent.section), overview),
+              `planreview-${project}-${Date.now().toString(36)}-${id}`
+            );
+            const say = sanitizeAgentOutput(r.text);
+            addUsage(r.usage, say);
+            pushFeed({ from: id, kind: "talk", text: say });
+            setAgentStatus(id, "done");
+            sections.push(`## ${agent.emoji} ${agent.name} (${agent.sectionTitle})\n\n${say}`);
+          }
+        } finally {
+          set({ meetingMembers: [] });
+        }
+        const today = new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" });
+        const title = `팀 리뷰 — 기존 기획 검토 (${today})`;
+        const body = `# ${title}\n\n${sections.join("\n\n")}`;
+        await saveReport(project, "pm", title, body);
+        await get().loadReports();
+        pushFeed({ from: "system", kind: "status", text: "📋 팀 리뷰 결과가 보고서함에 저장되었습니다." });
+      } catch (e: any) {
+        pushFeed({ from: "system", kind: "error", text: `⚠️ 팀 리뷰 실패: ${String(e?.message ?? e).slice(0, 120)}` });
+      }
+      set({ planReviewBusy: false, planReviewPhase: "", meetingMembers: [] });
     },
 
     /* ── GDD + 버전 히스토리 ───────────────────────── */

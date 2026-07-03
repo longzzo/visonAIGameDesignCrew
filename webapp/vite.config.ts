@@ -1195,6 +1195,117 @@ function artApiPlugin(): Plugin {
   };
 }
 
+/* ── 플러그인: 개발 인턴 (기능별 HTML 페이퍼 프로토타입) ── */
+
+/**
+ * 선임 개발자(td)가 확정한 개발 명세 중 기능 하나를 골라 만든 자기완결적 HTML 와이어프레임을
+ * projects/<id>/prototypes/<ts>.html + <ts>.json(메타)로 저장한다. 생성 자체는 LLM 호출(클라이언트/스토어)에서
+ * 끝나고, 이 플러그인은 결과물을 저장·목록화·서빙만 한다 (아트 인턴처럼 외부 GPU 서비스 호출 없음).
+ */
+function protoApiPlugin(): Plugin {
+  const protoDir = (projectId: string) => path.join(projectDir(projectId), "prototypes");
+  return {
+    name: "vision-engine-proto-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/proto", (req, res) => {
+        void (async () => {
+          try {
+            const url = new URL(req.url ?? "/", "http://local");
+            const sub = url.pathname.replace(/\/+$/, "");
+            const project = url.searchParams.get("project") ?? "";
+            if (!isSafeId(project) || !fs.existsSync(projectDir(project))) {
+              res.statusCode = 400;
+              res.setHeader("Content-Type", "application/json; charset=utf-8");
+              res.end(JSON.stringify({ ok: false, error: "project 확인 필요" }));
+              return;
+            }
+            const dir = protoDir(project);
+
+            // HTML 파일 서빙 (iframe/새 탭에서 열기)
+            if (sub === "/file" && req.method === "GET") {
+              const ts = Number(url.searchParams.get("ts") ?? 0);
+              const f = path.join(dir, `${ts}.html`);
+              if (!fs.existsSync(f)) {
+                res.statusCode = 404;
+                res.end("not found");
+                return;
+              }
+              res.setHeader("Content-Type", "text/html; charset=utf-8");
+              res.setHeader("Cache-Control", "max-age=86400");
+              fs.createReadStream(f).pipe(res);
+              return;
+            }
+
+            res.setHeader("Content-Type", "application/json; charset=utf-8");
+
+            // 목록
+            if (req.method === "GET") {
+              if (!fs.existsSync(dir)) {
+                res.end(JSON.stringify({ items: [] }));
+                return;
+              }
+              const items = fs
+                .readdirSync(dir)
+                .filter((f) => /^\d+\.json$/.test(f))
+                .map((f) => {
+                  try {
+                    return JSON.parse(fs.readFileSync(path.join(dir, f), "utf-8"));
+                  } catch {
+                    return null;
+                  }
+                })
+                .filter(Boolean)
+                .sort((a: any, b: any) => b.ts - a.ts);
+              res.end(JSON.stringify({ items }));
+              return;
+            }
+
+            // 저장
+            if (req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
+              const j = JSON.parse((await readBody(req)) || "{}");
+              const feature = String(j.feature ?? "").trim();
+              const html = String(j.html ?? "").trim();
+              if (!feature || !html) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: "feature/html 필요" }));
+                return;
+              }
+              fs.mkdirSync(dir, { recursive: true });
+              const ts = Date.now();
+              fs.writeFileSync(path.join(dir, `${ts}.html`), html, "utf-8");
+              fs.writeFileSync(path.join(dir, `${ts}.json`), JSON.stringify({ ts, feature }, null, 0), "utf-8");
+              res.end(JSON.stringify({ ok: true, ts }));
+              return;
+            }
+
+            // 삭제 (휴지통으로)
+            if (req.method === "DELETE") {
+              if (blockRemoteWrite(req, res)) return;
+              const ts = Number(url.searchParams.get("ts") ?? 0);
+              trashFile(path.join(dir, `${ts}.html`));
+              trashFile(path.join(dir, `${ts}.json`));
+              res.end(JSON.stringify({ ok: true }));
+              return;
+            }
+
+            res.statusCode = 405;
+            res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            try {
+              res.setHeader("Content-Type", "application/json; charset=utf-8");
+            } catch {
+              /* 헤더 이미 전송됨 */
+            }
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 300) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
 /* ── 플러그인: 사무실 배경 (아트 인턴이 그리는 커스텀 배경) ── */
 
 /**
@@ -1684,6 +1795,7 @@ export default defineConfig({
     chatsApiPlugin(),
     reportsApiPlugin(),
     artApiPlugin(),
+    protoApiPlugin(),
     officeBgPlugin(),
     knowledgeApiPlugin(),
     obsidianApiPlugin(),
