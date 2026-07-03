@@ -85,6 +85,17 @@ $appIp = ([uri]$appUrl).Host
 if (Test-Port $appIp 5199) {
   Write-Host "   OK - 웹앱 이미 실행 중" -ForegroundColor Green
 } else {
+  # 자가치유: 원하는 모드와 다른 바인딩(예: 로컬 전용)으로 이미 떠 있으면 종료 후 재기동
+  # (tailnet 모드인데 127.0.0.1에만 붙어 있으면 다른 기기에서 안 열리는 그 증상)
+  if (Test-Port '127.0.0.1' 5199) {
+    Write-Host "   웹앱이 다른 바인딩(로컬 전용)으로 떠 있음 - $appIp 로 재기동합니다" -ForegroundColor Yellow
+    try {
+      Get-NetTCPConnection -LocalPort 5199 -State Listen -ErrorAction Stop |
+        Select-Object -ExpandProperty OwningProcess -Unique |
+        ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+      Start-Sleep -Seconds 2
+    } catch {}
+  }
   $npmScript = if ($Mobile) { 'dev:mobile' } else { 'dev' }
   Start-Process cmd -ArgumentList '/k', "title Vision Engine 웹앱 && cd /d `"$webapp`" && npm run $npmScript" -WindowStyle Normal
   [void](Wait-Http $appUrl "웹앱($appUrl)" 90)
