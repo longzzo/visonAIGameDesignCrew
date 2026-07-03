@@ -17,6 +17,10 @@ export function KnowledgeStudio({ onClose }: { onClose: () => void }) {
     approveKnowledge,
     dismissKnowledge,
     removeKnowledge,
+    obsidian,
+    obsidianNotes,
+    loadObsidian,
+    learnFromObsidian,
   } = useVE();
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -24,6 +28,7 @@ export function KnowledgeStudio({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     void loadKnowledge();
+    void loadObsidian();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
@@ -103,6 +108,57 @@ export function KnowledgeStudio({ onClose }: { onClose: () => void }) {
           </div>
         </div>
 
+        {/* 옵시디안 볼트 — #ve-학습 태그 노트를 학습 후보로 */}
+        {obsidian?.connected && (
+          <div className="obsidian-box">
+            <div className="obsidian-head">
+              <b>🗃️ 옵시디안 볼트</b>
+              <span className="dim obsidian-path" title={obsidian.vault ?? ""}>
+                {obsidian.vault}
+              </span>
+              <button className="btn tiny" onClick={() => void loadObsidian()} title="볼트 다시 스캔">
+                🔄
+              </button>
+            </div>
+            <div className="dim obsidian-hint">
+              볼트 노트에 <code>#{obsidian.learnTag}</code> 태그를 달면 여기 나타납니다 · frontmatter{" "}
+              <code>agents: [bm, uiux]</code>로 대상 지정 가능 · 보고서·GDD는 볼트 <code>VisionEngine/</code>에 자동
+              보관됩니다
+            </div>
+            {obsidianNotes.length === 0 ? (
+              <div className="dim obsidian-empty">아직 #{obsidian.learnTag} 태그가 달린 노트가 없습니다.</div>
+            ) : (
+              <ul className="obsidian-notes">
+                {obsidianNotes.map((n) => (
+                  <li key={n.path}>
+                    <span className={`obsidian-state os-${n.state}`}>
+                      {n.state === "new" ? "신규" : n.state === "updated" ? "갱신됨" : "학습됨"}
+                    </span>
+                    <span className="obsidian-title" title={n.path}>
+                      {n.title}
+                    </span>
+                    <span className="dim">
+                      {new Date(n.mtime).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" })}
+                    </span>
+                    {n.state === "learned" ? (
+                      <span className="dim">✓</span>
+                    ) : (
+                      <button
+                        className="btn tiny"
+                        disabled={busy}
+                        onClick={() => void learnFromObsidian(n.path)}
+                        title="PM이 필요성을 검증한 뒤 학습합니다 — 갱신 학습은 이전 버전을 대체"
+                      >
+                        {n.state === "updated" ? "🔄 다시 학습" : "🎯 학습"}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
         {pk?.status === "running" && (
           <div className="art-phase">
             <span className="spinner" /> 🎯 PM이 이 지식의 필요성을 검토 중…
@@ -125,7 +181,11 @@ export function KnowledgeStudio({ onClose }: { onClose: () => void }) {
             <div className="verify-head">🎯 PM 판정 — 학습 권고</div>
             <p className="dim">{pk.reason}</p>
             <details className="verify-preview" open>
-              <summary>압축 요약 (프롬프트에는 이것이 주입됩니다) · 적용: {agentLabel(pk.agents)}</summary>
+              <summary>
+                압축 요약 (프롬프트에는 이것이 주입됩니다) · 적용:{" "}
+                {pk.presetAgents?.length ? `${agentLabel(pk.presetAgents)} (노트 지정)` : agentLabel(pk.agents)}
+                {pk.source?.startsWith("obsidian:") ? " · 출처: 옵시디안" : ""}
+              </summary>
               <Markdown text={pk.summary ?? ""} />
             </details>
             <div className="verify-actions">
@@ -159,7 +219,11 @@ export function KnowledgeStudio({ onClose }: { onClose: () => void }) {
             <details key={k.ts} className="knowledge-item">
               <summary>
                 <b>📖 {k.title}</b>
-                <span className="dim"> · 적용: {agentLabel(k.agents)} · {new Date(k.ts).toLocaleDateString("ko-KR")}</span>
+                <span className="dim">
+                  {" "}
+                  · 적용: {agentLabel(k.agents)} · {new Date(k.ts).toLocaleDateString("ko-KR")}
+                  {k.source?.startsWith("obsidian:") ? " · 🗃️ 옵시디안" : ""}
+                </span>
                 <button
                   className="btn tiny"
                   onClick={(e) => {

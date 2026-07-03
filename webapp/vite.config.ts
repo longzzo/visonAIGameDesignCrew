@@ -116,6 +116,130 @@ function readBody(req: any): Promise<string> {
   });
 }
 
+/* ── 옵시디안 연동 헬퍼 (볼트 = 지식 원천 + 산출물 아카이브) ── */
+
+/** 볼트에서 학습 후보로 인식하는 태그 (본문 #ve-학습 또는 frontmatter tags) */
+const OBSIDIAN_LEARN_TAG = "ve-학습";
+/** 산출물이 저장되는 볼트 내 폴더 — 학습 후보 스캔에서는 제외된다 */
+const OBSIDIAN_EXPORT_DIR = "VisionEngine";
+
+const AGENT_NAMES_KO: Record<string, string> = {
+  pm: "PM 디렉터", scenario: "시나리오 라이터", gameplay: "게임플레이 디자이너",
+  systems: "시스템 디자이너", uiux: "UIUX 디자이너", balance: "밸런스 디자이너",
+  bm: "BM 전략가", visual: "아트 디렉터", td: "테크니컬 디렉터",
+  scheduler: "스케줄러", marketing: "마케팅 담당관",
+};
+
+/**
+ * 볼트 위치 결정: VE_VAULT_DIR 환경변수 → 옵시디안 앱에 등록된 볼트(최근 열람)
+ * → 기본 생성 위치 D:\ObsidianVault. 요청마다 재평가하므로 나중에 옵시디안에서
+ * 다른 볼트를 열면 자동으로 따라간다.
+ */
+function resolveVault(): string | null {
+  const env = process.env.VE_VAULT_DIR;
+  if (env && fs.existsSync(env)) return env;
+  try {
+    const cfg = path.join(process.env.APPDATA ?? "", "obsidian", "obsidian.json");
+    if (fs.existsSync(cfg)) {
+      const vaults = Object.values(JSON.parse(fs.readFileSync(cfg, "utf-8"))?.vaults ?? {}) as any[];
+      vaults.sort((a, b) => (b?.ts ?? 0) - (a?.ts ?? 0));
+      for (const v of vaults) if (v?.path && fs.existsSync(v.path)) return v.path;
+    }
+  } catch {
+    /* 설정 파싱 실패 시 기본 경로로 */
+  }
+  const fallback = "D:\\ObsidianVault";
+  return fs.existsSync(fallback) ? fallback : null;
+}
+
+/** frontmatter의 tags/agents만 관심 있는 경량 파서 (인라인·블록 리스트 지원) */
+function parseFrontmatter(md: string): { body: string; tags: string[]; agents: string[] } {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(md);
+  if (!m) return { body: md, tags: [], agents: [] };
+  const fm = m[1];
+  const list = (key: string): string[] => {
+    const inline = new RegExp(`^${key}\\s*:\\s*\\[?([^\\n\\]]*)\\]?\\s*$`, "mi").exec(fm);
+    if (inline && inline[1].trim())
+      return inline[1].split(",").map((s) => s.trim().replace(/^["'#]+|["']+$/g, "")).filter(Boolean);
+    const block = new RegExp(`^${key}\\s*:\\s*\\r?\\n((?:[ \\t]+-[ \\t]+.*\\r?\\n?)+)`, "mi").exec(fm);
+    if (block)
+      return block[1].split(/\r?\n/).map((l) => l.replace(/^[ \t]+-[ \t]+/, "").trim().replace(/^["'#]+|["']+$/g, "")).filter(Boolean);
+    return [];
+  };
+  return { body: md.slice(m[0].length), tags: list("tags"), agents: list("agents") };
+}
+
+/** 위키링크를 일반 텍스트로 — 에이전트 프롬프트에 [[...]]가 들어가면 혼란을 준다 */
+function stripWikiLinks(md: string): string {
+  return md
+    .replace(/!\[\[[^\]]+\]\]/g, "")
+    .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2")
+    .replace(/\[\[([^\]]+)\]\]/g, "$1");
+}
+
+function hasLearnTag(md: string): boolean {
+  if (md.includes(`#${OBSIDIAN_LEARN_TAG}`)) return true;
+  return parseFrontmatter(md).tags.some((t) => t === OBSIDIAN_LEARN_TAG);
+}
+
+/** 볼트의 .md 파일 순회 — .obsidian/휴지통/산출물 폴더는 건너뛴다 */
+function walkVaultMd(root: string): string[] {
+  const skip = new Set([".obsidian", ".trash", ".git", "node_modules", OBSIDIAN_EXPORT_DIR]);
+  const out: string[] = [];
+  const stack = [root];
+  let guard = 0;
+  while (stack.length && guard++ < 4000) {
+    const d = stack.pop()!;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(d, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      if (e.name.startsWith(".") || skip.has(e.name)) continue;
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) stack.push(p);
+      else if (e.isFile() && e.name.toLowerCase().endsWith(".md")) out.push(p);
+    }
+  }
+  return out;
+}
+
+function sanitizeFileName(s: string): string {
+  return s.replace(/[\\/:*?"<>|\x00-\x1f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "무제";
+}
+
+/**
+ * 산출물 자동 아카이브 — GDD·보고서(회의록·협업 결론 포함)를 볼트에 마크다운으로.
+ * 실패해도 원래 저장 흐름을 막지 않는다 (best-effort).
+ */
+function exportToVault(projectId: string, kind: "gdd" | "report", data: { agent?: string; title?: string; markdown: string }) {
+  try {
+    const vault = resolveVault();
+    if (!vault || !projectId || !isSafeId(projectId)) return;
+    const pname = sanitizeFileName(listProjects().find((p) => p.id === projectId)?.name ?? projectId);
+    const base = path.join(vault, OBSIDIAN_EXPORT_DIR, pname);
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    if (kind === "gdd") {
+      fs.mkdirSync(base, { recursive: true });
+      const fm = `---\nsource: vision-engine\ntype: GDD\nproject: "${pname}"\nupdated: ${now.toISOString()}\ntags: [vision-engine]\n---\n\n`;
+      fs.writeFileSync(path.join(base, "GDD.md"), fm + data.markdown, "utf-8");
+    } else {
+      const dir = path.join(base, "보고서");
+      fs.mkdirSync(dir, { recursive: true });
+      const agentName = AGENT_NAMES_KO[data.agent ?? ""] ?? data.agent ?? "";
+      const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}.${pad(now.getMinutes())}`;
+      const fname = sanitizeFileName(`${stamp} ${agentName} — ${data.title ?? "보고서"}`) + ".md";
+      const fm = `---\nsource: vision-engine\ntype: 보고서\nproject: "${pname}"\nagent: "${agentName}"\ntitle: "${(data.title ?? "").replace(/"/g, "'")}"\ncreated: ${now.toISOString()}\ntags: [vision-engine]\n---\n\n`;
+      fs.writeFileSync(path.join(dir, fname), fm + data.markdown, "utf-8");
+    }
+  } catch (e) {
+    console.warn("[obsidian] 볼트 내보내기 실패:", e);
+  }
+}
+
 /* ── 플러그인: 프로젝트 CRUD ──────────────────────────── */
 
 function projectsApiPlugin(): Plugin {
@@ -261,6 +385,7 @@ function gddApiPlugin(): Plugin {
               const old = fs.readFileSync(f, "utf-8");
               snapshotGdd(project, old);
               fs.writeFileSync(GDD_PATH, old, "utf-8");
+              if (project) exportToVault(project, "gdd", { markdown: old });
               res.end(JSON.stringify({ ok: true, markdown: old, mtime: fs.statSync(GDD_PATH).mtimeMs }));
               return;
             }
@@ -283,6 +408,7 @@ function gddApiPlugin(): Plugin {
               snapshotGdd(project, markdown);
               fs.mkdirSync(path.dirname(GDD_PATH), { recursive: true });
               fs.writeFileSync(GDD_PATH, markdown, "utf-8");
+              if (project) exportToVault(project, "gdd", { markdown });
               res.end(JSON.stringify({ ok: true, mtime: fs.statSync(GDD_PATH).mtimeMs }));
               return;
             }
@@ -531,6 +657,7 @@ function reportsApiPlugin(): Plugin {
                 JSON.stringify({ ts, agent, title, markdown }, null, 0),
                 "utf-8"
               );
+              exportToVault(project, "report", { agent, title, markdown });
               res.end(JSON.stringify({ ok: true, ts }));
               return;
             }
@@ -600,16 +727,33 @@ function knowledgeApiPlugin(): Plugin {
               const summary = String(j.summary ?? "").trim();
               const content = String(j.content ?? "");
               const agents = Array.isArray(j.agents) ? j.agents.map(String) : ["all"];
+              const source = typeof j.source === "string" ? j.source.slice(0, 300) : undefined;
+              const srcMtime = Number(j.srcMtime) || undefined;
               if (!title || !summary) {
                 res.statusCode = 400;
                 res.end(JSON.stringify({ ok: false, error: "title/summary 필요" }));
                 return;
               }
               fs.mkdirSync(dir, { recursive: true });
+              // 같은 출처(옵시디안 노트)를 다시 학습하면 이전 버전을 대체한다
+              if (source) {
+                for (const f of fs.readdirSync(dir).filter((f) => /^\d+\.json$/.test(f))) {
+                  try {
+                    if (JSON.parse(fs.readFileSync(path.join(dir, f), "utf-8")).source === source)
+                      fs.rmSync(path.join(dir, f), { force: true });
+                  } catch {
+                    /* 손상 파일 무시 */
+                  }
+                }
+              }
               const ts = Date.now();
               fs.writeFileSync(
                 path.join(dir, `${ts}.json`),
-                JSON.stringify({ ts, title, summary, content: content.slice(0, 30000), agents }, null, 0),
+                JSON.stringify(
+                  { ts, title, summary, content: content.slice(0, 30000), agents, ...(source ? { source, srcMtime } : {}) },
+                  null,
+                  0
+                ),
                 "utf-8"
               );
               res.end(JSON.stringify({ ok: true, ts }));
@@ -628,6 +772,138 @@ function knowledgeApiPlugin(): Plugin {
           } catch (e: any) {
             res.statusCode = 500;
             res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
+/* ── 플러그인: 옵시디안 볼트 (학습 후보 조회 + 노트 읽기) ── */
+
+/**
+ * GET /status        → 볼트 연결 상태·경로·산출물 폴더
+ * GET /learn         → #ve-학습 태그가 달린 노트 목록 (지식 라이브러리와 대조해 new/updated/learned)
+ * GET /note?path=... → 노트 내용 (태그 재확인 후에만 — 임의 볼트 파일 열람 방지)
+ * 쓰기 엔드포인트는 없다 — 볼트 쓰기는 서버 내부 훅(exportToVault)만 수행.
+ */
+function obsidianApiPlugin(): Plugin {
+  const knowledgeDir = path.join(WORKSPACE, "knowledge");
+  return {
+    name: "vision-engine-obsidian-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/obsidian", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            const url = new URL(req.url ?? "/", "http://local");
+            const sub = url.pathname.replace(/\/+$/, "");
+            const vault = resolveVault();
+
+            if (sub === "/status" && req.method === "GET") {
+              res.end(
+                JSON.stringify({
+                  connected: !!vault,
+                  vault,
+                  exportDir: vault ? path.join(vault, OBSIDIAN_EXPORT_DIR) : null,
+                  learnTag: OBSIDIAN_LEARN_TAG,
+                })
+              );
+              return;
+            }
+            if (!vault) {
+              res.statusCode = 404;
+              res.end(JSON.stringify({ ok: false, error: "옵시디안 볼트를 찾지 못했습니다" }));
+              return;
+            }
+
+            if (sub === "/learn" && req.method === "GET") {
+              // 학습된 지식의 출처 맵 (source → srcMtime)
+              const learned = new Map<string, number>();
+              if (fs.existsSync(knowledgeDir)) {
+                for (const f of fs.readdirSync(knowledgeDir).filter((f) => /^\d+\.json$/.test(f))) {
+                  try {
+                    const k = JSON.parse(fs.readFileSync(path.join(knowledgeDir, f), "utf-8"));
+                    if (typeof k.source === "string") learned.set(k.source, Number(k.srcMtime) || 0);
+                  } catch {
+                    /* 무시 */
+                  }
+                }
+              }
+              const notes: any[] = [];
+              for (const file of walkVaultMd(vault)) {
+                let stat: fs.Stats;
+                try {
+                  stat = fs.statSync(file);
+                } catch {
+                  continue;
+                }
+                if (stat.size > 300_000) continue; // 지나치게 큰 노트는 제외
+                let md: string;
+                try {
+                  md = fs.readFileSync(file, "utf-8");
+                } catch {
+                  continue;
+                }
+                if (!hasLearnTag(md)) continue;
+                const rel = path.relative(vault, file).replace(/\\/g, "/");
+                const src = `obsidian:${rel}`;
+                const state = !learned.has(src)
+                  ? "new"
+                  : Math.floor(stat.mtimeMs) > (learned.get(src) ?? 0)
+                    ? "updated"
+                    : "learned";
+                notes.push({
+                  path: rel,
+                  title: path.basename(file, ".md"),
+                  mtime: Math.floor(stat.mtimeMs),
+                  state,
+                });
+                if (notes.length >= 100) break;
+              }
+              notes.sort((a, b) => b.mtime - a.mtime);
+              res.end(JSON.stringify({ notes }));
+              return;
+            }
+
+            if (sub === "/note" && req.method === "GET") {
+              const rel = url.searchParams.get("path") ?? "";
+              const abs = path.resolve(vault, rel);
+              // 경로 탈출·절대경로 차단 + 볼트 내부 확인
+              if (!rel || path.isAbsolute(rel) || !abs.startsWith(path.resolve(vault) + path.sep) || !abs.endsWith(".md")) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: "path 확인 필요" }));
+                return;
+              }
+              if (!fs.existsSync(abs)) {
+                res.statusCode = 404;
+                res.end(JSON.stringify({ ok: false, error: "노트 없음" }));
+                return;
+              }
+              const md = fs.readFileSync(abs, "utf-8");
+              // 태그가 달린 노트만 서빙 — path 파라미터로 임의 노트를 여는 것을 막는다
+              if (!hasLearnTag(md)) {
+                res.statusCode = 403;
+                res.end(JSON.stringify({ ok: false, error: `#${OBSIDIAN_LEARN_TAG} 태그가 없는 노트입니다` }));
+                return;
+              }
+              const { body, agents } = parseFrontmatter(md);
+              res.end(
+                JSON.stringify({
+                  title: path.basename(abs, ".md"),
+                  content: stripWikiLinks(body).slice(0, 30000),
+                  agents,
+                  mtime: Math.floor(fs.statSync(abs).mtimeMs),
+                })
+              );
+              return;
+            }
+
+            res.statusCode = 405;
+            res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 300) }));
           }
         })();
       });
@@ -1283,6 +1559,7 @@ export default defineConfig({
     artApiPlugin(),
     officeBgPlugin(),
     knowledgeApiPlugin(),
+    obsidianApiPlugin(),
     braveKeyPlugin(),
     modelsApiPlugin(),
     agentBridgePlugin(),

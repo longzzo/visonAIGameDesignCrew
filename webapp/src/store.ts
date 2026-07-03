@@ -36,6 +36,13 @@ import {
   type KnowledgeItem,
 } from "./lib/knowledge";
 import {
+  getObsidianStatus,
+  listObsidianLearnNotes,
+  fetchObsidianNote,
+  type ObsidianStatus,
+  type ObsidianNoteInfo,
+} from "./lib/obsidian";
+import {
   listReports,
   fetchReport,
   saveReport,
@@ -219,7 +226,15 @@ interface VEState {
     summary?: string;
     agents?: string[];
     error?: string;
+    /** 옵시디안 노트에서 온 경우의 출처·갱신 감지·frontmatter 지정 대상 */
+    source?: string;
+    srcMtime?: number;
+    presetAgents?: string[];
   } | null;
+
+  /** 옵시디안 볼트 연동 상태 + #ve-학습 노트 목록 */
+  obsidian: ObsidianStatus | null;
+  obsidianNotes: ObsidianNoteInfo[];
 
   gdd: string;
   gddMtime: number;
@@ -305,10 +320,18 @@ interface VEState {
 
   /** 지식 라이브러리 — 제출 → PM 필요성 검증 → 승인 시 학습 */
   loadKnowledge: () => Promise<void>;
-  submitKnowledge: (title: string, content: string) => Promise<void>;
+  submitKnowledge: (
+    title: string,
+    content: string,
+    opts?: { source?: string; srcMtime?: number; presetAgents?: string[] }
+  ) => Promise<void>;
   approveKnowledge: () => Promise<void>;
   dismissKnowledge: () => void;
   removeKnowledge: (ts: number) => Promise<void>;
+
+  /** 옵시디안 — 볼트 상태·학습 후보 갱신 + 노트를 PM 검증 파이프라인으로 */
+  loadObsidian: () => Promise<void>;
+  learnFromObsidian: (relPath: string) => Promise<void>;
 
   /** 협업 세션 — 선택된 에이전트 2~4명이 서로 대화하며 결론 도출 */
   collabSession: () => Promise<void>;
@@ -564,6 +587,8 @@ export const useVE = create<VEState>()((set, get) => {
     briefingBusy: false,
     knowledge: [],
     pendingKnowledge: null,
+    obsidian: null,
+    obsidianNotes: [],
 
     gdd: "",
     gddMtime: 0,
@@ -1566,9 +1591,9 @@ export const useVE = create<VEState>()((set, get) => {
       set({ knowledge: await listKnowledge() });
     },
 
-    submitKnowledge: async (title, content) => {
+    submitKnowledge: async (title, content, opts) => {
       if (get().pendingKnowledge?.status === "running") return;
-      set({ pendingKnowledge: { title, content, status: "running" } });
+      set({ pendingKnowledge: { title, content, status: "running", ...opts } });
       setAgentStatus("pm", "running");
       try {
         const r = await gateway.runAgent(
@@ -1587,12 +1612,13 @@ export const useVE = create<VEState>()((set, get) => {
             reason: v.reason,
             summary: v.summary,
             agents: v.agents,
+            ...opts,
           },
         });
         setAgentStatus("pm", "done");
       } catch (e: any) {
         set({
-          pendingKnowledge: { title, content, status: "error", error: String(e?.message ?? e).slice(0, 150) },
+          pendingKnowledge: { title, content, status: "error", error: String(e?.message ?? e).slice(0, 150), ...opts },
         });
         setAgentStatus("pm", "error");
       }
@@ -1601,9 +1627,12 @@ export const useVE = create<VEState>()((set, get) => {
     approveKnowledge: async () => {
       const pk = get().pendingKnowledge;
       if (!pk || pk.status !== "ready" || !pk.summary) return;
-      await saveKnowledge(pk.title, pk.summary, pk.content, pk.agents ?? ["all"]);
+      // 노트 frontmatter가 대상을 지정했으면 PM 판정보다 우선한다 (오너의 명시가 우위)
+      const agents = pk.presetAgents?.length ? pk.presetAgents : (pk.agents ?? ["all"]);
+      await saveKnowledge(pk.title, pk.summary, pk.content, agents, pk.source, pk.srcMtime);
       set({ pendingKnowledge: null });
       await get().loadKnowledge();
+      if (pk.source?.startsWith("obsidian:")) void get().loadObsidian();
     },
 
     dismissKnowledge: () => set({ pendingKnowledge: null }),
@@ -1611,6 +1640,37 @@ export const useVE = create<VEState>()((set, get) => {
     removeKnowledge: async (ts) => {
       await deleteKnowledge(ts);
       await get().loadKnowledge();
+      if (get().obsidian?.connected) void get().loadObsidian();
+    },
+
+    /* ── 옵시디안 볼트 연동 ─────────────────────────── */
+
+    loadObsidian: async () => {
+      const status = await getObsidianStatus();
+      set({ obsidian: status });
+      if (status.connected) set({ obsidianNotes: await listObsidianLearnNotes() });
+    },
+
+    learnFromObsidian: async (relPath) => {
+      if (get().pendingKnowledge?.status === "running") return;
+      try {
+        const note = await fetchObsidianNote(relPath);
+        if (!note.content.trim()) throw new Error("노트 내용이 비어 있습니다");
+        await get().submitKnowledge(note.title, note.content, {
+          source: `obsidian:${relPath}`,
+          srcMtime: note.mtime,
+          presetAgents: note.agents,
+        });
+      } catch (e: any) {
+        set({
+          pendingKnowledge: {
+            title: relPath,
+            content: "",
+            status: "error",
+            error: String(e?.message ?? e).slice(0, 150),
+          },
+        });
+      }
     },
 
     /* ── 협업 세션 (에이전트 간 직접 대화) ──────────── */

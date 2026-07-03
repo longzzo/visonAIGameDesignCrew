@@ -10,6 +10,10 @@ export interface KnowledgeItem {
   content: string;
   /** 적용 대상 에이전트 id 목록, ["all"]이면 전원 */
   agents: string[];
+  /** 출처 (예: "obsidian:<볼트 상대경로>") — 같은 출처 재학습 시 이전 버전을 대체 */
+  source?: string;
+  /** 출처 노트의 mtime — 볼트 노트 갱신 감지용 */
+  srcMtime?: number;
 }
 
 export async function listKnowledge(): Promise<KnowledgeItem[]> {
@@ -26,12 +30,14 @@ export async function saveKnowledge(
   title: string,
   summary: string,
   content: string,
-  agents: string[]
+  agents: string[],
+  source?: string,
+  srcMtime?: number
 ): Promise<number> {
   const r = await fetch("/api/knowledge", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title, summary, content, agents }),
+    body: JSON.stringify({ title, summary, content, agents, source, srcMtime }),
   });
   const j = await r.json();
   if (!r.ok || !j.ok) throw new Error(j.error || "지식 저장 실패");
