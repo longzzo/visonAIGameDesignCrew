@@ -90,8 +90,20 @@ if (Test-Port $appIp 5199) {
   [void](Wait-Http $appUrl "웹앱($appUrl)" 90)
 }
 
-# ── 4) 브라우저 열기 ──
-Write-Host "[4/4] 브라우저 열기..."
+# ── 4) 아트 인턴 (로컬 Stable Diffusion / Forge) — 설치돼 있으면 자동 기동 ──
+Write-Host "[4/5] 아트 인턴(Stable Diffusion) 확인 중..."
+$forgeBat = 'D:\AI\forge\start-forge-api.bat'
+if (Test-Port '127.0.0.1' 7860) {
+  Write-Host "   OK - Stable Diffusion 이미 실행 중" -ForegroundColor Green
+} elseif (Test-Path $forgeBat) {
+  Start-Process cmd -ArgumentList '/c', "title Art Intern SD && call `"$forgeBat`"" -WindowStyle Minimized
+  Write-Host "   기동 중 - 1~2분 뒤 아트 스튜디오에서 '연결됨'으로 표시됩니다 (기다릴 필요 없음)" -ForegroundColor Yellow
+} else {
+  Write-Host "   건너뜀 - SD 미설치 (아트 스튜디오의 설치 안내 참고)" -ForegroundColor DarkGray
+}
+
+# ── 5) 브라우저 열기 ──
+Write-Host "[5/5] 브라우저 열기..."
 Start-Process $appUrl
 
 Write-Host ""

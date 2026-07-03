@@ -89,6 +89,16 @@ function Accessory({ id, c }: { id: string; c: string }) {
           <path d="M29 32.5 a2.4 2.4 0 1 0 2.4 -2.4 l-1.4 1 z" fill="#9aa5b1" />
         </>
       );
+    case "marketing": // 선글라스 + 확성기
+      return (
+        <>
+          <rect x="12.8" y="20.8" width="6.6" height="3.4" rx="1.5" fill="#2a2f38" />
+          <rect x="20.6" y="20.8" width="6.6" height="3.4" rx="1.5" fill="#2a2f38" />
+          <path d="M19.4 22.2 h1.2" stroke="#2a2f38" strokeWidth="1.2" />
+          <path d="M25.5 35.5 l4.5 -3 v6 z" fill={c} />
+          <rect x="23.5" y="34" width="2.4" height="3" rx="0.8" fill="#8a94a3" />
+        </>
+      );
     case "scheduler": // 헤어밴드 + 달력 배지
       return (
         <>

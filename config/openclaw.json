@@ -311,6 +311,36 @@
             "pdf"
           ]
         }
+      },
+      {
+        "id": "marketing",
+        "name": "마케팅 담당관",
+        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\marketing",
+        "identity": {
+          "name": "마케팅 담당관",
+          "emoji": "📢"
+        },
+        "model": "ollama/qwen3:8b",
+        "tools": {
+          "deny": [
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf"
+          ]
+        }
       }
     ]
   },
@@ -324,7 +354,9 @@
           {
             "id": "openai/gpt-5-mini",
             "name": "GPT-5 mini (GitHub Models)",
-            "input": ["text"],
+            "input": [
+              "text"
+            ],
             "contextWindow": 128000,
             "maxTokens": 16384,
             "compat": {
@@ -336,7 +368,9 @@
           {
             "id": "openai/gpt-5",
             "name": "GPT-5 (GitHub Models)",
-            "input": ["text"],
+            "input": [
+              "text"
+            ],
             "contextWindow": 128000,
             "maxTokens": 16384,
             "compat": {
@@ -355,7 +389,9 @@
           {
             "id": "moonshotai/kimi-k2.6",
             "name": "Kimi K2.6 (NVIDIA) — PM 헤드 추천",
-            "input": ["text"],
+            "input": [
+              "text"
+            ],
             "contextWindow": 131072,
             "maxTokens": 8192,
             "compat": {
@@ -368,7 +404,9 @@
           {
             "id": "qwen/qwen3-next-80b-a3b-instruct",
             "name": "Qwen3 Next 80B (NVIDIA) — 팀원 추천",
-            "input": ["text"],
+            "input": [
+              "text"
+            ],
             "contextWindow": 131072,
             "maxTokens": 8192,
             "compat": {

@@ -49,6 +49,9 @@ function gddTemplate(name: string): string {
     "## 10. 일정",
     "_(스케줄러 담당 — 아직 작성되지 않음)_",
     "",
+    "## 11. 마케팅",
+    "_(마케팅 담당관 담당 — 아직 작성되지 않음)_",
+    "",
   ].join("\n");
 }
 
@@ -526,6 +529,81 @@ function reportsApiPlugin(): Plugin {
                 return;
               }
               fs.rmSync(f, { force: true });
+              res.end(JSON.stringify({ ok: true }));
+              return;
+            }
+
+            res.statusCode = 405;
+            res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
+/* ── 플러그인: 지식 라이브러리 (스튜디오 공용, 프로젝트 무관) ── */
+
+function knowledgeApiPlugin(): Plugin {
+  const dir = path.join(WORKSPACE, "knowledge");
+  return {
+    name: "vision-engine-knowledge-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/knowledge", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            const url = new URL(req.url ?? "/", "http://local");
+
+            if (req.method === "GET") {
+              if (!fs.existsSync(dir)) {
+                res.end(JSON.stringify({ items: [] }));
+                return;
+              }
+              const items = fs
+                .readdirSync(dir)
+                .filter((f) => /^\d+\.json$/.test(f))
+                .map((f) => {
+                  try {
+                    return JSON.parse(fs.readFileSync(path.join(dir, f), "utf-8"));
+                  } catch {
+                    return null;
+                  }
+                })
+                .filter(Boolean)
+                .sort((a: any, b: any) => b.ts - a.ts);
+              res.end(JSON.stringify({ items }));
+              return;
+            }
+
+            if (req.method === "POST") {
+              const j = JSON.parse((await readBody(req)) || "{}");
+              const title = String(j.title ?? "").trim().slice(0, 120);
+              const summary = String(j.summary ?? "").trim();
+              const content = String(j.content ?? "");
+              const agents = Array.isArray(j.agents) ? j.agents.map(String) : ["all"];
+              if (!title || !summary) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: "title/summary 필요" }));
+                return;
+              }
+              fs.mkdirSync(dir, { recursive: true });
+              const ts = Date.now();
+              fs.writeFileSync(
+                path.join(dir, `${ts}.json`),
+                JSON.stringify({ ts, title, summary, content: content.slice(0, 30000), agents }, null, 0),
+                "utf-8"
+              );
+              res.end(JSON.stringify({ ok: true, ts }));
+              return;
+            }
+
+            if (req.method === "DELETE") {
+              const ts = Number(url.searchParams.get("ts") ?? 0);
+              fs.rmSync(path.join(dir, `${ts}.json`), { force: true });
               res.end(JSON.stringify({ ok: true }));
               return;
             }
@@ -1094,6 +1172,7 @@ export default defineConfig({
     chatsApiPlugin(),
     reportsApiPlugin(),
     artApiPlugin(),
+    knowledgeApiPlugin(),
     braveKeyPlugin(),
     modelsApiPlugin(),
     agentBridgePlugin(),

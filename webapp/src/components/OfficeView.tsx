@@ -163,7 +163,7 @@ export function OfficeView() {
   const [studioOpen, setStudioOpen] = useState(false);
 
   const row1 = ["scenario", "gameplay", "systems", "uiux", "td"];
-  const row2 = ["balance", "bm", "scheduler"];
+  const row2 = ["balance", "bm", "scheduler", "marketing"];
 
   return (
     <section className="office-view">

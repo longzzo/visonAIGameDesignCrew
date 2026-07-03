@@ -24,6 +24,7 @@ const KIND_LABEL: Record<FeedMsg["kind"], string> = {
   summary: "통합",
   status: "",
   error: "",
+  talk: "협업",
 };
 
 function who(id: string): { name: string; emoji: string; color: string } {
@@ -93,6 +94,8 @@ export function OrchestrationView() {
     setOrchRequest,
     selected,
     toggleSelected,
+    collabSession,
+    importDocument,
     concurrency,
     setConcurrency,
     autoReflect,
@@ -115,7 +118,27 @@ export function OrchestrationView() {
   } = useVE();
   const bottomRef = useRef<HTMLDivElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [stickBottom, setStickBottom] = useState(true);
+
+  const selectedCount = SPECIALISTS.filter((a) => selected[a.id]).length;
+
+  const onImportFile = (f: File | undefined) => {
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result ?? "");
+      if (!text.trim()) {
+        window.alert("빈 파일입니다.");
+        return;
+      }
+      const integrate = window.confirm(
+        `"${f.name}" (${(text.length / 1000).toFixed(1)}천자)\n\n원문은 보고서함에 보관됩니다.\n\n확인 = PM 분배로 GDD에 통합까지 진행 (기존 기획 유지·증분 반영)\n취소 = 보고서함에 보관만`
+      );
+      void importDocument(f.name.replace(/\.(md|txt)$/i, ""), text, integrate);
+    };
+    reader.readAsText(f);
+  };
 
   useEffect(() => {
     if (stickBottom) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -187,11 +210,36 @@ export function OrchestrationView() {
               </button>
             ) : (
               <>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".md,.txt,.markdown"
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    onImportFile(e.target.files?.[0]);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  className="btn"
+                  onClick={() => fileRef.current?.click()}
+                  title="기존에 갖고 있던 기획 문서(.md/.txt)를 불러옵니다 — 원문은 보고서함에 보관되고, 원하면 PM 분배로 GDD에 통합됩니다"
+                >
+                  📥 문서 가져오기
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => void collabSession()}
+                  disabled={!orchRequest.trim() || selectedCount < 2 || selectedCount > 4}
+                  title="선택한 에이전트 2~4명이 주제를 놓고 서로 직접 대화하며 결론을 만듭니다 (예: BM+UI/UX+시스템 → 수익모델·컨텐츠 활용 방안). 결론은 보고서함에 저장"
+                >
+                  🤝 협업 세션{selectedCount >= 2 && selectedCount <= 4 ? ` (${selectedCount}명)` : ""}
+                </button>
                 <button
                   className="btn"
                   onClick={() => void fullMeeting()}
                   disabled={!orchRequest.trim()}
-                  title="7명 전체 + 교차 검토 + GDD 반영으로 즉시 시작 (소요 15분 이상)"
+                  title="전원 + 교차 검토 + GDD 반영으로 즉시 시작"
                 >
                   🎪 풀 기획 회의
                 </button>

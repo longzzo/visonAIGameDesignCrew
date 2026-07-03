@@ -19,9 +19,19 @@ import {
   reportVerifyPrompt,
   sdPromptPrompt,
   parseSdPrompt,
+  knowledgeVerifyPrompt,
+  parseKnowledgeVerdict,
+  collabPrompt,
   type AgentDef,
   type WebMode,
 } from "./lib/agents";
+import {
+  listKnowledge,
+  saveKnowledge,
+  deleteKnowledge,
+  knowledgeBlockFor,
+  type KnowledgeItem,
+} from "./lib/knowledge";
 import {
   listReports,
   fetchReport,
@@ -78,7 +88,7 @@ export interface FeedMsg {
   id: string;
   from: string; // agentId | "user" | "system"
   to?: string; // agentId
-  kind: "request" | "instruction" | "draft" | "review" | "revision" | "summary" | "status" | "error";
+  kind: "request" | "instruction" | "draft" | "review" | "revision" | "summary" | "status" | "error" | "talk";
   text: string;
   ts: number;
 }
@@ -179,6 +189,19 @@ interface VEState {
   /** 작업 중인 에이전트의 부분 응답 미리보기 (사무실 말풍선 라이브) */
   livePeek: Record<string, string>;
 
+  /** 지식 라이브러리 (스튜디오 공용) */
+  knowledge: KnowledgeItem[];
+  /** 제출된 지식의 PM 검증 대기 상태 */
+  pendingKnowledge: {
+    title: string;
+    content: string;
+    status: "running" | "ready" | "rejected" | "error";
+    reason?: string;
+    summary?: string;
+    agents?: string[];
+    error?: string;
+  } | null;
+
   gdd: string;
   gddMtime: number;
   gddEditing: boolean;
@@ -245,6 +268,19 @@ interface VEState {
   removeArt: (ts: number) => Promise<void>;
   /** 컨셉 아트를 GDD "8. 아트" 섹션에 이미지로 삽입 */
   attachArtToGdd: (ts: number) => Promise<void>;
+
+  /** 기존 기획 문서 가져오기 — 원문은 보고서함 보관, 선택 시 PM 분배로 GDD 통합 */
+  importDocument: (name: string, text: string, integrate: boolean) => Promise<void>;
+
+  /** 지식 라이브러리 — 제출 → PM 필요성 검증 → 승인 시 학습 */
+  loadKnowledge: () => Promise<void>;
+  submitKnowledge: (title: string, content: string) => Promise<void>;
+  approveKnowledge: () => Promise<void>;
+  dismissKnowledge: () => void;
+  removeKnowledge: (ts: number) => Promise<void>;
+
+  /** 협업 세션 — 선택된 에이전트 2~4명이 서로 대화하며 결론 도출 */
+  collabSession: () => Promise<void>;
 
   reflectToGdd: (agentId: string, text: string) => Promise<void>;
   loadGdd: () => Promise<void>;
@@ -429,6 +465,8 @@ export const useVE = create<VEState>()((set, get) => {
     artBusy: false,
     artPhase: "",
     livePeek: {},
+    knowledge: [],
+    pendingKnowledge: null,
 
     gdd: "",
     gddMtime: 0,
@@ -458,6 +496,7 @@ export const useVE = create<VEState>()((set, get) => {
         void get().loadArt();
       }
       void get().checkArtStatus();
+      void get().loadKnowledge();
       setInterval(() => {
         const st = get();
         if (!st.gddEditing && !st.gddSaving && !st.gddPreview && st.activeProject) void st.loadGdd();
@@ -812,13 +851,16 @@ export const useVE = create<VEState>()((set, get) => {
           if (get().stopRequested) return;
           const agent = queue.shift();
           if (!agent) return;
+          // 마케팅 담당관은 웹 조사가 기본 업무 — 토글과 무관하게 최소 web_fetch는 허용
+          const agentWeb: WebMode = agent.id === "marketing" ? (get().braveOk ? "full" : "fetch") : web;
           const instruction = specialistPrompt(
             req,
             agent,
-            web,
+            agentWeb,
             getSectionBody(baseMd, agent.section),
             overview,
-            focusMap[agent.id] ?? ""
+            focusMap[agent.id] ?? "",
+            knowledgeBlockFor(agent.id, get().knowledge)
           );
           updateCard(agent.id, { state: "running", phase: "초안 작성 중", startedAt: Date.now(), instruction });
           setAgentStatus(agent.id, "running");
@@ -1020,7 +1062,7 @@ export const useVE = create<VEState>()((set, get) => {
         }
         const r = await gateway.runAgent(
           agentId,
-          reportPrompt(agent, title, gddFull),
+          reportPrompt(agent, title, gddFull, knowledgeBlockFor(agentId, get().knowledge)),
           `report-${project}-${Date.now().toString(36)}`
         );
         const markdown = sanitizeAgentOutput(r.text);
@@ -1240,6 +1282,156 @@ export const useVE = create<VEState>()((set, get) => {
         }
       });
       await gddQueue;
+    },
+
+    /* ── 기존 기획 문서 가져오기 ─────────────────────── */
+
+    importDocument: async (name, text, integrate) => {
+      const project = get().activeProject;
+      if (!project || !text.trim()) return;
+      // ① 원문은 항상 보고서함에 보관 (유실 방지)
+      await saveReport(project, "pm", `가져온 문서 — ${name}`.slice(0, 110), text.slice(0, 100000));
+      await get().loadReports();
+      if (!integrate) return;
+      // ② PM 자동 분배 오케스트레이션으로 기존 기획에 통합 (증분 모드)
+      set({
+        orchRequest: `[가져온 기획 문서 통합] 오너의 기존 기획 문서다. 이 내용을 현재 기획에 통합해라 — 문서가 기존 기획과 충돌하면 문서 쪽을 우선하되 요약해서 반영해라.\n\n${text.slice(0, 6000)}`,
+        autoRoute: true,
+      });
+      await get().startOrch();
+    },
+
+    /* ── 지식 라이브러리 (이론 학습) ─────────────────── */
+
+    loadKnowledge: async () => {
+      set({ knowledge: await listKnowledge() });
+    },
+
+    submitKnowledge: async (title, content) => {
+      if (get().pendingKnowledge?.status === "running") return;
+      set({ pendingKnowledge: { title, content, status: "running" } });
+      setAgentStatus("pm", "running");
+      try {
+        const r = await gateway.runAgent(
+          "pm",
+          knowledgeVerifyPrompt(title, content, AGENTS),
+          `knowledge-${Date.now().toString(36)}`
+        );
+        const full = sanitizeAgentOutput(r.text);
+        addUsage(r.usage, full);
+        const v = parseKnowledgeVerdict(full, SPECIALISTS.map((a) => a.id).concat("pm"));
+        set({
+          pendingKnowledge: {
+            title,
+            content,
+            status: v.approved && v.summary ? "ready" : "rejected",
+            reason: v.reason,
+            summary: v.summary,
+            agents: v.agents,
+          },
+        });
+        setAgentStatus("pm", "done");
+      } catch (e: any) {
+        set({
+          pendingKnowledge: { title, content, status: "error", error: String(e?.message ?? e).slice(0, 150) },
+        });
+        setAgentStatus("pm", "error");
+      }
+    },
+
+    approveKnowledge: async () => {
+      const pk = get().pendingKnowledge;
+      if (!pk || pk.status !== "ready" || !pk.summary) return;
+      await saveKnowledge(pk.title, pk.summary, pk.content, pk.agents ?? ["all"]);
+      set({ pendingKnowledge: null });
+      await get().loadKnowledge();
+    },
+
+    dismissKnowledge: () => set({ pendingKnowledge: null }),
+
+    removeKnowledge: async (ts) => {
+      await deleteKnowledge(ts);
+      await get().loadKnowledge();
+    },
+
+    /* ── 협업 세션 (에이전트 간 직접 대화) ──────────── */
+
+    collabSession: async () => {
+      const st = get();
+      const topic = st.orchRequest.trim();
+      if (!topic || st.orchRunning) return;
+      const members = SPECIALISTS.filter((a) => st.selected[a.id]);
+      if (members.length < 2 || members.length > 4) return;
+      const project = st.activeProject || "np";
+      const runTag = `collab-${project}-${Date.now().toString(36)}`;
+      orchAbort = new AbortController();
+      const signal = orchAbort.signal;
+      set({ orchRunning: true, stopRequested: false });
+      pushFeed({ from: "user", kind: "request", text: `🤝 협업 세션: ${topic}` });
+      pushFeed({
+        from: "system",
+        kind: "status",
+        text: `${members.map((a) => `${a.emoji} ${a.name}`).join(" ↔ ")} — PM 없이 서로 대화하며 결론을 만듭니다 (2라운드 + 결론).`,
+      });
+
+      let baseMd = get().gdd;
+      try {
+        baseMd = (await fetchGdd(project)).markdown;
+      } catch {
+        /* noop */
+      }
+      const overview = getSectionBody(baseMd, "## 1.");
+      let transcript = "";
+      const lead = members[0];
+
+      try {
+        // 2라운드 순차 대화 — 각자 동료 발언에 반응하며 발전
+        for (let round = 0; round < 2 && !get().stopRequested; round++) {
+          for (const agent of members) {
+            if (get().stopRequested) break;
+            setAgentStatus(agent.id, "running");
+            const others = members.filter((m) => m.id !== agent.id);
+            const r = await gateway.runAgent(
+              agent.id,
+              collabPrompt(topic, agent, others, transcript, overview, false),
+              runTag,
+              signal
+            );
+            const say = sanitizeAgentOutput(r.text);
+            addUsage(r.usage, say);
+            transcript += `\n[${agent.name}] ${say}\n`;
+            pushFeed({ from: agent.id, kind: "talk", text: say });
+            setAgentStatus(agent.id, "done");
+          }
+        }
+        if (!get().stopRequested) {
+          // 리드가 결론 정리 → 보고서함 저장
+          setAgentStatus(lead.id, "running");
+          const r = await gateway.runAgent(
+            lead.id,
+            collabPrompt(topic, lead, members.filter((m) => m.id !== lead.id), transcript, overview, true),
+            runTag,
+            signal
+          );
+          const conclusion = sanitizeAgentOutput(r.text);
+          addUsage(r.usage, conclusion);
+          pushFeed({ from: lead.id, kind: "summary", text: conclusion });
+          setAgentStatus(lead.id, "done");
+          const title = `협업 결론 — ${topic.slice(0, 40)}${topic.length > 40 ? "…" : ""}`;
+          await saveReport(project, lead.id, title, `# ${title}\n\n## 결론\n${conclusion}\n\n## 대화 전문\n${transcript}`);
+          await get().loadReports();
+          pushFeed({
+            from: "system",
+            kind: "status",
+            text: "📋 협업 결론이 보고서함에 저장되었습니다 — PM 가치검증을 거쳐 GDD에 반영할 수 있습니다.",
+          });
+        }
+      } catch (e: any) {
+        if (!get().stopRequested) {
+          pushFeed({ from: "system", kind: "error", text: `⚠️ 협업 세션 실패: ${String(e?.message ?? e).slice(0, 120)}` });
+        }
+      }
+      set({ orchRunning: false });
     },
 
     /* ── GDD + 버전 히스토리 ───────────────────────── */

@@ -22,6 +22,7 @@ export const AGENTS: AgentDef[] = [
   { id: "visual", name: "아트 디렉터", emoji: "🎨", role: "아트 스타일·팔레트", section: "## 8.", sectionTitle: "아트", color: "#e879f9" },
   { id: "td", name: "테크니컬 디렉터", emoji: "🛠️", role: "개발 명세·기능 목록·기술 리스크", section: "## 9.", sectionTitle: "기술", color: "#38bdf8" },
   { id: "scheduler", name: "스케줄러", emoji: "📅", role: "일정 설계·마일스톤·대회 역산", section: "## 10.", sectionTitle: "일정", color: "#fb923c" },
+  { id: "marketing", name: "마케팅 담당관", emoji: "📢", role: "마케팅 전략·트렌드 조사 (웹서치 기본)", section: "## 11.", sectionTitle: "마케팅", color: "#f87171" },
 ];
 
 export const AGENT_MAP: Record<string, AgentDef> = Object.fromEntries(
@@ -51,6 +52,7 @@ export const REVIEWERS: Record<string, string> = {
   visual: "scenario",
   td: "systems", //     기술 명세 ← 시스템    (명세가 시스템 구조를 다 담는가)
   scheduler: "td", //   일정 ← 테크니컬       (일정이 구현 난이도와 맞는가)
+  marketing: "bm", //   마케팅 ← BM           (메시지가 수익모델과 일관되는가)
 };
 
 /**
@@ -70,12 +72,16 @@ export function specialistPrompt(
   web: WebMode = "off",
   currentSection = "",
   overview = "",
-  focus = ""
+  focus = "",
+  knowledge = ""
 ): string {
   const hasExisting = currentSection.trim().length > 0;
   const parts: string[] = [];
   if (overview.trim()) {
     parts.push(`[프로젝트 개요 — 참고용]`, overview.trim().slice(0, 400), ``);
+  }
+  if (knowledge.trim()) {
+    parts.push(`[스튜디오가 학습한 이론 — 판단에 활용해라]`, knowledge.trim().slice(0, 1200), ``);
   }
   if (hasExisting) {
     parts.push(
@@ -153,17 +159,19 @@ export const DEFAULT_REPORT_TOPIC: Record<string, string> = {
   visual: "아트 명세서 (스타일 가이드 + 에셋 목록)",
   td: "개발 명세서 (기능 목록 + 난이도 판정)",
   scheduler: "개발 일정표 (목표일과 요구 수준을 함께 적어주세요)",
+  marketing: "마케팅 전략 보고서 (최신 트렌드 웹 조사 포함)",
 };
 
 /**
  * 정식 보고서(명세서) 생성 프롬프트 — 채팅 답변과 달리 분량 제한 없이
  * 실무 문서 수준을 요구한다. 현재 GDD 전문을 근거로 삼는다.
  */
-export function reportPrompt(agent: AgentDef, topic: string, gddFull: string): string {
+export function reportPrompt(agent: AgentDef, topic: string, gddFull: string, knowledge = ""): string {
   const today = new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" });
   return [
     `너는 ${agent.name}(${agent.role})다. 오너가 정식 보고서를 요청했다: "${topic.trim()}"`,
     `오늘 날짜: ${today} — 일정·기간 계산은 반드시 이 날짜 기준으로 해라.`,
+    knowledge.trim() ? `\n[스튜디오가 학습한 이론 — 판단에 활용해라]\n${knowledge.trim().slice(0, 1200)}` : ``,
     ``,
     `[현재 마스터 GDD 전문 — 이것이 근거 자료다]`,
     gddFull.slice(0, 12000) || `(아직 기획이 없다 — 보고서 안에서 전제를 명시하고 제안 형태로 작성해라)`,
@@ -234,6 +242,87 @@ export function parseSdPrompt(text: string): { prompt: string; negative: string 
   const n = /^\s*\**NEGATIVE\**\s*[:：]\s*(.+)$/im.exec(text);
   if (!p) return null;
   return { prompt: p[1].trim(), negative: n?.[1]?.trim() ?? "" };
+}
+
+/**
+ * 지식 라이브러리 검증 프롬프트 — 오너가 제출한 이론이 이 스튜디오에
+ * 유용한지 PM이 판정하고, 유용하면 요약과 적용 대상 역할을 정한다.
+ */
+export function knowledgeVerifyPrompt(title: string, content: string, roster: AgentDef[]): string {
+  return [
+    `너는 PM이다. 오너가 스튜디오에 학습시키려는 게임 기획 이론/지식이다:`,
+    ``,
+    `[제목] ${title.trim()}`,
+    `[내용]`,
+    content.slice(0, 8000),
+    ``,
+    `[스튜디오 역할 목록]`,
+    roster.map((a) => `- ${a.id} = ${a.name} (${a.role})`).join("\n"),
+    ``,
+    `이 지식이 게임 기획 실무에 유용한지 판정해라. 출력은 정확히 아래 형식만 (다른 말·도구 호출 금지):`,
+    `판정: 학습 또는 불필요`,
+    `사유: <한 줄>`,
+    `요약: <실무에서 바로 쓸 수 있게 핵심만 4~6줄로 압축. 판정이 불필요면 생략>`,
+    `적용: <이 지식을 써야 할 역할 id를 쉼표로. 전원이면 all. 판정이 불필요면 생략>`,
+  ].join("\n");
+}
+
+/** knowledgeVerifyPrompt 응답 파싱 */
+export function parseKnowledgeVerdict(
+  text: string,
+  validIds: string[]
+): { approved: boolean; reason: string; summary: string; agents: string[] } {
+  const approved = /판정\s*[:：]\s*\**\s*학습/m.test(text);
+  const reason = /사유\s*[:：]\s*(.+)/m.exec(text)?.[1]?.trim() ?? "";
+  // 요약은 "요약:" 이후 "적용:" 전까지 (여러 줄)
+  const sm = /요약\s*[:：]\s*([\s\S]*?)(?=\n\s*적용\s*[:：]|$)/m.exec(text);
+  const summary = sm?.[1]?.trim() ?? "";
+  const am = /적용\s*[:：]\s*(.+)/m.exec(text)?.[1] ?? "";
+  let agents = am
+    .split(/[,\s]+/)
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s === "all" || validIds.includes(s));
+  if (agents.includes("all")) agents = ["all"];
+  if (approved && agents.length === 0) agents = ["all"];
+  return { approved, reason, summary, agents };
+}
+
+/**
+ * 협업 세션 프롬프트 — PM을 거치지 않고 에이전트들이 서로 대화하며
+ * 주제를 발전시킨다 (예: BM ↔ UI/UX ↔ 시스템의 수익모델·컨텐츠 활용 논의).
+ */
+export function collabPrompt(
+  topic: string,
+  agent: AgentDef,
+  others: AgentDef[],
+  transcript: string,
+  overview: string,
+  isConclusion: boolean
+): string {
+  const parts = [
+    `너는 ${agent.name}(${agent.role})다. 동료 ${others.map((o) => o.name).join(", ")}와 실무 회의 중이다.`,
+    overview.trim() ? `[프로젝트 개요]\n${overview.trim().slice(0, 400)}` : ``,
+    `[회의 주제]`,
+    topic.trim(),
+  ];
+  if (transcript.trim()) {
+    parts.push(``, `[지금까지의 대화]`, transcript.slice(-3500));
+  }
+  if (isConclusion) {
+    parts.push(
+      ``,
+      `너가 이 회의의 리드다. 지금까지의 대화를 종합해 **실행 가능한 결론**을 작성해라.`,
+      `형식: 합의된 방향 2~3줄 → 구체적 실행 항목 표(항목/담당 역할/근거) → 미해결 쟁점 1개.`,
+      `15줄 이내, 순수 마크다운, 도구 호출 금지.`
+    );
+  } else {
+    parts.push(
+      ``,
+      `너의 전문 관점에서 동료들의 의견에 **직접 반응**해라 — 동의하면 발전시키고, 문제가 보이면 대안을 제시해라.`,
+      `이 게임에 맞는 구체적 아이디어 1~2개를 반드시 포함해라. 6줄 이내, 순수 마크다운, 도구 호출 금지.`
+    );
+  }
+  return parts.filter(Boolean).join("\n");
 }
 
 /** PM 자동 분배 응답 파싱 — "할당: id | 지시" 줄만 추출, 유효한 전문가 id만 채택 */

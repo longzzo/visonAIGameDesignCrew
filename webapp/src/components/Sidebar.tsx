@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AGENTS } from "../lib/agents";
 import { setBraveKey } from "../lib/gdd";
 import { getModelsInfo, registerModelKey, setAgentModels, switchModel, type ModelsInfo } from "../lib/models";
+import { KnowledgeStudio } from "./KnowledgeStudio";
 import { useVE } from "../store";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -29,7 +30,9 @@ export function Sidebar() {
     setModelName,
     reports,
     readReports,
+    knowledge,
   } = useVE();
+  const [knowledgeOpen, setKnowledgeOpen] = useState(false);
 
   // 에이전트별 읽지 않은 보고서 수 — 확인 여부 배지
   const unreadByAgent: Record<string, number> = {};
@@ -237,6 +240,13 @@ export function Sidebar() {
         </button>
         <button
           className="btn small"
+          onClick={() => setKnowledgeOpen(true)}
+          title="게임 기획 이론(재미 이론 등)을 제출하면 PM이 필요성을 검증하고, 승인된 것만 학습해 에이전트 판단에 반영합니다"
+        >
+          📚 지식 학습{knowledge.length > 0 ? ` (${knowledge.length})` : ""}
+        </button>
+        <button
+          className="btn small"
           onClick={onBraveKey}
           title="Brave Search API 키를 등록하면 에이전트들이 웹 검색(web_search)을 쓸 수 있습니다. 페이지 조회(web_fetch)는 키 없이도 됩니다."
         >
@@ -252,6 +262,7 @@ export function Sidebar() {
           OpenClaw 기본 WebChat 열기 ↗
         </a>
       </div>
+      {knowledgeOpen && <KnowledgeStudio onClose={() => setKnowledgeOpen(false)} />}
     </aside>
   );
 }
