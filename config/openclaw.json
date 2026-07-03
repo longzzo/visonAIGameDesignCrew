@@ -1,10 +1,9 @@
 {
-  "_comment": "Vision Engine 참조 설정 — 실제 적용 파일은 C:\\Users\\ba960\\.openclaw\\openclaw.json (게이트웨이 토큰은 실제 파일 참조)",
   "agents": {
     "defaults": {
-      "workspace": "C:\\Users\\ba960\\.openclaw\\workspace",
+      "workspace": "{{HOME}}\\.openclaw\\workspace",
       "model": {
-        "primary": "ollama/qwen3:8b"
+        "primary": "nvidia/qwen/qwen3-next-80b-a3b-instruct"
       }
     },
     "list": [
@@ -12,12 +11,12 @@
         "id": "pm",
         "name": "PM 디렉터",
         "default": true,
-        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\pm",
+        "workspace": "{{REPO}}\\agents\\pm",
         "identity": {
           "name": "PM 디렉터",
           "emoji": "🎯"
         },
-        "model": "ollama/qwen3:8b",
+        "model": "nvidia/moonshotai/kimi-k2.6",
         "tools": {
           "deny": [
             "sessions_list",
@@ -35,19 +34,24 @@
             "image_generate",
             "music_generate",
             "tts",
-            "pdf"
+            "pdf",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process"
           ]
         }
       },
       {
         "id": "scenario",
         "name": "시나리오 라이터",
-        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\scenario",
+        "workspace": "{{REPO}}\\agents\\scenario",
         "identity": {
           "name": "시나리오 라이터",
           "emoji": "📖"
         },
-        "model": "ollama/qwen3:8b",
+        "model": "nvidia/qwen/qwen3-next-80b-a3b-instruct",
         "tools": {
           "deny": [
             "sessions_list",
@@ -65,19 +69,24 @@
             "image_generate",
             "music_generate",
             "tts",
-            "pdf"
+            "pdf",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process"
           ]
         }
       },
       {
         "id": "gameplay",
         "name": "게임플레이 디자이너",
-        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\gameplay",
+        "workspace": "{{REPO}}\\agents\\gameplay",
         "identity": {
           "name": "게임플레이 디자이너",
           "emoji": "🕹️"
         },
-        "model": "ollama/qwen3:8b",
+        "model": "nvidia/qwen/qwen3-next-80b-a3b-instruct",
         "tools": {
           "deny": [
             "sessions_list",
@@ -95,19 +104,24 @@
             "image_generate",
             "music_generate",
             "tts",
-            "pdf"
+            "pdf",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process"
           ]
         }
       },
       {
         "id": "uiux",
         "name": "UI/UX 디자이너",
-        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\uiux",
+        "workspace": "{{REPO}}\\agents\\uiux",
         "identity": {
           "name": "UI/UX 디자이너",
           "emoji": "🧭"
         },
-        "model": "ollama/qwen3:8b",
+        "model": "nvidia/qwen/qwen3-next-80b-a3b-instruct",
         "tools": {
           "deny": [
             "sessions_list",
@@ -125,19 +139,24 @@
             "image_generate",
             "music_generate",
             "tts",
-            "pdf"
+            "pdf",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process"
           ]
         }
       },
       {
         "id": "systems",
         "name": "시스템 디자이너",
-        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\systems",
+        "workspace": "{{REPO}}\\agents\\systems",
         "identity": {
           "name": "시스템 디자이너",
           "emoji": "⚙️"
         },
-        "model": "ollama/qwen3:8b",
+        "model": "nvidia/qwen/qwen3-next-80b-a3b-instruct",
         "tools": {
           "deny": [
             "sessions_list",
@@ -155,19 +174,24 @@
             "image_generate",
             "music_generate",
             "tts",
-            "pdf"
+            "pdf",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process"
           ]
         }
       },
       {
         "id": "balance",
         "name": "밸런스 디자이너",
-        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\balance",
+        "workspace": "{{REPO}}\\agents\\balance",
         "identity": {
           "name": "밸런스 디자이너",
           "emoji": "⚖️"
         },
-        "model": "ollama/qwen3:8b",
+        "model": "nvidia/qwen/qwen3-next-80b-a3b-instruct",
         "tools": {
           "deny": [
             "sessions_list",
@@ -185,19 +209,24 @@
             "image_generate",
             "music_generate",
             "tts",
-            "pdf"
+            "pdf",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process"
           ]
         }
       },
       {
         "id": "bm",
         "name": "BM 전략가",
-        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\bm",
+        "workspace": "{{REPO}}\\agents\\bm",
         "identity": {
           "name": "BM 전략가",
           "emoji": "💰"
         },
-        "model": "ollama/qwen3:8b",
+        "model": "nvidia/qwen/qwen3-next-80b-a3b-instruct",
         "tools": {
           "deny": [
             "exec",
@@ -218,19 +247,21 @@
             "image_generate",
             "music_generate",
             "tts",
-            "pdf"
+            "pdf",
+            "apply_patch",
+            "process"
           ]
         }
       },
       {
         "id": "visual",
         "name": "아트 디렉터",
-        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\visual",
+        "workspace": "{{REPO}}\\agents\\visual",
         "identity": {
           "name": "아트 디렉터",
           "emoji": "🎨"
         },
-        "model": "ollama/qwen3:8b",
+        "model": "nvidia/qwen/qwen3-next-80b-a3b-instruct",
         "tools": {
           "deny": [
             "sessions_list",
@@ -248,19 +279,24 @@
             "image_generate",
             "music_generate",
             "tts",
-            "pdf"
+            "pdf",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process"
           ]
         }
       },
       {
         "id": "td",
-        "name": "테크니컬 디렉터",
-        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\td",
+        "name": "선임 개발자",
+        "workspace": "{{REPO}}\\agents\\td",
         "identity": {
-          "name": "테크니컬 디렉터",
+          "name": "선임 개발자",
           "emoji": "🛠️"
         },
-        "model": "ollama/qwen3:8b",
+        "model": "nvidia/qwen/qwen3-next-80b-a3b-instruct",
         "tools": {
           "deny": [
             "sessions_list",
@@ -278,19 +314,24 @@
             "image_generate",
             "music_generate",
             "tts",
-            "pdf"
+            "pdf",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process"
           ]
         }
       },
       {
         "id": "scheduler",
         "name": "스케줄러",
-        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\scheduler",
+        "workspace": "{{REPO}}\\agents\\scheduler",
         "identity": {
           "name": "스케줄러",
           "emoji": "📅"
         },
-        "model": "ollama/qwen3:8b",
+        "model": "nvidia/qwen/qwen3-next-80b-a3b-instruct",
         "tools": {
           "deny": [
             "sessions_list",
@@ -308,19 +349,24 @@
             "image_generate",
             "music_generate",
             "tts",
-            "pdf"
+            "pdf",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process"
           ]
         }
       },
       {
         "id": "marketing",
         "name": "마케팅 담당관",
-        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\marketing",
+        "workspace": "{{REPO}}\\agents\\marketing",
         "identity": {
           "name": "마케팅 담당관",
           "emoji": "📢"
         },
-        "model": "ollama/qwen3:8b",
+        "model": "nvidia/qwen/qwen3-next-80b-a3b-instruct",
         "tools": {
           "deny": [
             "sessions_list",
@@ -338,7 +384,47 @@
             "image_generate",
             "music_generate",
             "tts",
-            "pdf"
+            "pdf",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process"
+          ]
+        }
+      },
+      {
+        "id": "qa",
+        "name": "QA 디렉터",
+        "workspace": "{{REPO}}\\agents\\qa",
+        "identity": {
+          "name": "QA 디렉터",
+          "emoji": "🧪"
+        },
+        "model": "nvidia/qwen/qwen3-next-80b-a3b-instruct",
+        "tools": {
+          "deny": [
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process"
           ]
         }
       }
@@ -349,7 +435,7 @@
       "github": {
         "baseUrl": "https://models.github.ai/inference",
         "api": "openai-completions",
-        "apiKey": "(GitHub PAT — 웹앱 사이드바 🔑 버튼으로 등록, 커밋 금지)",
+        "apiKey": "{{API_KEY — 선택사항. 웹앱 사이드바 🔑 버튼으로 등록하세요. 커밋 금지}}",
         "models": [
           {
             "id": "openai/gpt-5-mini",
@@ -381,43 +467,6 @@
           }
         ]
       },
-      "nvidia": {
-        "baseUrl": "https://integrate.api.nvidia.com/v1",
-        "api": "openai-completions",
-        "apiKey": "(NVIDIA nvapi 키 — 웹앱 사이드바 🔑 버튼으로 등록, 커밋 금지)",
-        "models": [
-          {
-            "id": "moonshotai/kimi-k2.6",
-            "name": "Kimi K2.6 (NVIDIA) — PM 헤드 추천",
-            "input": [
-              "text"
-            ],
-            "contextWindow": 131072,
-            "maxTokens": 8192,
-            "compat": {
-              "maxTokensField": "max_tokens",
-              "supportsStore": false,
-              "supportsDeveloperRole": false,
-              "supportsReasoningEffort": false
-            }
-          },
-          {
-            "id": "qwen/qwen3-next-80b-a3b-instruct",
-            "name": "Qwen3 Next 80B (NVIDIA) — 팀원 추천",
-            "input": [
-              "text"
-            ],
-            "contextWindow": 131072,
-            "maxTokens": 8192,
-            "compat": {
-              "maxTokensField": "max_tokens",
-              "supportsStore": false,
-              "supportsDeveloperRole": false,
-              "supportsReasoningEffort": false
-            }
-          }
-        ]
-      },
       "ollama": {
         "baseUrl": "http://127.0.0.1:11434",
         "api": "ollama",
@@ -442,6 +491,73 @@
             "maxTokens": 8192
           }
         ]
+      },
+      "nvidia": {
+        "baseUrl": "https://integrate.api.nvidia.com/v1",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "moonshotai/kimi-k2.6",
+            "name": "Kimi K2.6 (NVIDIA)",
+            "input": [
+              "text"
+            ],
+            "contextWindow": 131072,
+            "maxTokens": 8192,
+            "compat": {
+              "maxTokensField": "max_tokens",
+              "supportsStore": false,
+              "supportsDeveloperRole": false,
+              "supportsReasoningEffort": false
+            }
+          },
+          {
+            "id": "qwen/qwen3-next-80b-a3b-instruct",
+            "name": "Qwen3 Next 80B (NVIDIA)",
+            "input": [
+              "text"
+            ],
+            "contextWindow": 131072,
+            "maxTokens": 8192,
+            "compat": {
+              "maxTokensField": "max_tokens",
+              "supportsStore": false,
+              "supportsDeveloperRole": false,
+              "supportsReasoningEffort": false
+            }
+          },
+          {
+            "id": "deepseek-ai/deepseek-v4-flash",
+            "name": "DeepSeek V4 Flash (NVIDIA)",
+            "input": [
+              "text"
+            ],
+            "contextWindow": 131072,
+            "maxTokens": 8192,
+            "compat": {
+              "maxTokensField": "max_tokens",
+              "supportsStore": false,
+              "supportsDeveloperRole": false,
+              "supportsReasoningEffort": false
+            }
+          },
+          {
+            "id": "openai/gpt-oss-120b",
+            "name": "GPT-OSS 120B (NVIDIA)",
+            "input": [
+              "text"
+            ],
+            "contextWindow": 131072,
+            "maxTokens": 8192,
+            "compat": {
+              "maxTokensField": "max_tokens",
+              "supportsStore": false,
+              "supportsDeveloperRole": false,
+              "supportsReasoningEffort": false
+            }
+          }
+        ],
+        "apiKey": "{{API_KEY — 선택사항. 웹앱 사이드바 🔑 버튼으로 등록하세요. 커밋 금지}}"
       }
     }
   },
@@ -449,12 +565,20 @@
     "mode": "local",
     "auth": {
       "mode": "token",
-      "token": "(실제 파일의 토큰 사용 — 커밋 금지)"
+      "token": "{{GATEWAY_TOKEN — setup 스크립트가 자동 생성}}"
     },
     "port": 18789,
-    "bind": "loopback"
+    "bind": "loopback",
+    "tailscale": {
+      "mode": "off",
+      "resetOnExit": false
+    }
+  },
+  "session": {
+    "dmScope": "per-channel-peer"
   },
   "tools": {
+    "profile": "coding",
     "web": {
       "fetch": {
         "enabled": true,
@@ -466,7 +590,21 @@
         "enabled": true,
         "maxResults": 3,
         "timeoutSeconds": 30,
-        "cacheTtlMinutes": 15
+        "cacheTtlMinutes": 15,
+        "apiKey": "{{API_KEY — 선택사항. 웹앱 사이드바 🔑 버튼으로 등록하세요. 커밋 금지}}",
+        "provider": "duckduckgo"
+      }
+    }
+  },
+  "skills": {
+    "install": {
+      "nodeManager": "npm"
+    }
+  },
+  "plugins": {
+    "entries": {
+      "duckduckgo": {
+        "enabled": true
       }
     }
   }
