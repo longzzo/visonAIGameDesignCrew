@@ -115,6 +115,9 @@ export function OrchestrationView() {
     feed,
     clearFeed,
     reflectToGdd,
+    gdd,
+    dailyBriefing,
+    briefingBusy,
   } = useVE();
   const bottomRef = useRef<HTMLDivElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
@@ -146,8 +149,34 @@ export function OrchestrationView() {
 
   const cardList = ["pm", ...SPECIALISTS.map((a) => a.id)].filter((id) => cards[id]).map((id) => cards[id]);
 
+  // 아직 기획이 거의 빈 프로젝트 — 아이디어 한 줄로 시작하는 퀵스타트를 보여준다
+  const emptySections = (gdd.match(/아직 작성되지 않음/g) ?? []).length;
+  const isFreshProject = gdd.length > 0 && emptySections >= 8 && !orchRunning && feed.length === 0;
+
   return (
     <section className="orch-view">
+      {isFreshProject && (
+        <div className="quickstart">
+          <div className="quickstart-title">🎬 새 게임, 아이디어 한 줄이면 됩니다</div>
+          <div className="quickstart-sub dim">
+            떠오른 컨셉을 적고 회의를 열면 — PM이 지휘하고 10명의 팀이 세계관·게임플레이·시스템·아트·일정까지 첫
+            GDD를 한 번에 만듭니다.
+          </div>
+          <div className="quickstart-row">
+            <input
+              value={orchRequest}
+              onChange={(e) => setOrchRequest(e.target.value)}
+              placeholder='예: "달빛 아래에서만 힘이 강해지는 너구리 닌자 로그라이크"'
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && orchRequest.trim()) void fullMeeting();
+              }}
+            />
+            <button className="btn primary" onClick={() => void fullMeeting()} disabled={!orchRequest.trim()}>
+              🎪 풀 기획 회의로 시작
+            </button>
+          </div>
+        </div>
+      )}
       <div className="orch-form">
         <textarea
           value={orchRequest}
@@ -226,6 +255,20 @@ export function OrchestrationView() {
                   title="기존에 갖고 있던 기획 문서(.md/.txt)를 불러옵니다 — 원문은 보고서함에 보관되고, 원하면 PM 분배로 GDD에 통합됩니다"
                 >
                   📥 문서 가져오기
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => void dailyBriefing()}
+                  disabled={briefingBusy}
+                  title="PM이 기획 현황·오늘 추천 작업 3가지·리스크를 정리해 PM 대화방으로 보고합니다 — 출근하면 한 번"
+                >
+                  {briefingBusy ? (
+                    <>
+                      <span className="spinner" /> 브리핑…
+                    </>
+                  ) : (
+                    "☀️ 오늘의 브리핑"
+                  )}
                 </button>
                 <button
                   className="btn"

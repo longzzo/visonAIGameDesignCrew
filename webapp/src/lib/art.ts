@@ -55,3 +55,32 @@ export async function deleteArtImage(project: string, ts: number): Promise<void>
 export function artFileUrl(project: string, ts: number): string {
   return `/api/art/file?project=${encodeURIComponent(project)}&ts=${ts}`;
 }
+
+/* ── 사무실 커스텀 배경 (아트 인턴이 그리는 스튜디오 인테리어) ── */
+
+export interface OfficeBgMeta {
+  ts: number;
+  prompt: string;
+  request?: string;
+}
+
+export async function getOfficeBg(): Promise<OfficeBgMeta | null> {
+  try {
+    const r = await fetch("/api/office-bg");
+    if (!r.ok) return null;
+    return (await r.json()).custom ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function generateOfficeBgImage(prompt: string, negative: string, request: string): Promise<number> {
+  const r = await fetch("/api/office-bg", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, negative, request }),
+  });
+  const j = await r.json();
+  if (!r.ok || !j.ok) throw new Error(j.error || "배경 생성 실패");
+  return j.ts as number;
+}

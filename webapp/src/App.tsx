@@ -6,9 +6,10 @@ import { ChatPanel } from "./components/ChatPanel";
 import { OrchestrationView } from "./components/OrchestrationView";
 import { OfficeView } from "./components/OfficeView";
 import { GddPanel } from "./components/GddPanel";
+import { AgentProfile } from "./components/AgentProfile";
 
 export default function App() {
-  const { view, init, mobilePanel, setMobilePanel } = useVE();
+  const { view, init, mobilePanel, setMobilePanel, profileAgent } = useVE();
 
   useEffect(() => {
     void init();
@@ -24,6 +25,7 @@ export default function App() {
         </main>
         <GddPanel />
       </div>
+      {profileAgent && <AgentProfile />}
       {/* 모바일 전용 하단 탭 (900px 이하에서만 표시) */}
       <nav className="mobile-tabs">
         <button className={mobilePanel === "agents" ? "active" : ""} onClick={() => setMobilePanel("agents")}>

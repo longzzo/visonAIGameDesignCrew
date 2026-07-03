@@ -19,6 +19,8 @@ import {
   reportVerifyPrompt,
   sdPromptPrompt,
   parseSdPrompt,
+  officeBgSdPrompt,
+  briefingPrompt,
   knowledgeVerifyPrompt,
   parseKnowledgeVerdict,
   collabPrompt,
@@ -46,8 +48,11 @@ import {
   listArt,
   generateArtImage,
   deleteArtImage,
+  getOfficeBg,
+  generateOfficeBgImage,
   type ArtImage,
   type ArtStatus,
+  type OfficeBgMeta,
 } from "./lib/art";
 import {
   fetchGdd,
@@ -190,6 +195,19 @@ interface VEState {
   /** 작업 중인 에이전트의 부분 응답 미리보기 (사무실 말풍선 라이브) */
   livePeek: Record<string, string>;
 
+  /** 사무실 배경 테마 ("none"|"auto"|"day"|"night"|"cat"|"custom") — localStorage 영속 */
+  officeTheme: string;
+  /** 아트 인턴이 그린 커스텀 배경 메타 (없으면 null) */
+  officeBg: OfficeBgMeta | null;
+  officeBgBusy: boolean;
+  officeBgPhase: string;
+
+  /** 프로필 창이 열린 에이전트 (모델/API 개별 설정) */
+  profileAgent: string | null;
+
+  /** PM 오늘의 브리핑 진행 중 */
+  briefingBusy: boolean;
+
   /** 지식 라이브러리 (스튜디오 공용) */
   knowledge: KnowledgeItem[];
   /** 제출된 지식의 PM 검증 대기 상태 */
@@ -269,6 +287,18 @@ interface VEState {
   removeArt: (ts: number) => Promise<void>;
   /** 컨셉 아트를 GDD "8. 아트" 섹션에 이미지로 삽입 */
   attachArtToGdd: (ts: number) => Promise<void>;
+
+  /** 사무실 배경 — 테마 선택 + 아트 인턴에게 새 배경 그리게 하기 */
+  setOfficeTheme: (t: string) => void;
+  loadOfficeBg: () => Promise<void>;
+  generateOfficeBg: (request: string) => Promise<void>;
+
+  /** 에이전트 프로필 창 (개별 모델/API 설정·활동 요약) */
+  openProfile: (id: string) => void;
+  closeProfile: () => void;
+
+  /** PM 오늘의 브리핑 — 현황·오늘 추천 작업·리스크를 PM 대화방으로 받는다 */
+  dailyBriefing: () => Promise<void>;
 
   /** 기존 기획 문서 가져오기 — 원문은 보고서함 보관, 선택 시 PM 분배로 GDD 통합 */
   importDocument: (name: string, text: string, integrate: boolean) => Promise<void>;
@@ -520,6 +550,18 @@ export const useVE = create<VEState>()((set, get) => {
     artBusy: false,
     artPhase: "",
     livePeek: {},
+    officeTheme: ((): string => {
+      try {
+        return localStorage.getItem("ve-office-theme") ?? "auto";
+      } catch {
+        return "auto";
+      }
+    })(),
+    officeBg: null,
+    officeBgBusy: false,
+    officeBgPhase: "",
+    profileAgent: null,
+    briefingBusy: false,
     knowledge: [],
     pendingKnowledge: null,
 
@@ -551,6 +593,7 @@ export const useVE = create<VEState>()((set, get) => {
         void get().loadArt();
       }
       void get().checkArtStatus();
+      void get().loadOfficeBg();
       void get().loadKnowledge();
       setInterval(() => {
         const st = get();
@@ -1356,6 +1399,148 @@ export const useVE = create<VEState>()((set, get) => {
         }
       });
       await gddQueue;
+    },
+
+    /* ── 사무실 배경 (아트 인턴이 그리는 스튜디오 인테리어) ── */
+
+    setOfficeTheme: (t) => {
+      try {
+        localStorage.setItem("ve-office-theme", t);
+      } catch {
+        /* noop */
+      }
+      set({ officeTheme: t });
+    },
+
+    loadOfficeBg: async () => {
+      set({ officeBg: await getOfficeBg() });
+    },
+
+    generateOfficeBg: async (request) => {
+      if (get().officeBgBusy) return;
+      set({ officeBgBusy: true, officeBgPhase: "🎨 아트 디렉터가 배경 컨셉을 잡는 중…" });
+      try {
+        // 아트 디렉터가 지금 만드는 게임의 분위기를 반영한 프롬프트를 쓴다.
+        // 디렉터가 응답하지 못해도 기본 컨셉으로 인턴이 그린다 — 배경 기능은 항상 동작해야 한다.
+        let prompt =
+          "(pixel art:1.3), 16-bit retro game background art, cozy game development studio interior, wide shot, large windows with warm light, wooden desks with computer monitors, bookshelves, potted plants, highly detailed pixelart scene, empty room, no people";
+        let negative = "";
+        try {
+          const project = get().activeProject;
+          let overview = "";
+          if (project) {
+            try {
+              overview = getSectionBody((await fetchGdd(project)).markdown, "## 1.");
+            } catch {
+              /* 개요 없이 진행 */
+            }
+          }
+          setAgentStatus("visual", "running");
+          const r = await gateway.runAgent(
+            "visual",
+            officeBgSdPrompt(request, overview),
+            `officebg-${Date.now().toString(36)}`
+          );
+          addUsage(r.usage, r.text);
+          const parsed = parseSdPrompt(sanitizeAgentOutput(r.text));
+          if (parsed?.prompt) {
+            prompt = parsed.prompt;
+            negative = parsed.negative;
+          }
+          setAgentStatus("visual", "done");
+        } catch {
+          setAgentStatus("visual", "idle");
+        }
+        set({ officeBgPhase: "🖌️ 아트 인턴이 사무실 배경을 그리는 중… (로컬 GPU, 수십 초)" });
+        await generateOfficeBgImage(prompt, negative, request);
+        await get().loadOfficeBg();
+        get().setOfficeTheme("custom");
+        set({ officeBgBusy: false, officeBgPhase: "" });
+      } catch (e: any) {
+        set({ officeBgBusy: false, officeBgPhase: `⚠️ ${String(e?.message ?? e).slice(0, 120)}` });
+      }
+    },
+
+    /* ── 에이전트 프로필 창 ─────────────────────────── */
+
+    openProfile: (id) => set({ profileAgent: AGENT_MAP[id] ? id : null }),
+    closeProfile: () => set({ profileAgent: null }),
+
+    /* ── PM 오늘의 브리핑 (데일리 스탠드업) ─────────── */
+
+    dailyBriefing: async () => {
+      const project = get().activeProject;
+      if (!project || get().briefingBusy || get().chatBusy.pm) return;
+      // 히스토리를 먼저 불러와야 새 메시지가 기존 PM 대화를 덮어쓰지 않는다
+      await ensureChatLoaded("pm");
+      get().selectAgent("pm");
+      set((s) => ({
+        briefingBusy: true,
+        chatBusy: { ...s.chatBusy, pm: true },
+        chats: {
+          ...s.chats,
+          pm: [
+            ...(s.chats.pm ?? []),
+            {
+              id: `u-${Date.now()}`,
+              role: "user" as const,
+              text: "☀️ 오늘의 브리핑 — 현황, 오늘 추천 작업, 리스크를 정리해줘",
+              ts: Date.now(),
+            },
+          ],
+        },
+      }));
+      setAgentStatus("pm", "running");
+      try {
+        let gddFull = get().gdd;
+        try {
+          gddFull = (await fetchGdd(project)).markdown;
+        } catch {
+          /* 화면 상태 사용 */
+        }
+        const projectName = get().projects.find((p) => p.id === project)?.name ?? "";
+        const reportLines = get()
+          .reports.slice(0, 8)
+          .map(
+            (r) =>
+              `- [${AGENT_MAP[r.agent]?.name ?? r.agent}] ${r.title} (${new Date(r.ts).toLocaleDateString("ko-KR")})`
+          )
+          .join("\n");
+        const r = await gateway.runAgent(
+          "pm",
+          briefingPrompt(projectName, gddFull, reportLines, knowledgeBlockFor("pm", get().knowledge)),
+          `brief-${project}-${Date.now().toString(36)}`
+        );
+        const text = sanitizeAgentOutput(r.text) || "(빈 브리핑)";
+        addUsage(r.usage, text);
+        set((s) => ({
+          chats: {
+            ...s.chats,
+            pm: [...(s.chats.pm ?? []), { id: `a-${Date.now()}`, role: "assistant" as const, text, ts: Date.now() }],
+          },
+        }));
+        setAgentStatus("pm", "done");
+      } catch (e: any) {
+        set((s) => ({
+          chats: {
+            ...s.chats,
+            pm: [
+              ...(s.chats.pm ?? []),
+              {
+                id: `e-${Date.now()}`,
+                role: "assistant" as const,
+                text: `⚠️ 브리핑 실패: ${String(e?.message ?? e).slice(0, 150)}`,
+                error: true,
+                ts: Date.now(),
+              },
+            ],
+          },
+        }));
+        setAgentStatus("pm", "error");
+      } finally {
+        set((s) => ({ briefingBusy: false, chatBusy: { ...s.chatBusy, pm: false } }));
+        persistChat("pm");
+      }
     },
 
     /* ── 기존 기획 문서 가져오기 ─────────────────────── */

@@ -18,6 +18,7 @@ export function ChatPanel() {
     generateReport,
     reportBusy,
     feed,
+    openProfile,
   } = useVE();
   const agent = AGENT_MAP[activeAgent];
   const msgs = chats[activeAgent] ?? [];
@@ -57,9 +58,14 @@ export function ChatPanel() {
   return (
     <section className="chat-panel">
       <div className="panel-head">
-        <span className="agent-emoji big" style={{ background: agent.color + "22", borderColor: agent.color + "55" }}>
+        <button
+          className="agent-emoji big as-btn"
+          style={{ background: agent.color + "22", borderColor: agent.color + "55" }}
+          onClick={() => openProfile(activeAgent)}
+          title="프로필 열기 — 이 에이전트의 모델/API를 여기서 바꿉니다"
+        >
           {agent.emoji}
-        </span>
+        </button>
         <div className="head-meta">
           <div className="head-name">{agent.name}</div>
           <div className="head-role">{agent.role}</div>

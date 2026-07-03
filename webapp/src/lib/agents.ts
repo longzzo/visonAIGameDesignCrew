@@ -268,6 +268,51 @@ export function parseSdPrompt(text: string): { prompt: string; negative: string 
 }
 
 /**
+ * 사무실 배경 그리기 프롬프트 — 아트 디렉터가 "우리 스튜디오 사무실" 인테리어를
+ * 픽셀아트 배경으로 주문한다. 캐릭터 스프라이트가 올라가므로 사람·글자는 금지.
+ */
+export function officeBgSdPrompt(request: string, overview: string): string {
+  return [
+    `너는 아트 디렉터다. 아트 인턴이 Stable Diffusion으로 우리 스튜디오의 "사무실 배경 이미지"를 그린다.`,
+    `이 배경 위에 팀원 캐릭터 스프라이트가 올라가므로: 실내 인테리어(벽·창문·가구·소품)만, 사람·동물·글자 없이.`,
+    overview.trim() ? `[지금 만드는 게임 — 사무실이 이 게임의 분위기를 입으면 좋다]\n${overview.trim().slice(0, 300)}` : ``,
+    `[오너의 배경 요청]`,
+    request.trim() || `지금 만드는 게임의 분위기가 느껴지는 아늑한 게임 스튜디오 사무실`,
+    ``,
+    `출력은 정확히 아래 두 줄만. 다른 말·설명·도구 호출 금지.`,
+    `PROMPT: <영어 태그 — 반드시 "(pixel art:1.3), 16-bit retro game background art"로 시작, 실내 묘사·조명·색감 순. 60단어 이내>`,
+    `NEGATIVE: <영어 네거티브 태그 — people, text 계열 포함. 15단어 이내>`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * PM 오늘의 브리핑 — 매일 아침 한 번 눌러 현황·오늘 할 일·리스크를 받아보는
+ * 데일리 스탠드업 문서. GDD 전문과 최근 보고서 목록이 근거다.
+ */
+export function briefingPrompt(projectName: string, gddFull: string, reportLines: string, knowledge = ""): string {
+  const today = new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", weekday: "short" });
+  return [
+    `너는 PM 디렉터다. 오너가 출근해서 "오늘의 브리핑"을 요청했다. 오늘: ${today}`,
+    `프로젝트: ${projectName || "(이름 없음)"}`,
+    knowledge.trim() ? `\n[스튜디오가 학습한 이론]\n${knowledge.trim().slice(0, 800)}` : ``,
+    ``,
+    `[현재 마스터 GDD 전문]`,
+    gddFull.slice(0, 10000) || `(아직 기획이 비어 있다)`,
+    ``,
+    reportLines.trim() ? `[최근 보고서함]\n${reportLines.trim().slice(0, 1200)}` : `[최근 보고서함]\n(없음)`,
+    ``,
+    `아래 구조로 짧고 실용적인 브리핑을 써라. 전체 300단어 이내, 인사말·사족 금지, 순수 마크다운.`,
+    `### 📊 현황 — 기획이 어디까지 왔나 (3줄 이내, 비어 있거나 약한 섹션을 콕 집어라)`,
+    `### ✅ 오늘 추천 작업 3가지 — 각각 "누구에게(에이전트 이름) 무엇을 시켜라" 형태의 실행 가능한 한 줄 + 왜 지금인지 반 줄`,
+    `### ⚠️ 리스크/결정 대기 1가지 — 오너가 오늘 정해줘야 팀이 안 막히는 것`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
  * 지식 라이브러리 검증 프롬프트 — 오너가 제출한 이론이 이 스튜디오에
  * 유용한지 PM이 판정하고, 유용하면 요약과 적용 대상 역할을 정한다.
  */

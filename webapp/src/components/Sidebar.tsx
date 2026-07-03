@@ -31,6 +31,7 @@ export function Sidebar() {
     reports,
     readReports,
     knowledge,
+    openProfile,
   } = useVE();
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
 
@@ -161,6 +162,16 @@ export function Sidebar() {
                   {health.ok ? "✓" : "✗"}
                 </span>
               )}
+              <button
+                className="profile-gear"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openProfile(a.id);
+                }}
+                title="프로필 — 이 에이전트의 모델/API를 바꿉니다"
+              >
+                ⚙
+              </button>
               <span className={`status-dot st-${st}`} title={STATUS_LABEL[st]} />
             </li>
           );

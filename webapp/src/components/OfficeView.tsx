@@ -13,6 +13,21 @@ import { useVE, type FeedMsg } from "../store";
 
 const BUBBLE_TTL = 3 * 60 * 1000; // 말풍선 유지 시간 3분
 
+/** 사무실 배경 테마 — 아트 인턴(로컬 SD)이 그린 픽셀아트. "auto"는 시간대로 주/야 전환 */
+const BG_THEMES: { id: string; label: string; img?: string }[] = [
+  { id: "auto", label: "🕐 자동 (낮/밤)" },
+  { id: "day", label: "☀️ 주간 스튜디오", img: "/office/bg-day.png" },
+  { id: "night", label: "🌌 야간 스튜디오", img: "/office/bg-night.png" },
+  { id: "cat", label: "🐾 고양이 카페", img: "/office/bg-cat.png" },
+  { id: "none", label: "◻ 배경 없음" },
+];
+
+function themeImage(theme: string, customTs?: number): string | undefined {
+  if (theme === "custom" && customTs) return `/office/custom.png?v=${customTs}`;
+  const t = theme === "auto" ? (new Date().getHours() >= 6 && new Date().getHours() < 18 ? "day" : "night") : theme;
+  return BG_THEMES.find((b) => b.id === t)?.img;
+}
+
 function statusLabel(status: string, phase?: string): string {
   if (status === "running") return phase ?? "작업 중…";
   if (status === "done") return "작업 완료";
@@ -21,7 +36,7 @@ function statusLabel(status: string, phase?: string): string {
 }
 
 function Desk({ agentId, big }: { agentId: string; big?: boolean }) {
-  const { agentStatus, cards, feed, selectAgent, livePeek } = useVE();
+  const { agentStatus, cards, feed, selectAgent, livePeek, openProfile } = useVE();
   const a = AGENT_MAP[agentId];
   const st = agentStatus[agentId] ?? "idle";
   const phase = cards[agentId]?.phase;
@@ -54,6 +69,16 @@ function Desk({ agentId, big }: { agentId: string; big?: boolean }) {
           {bubbleText}
         </div>
       )}
+      <button
+        className="desk-profile"
+        onClick={(e) => {
+          e.stopPropagation();
+          openProfile(agentId);
+        }}
+        title="프로필 — 모델/API 설정"
+      >
+        ⚙
+      </button>
       <div className="office-avatar" style={{ background: a.color + "26", borderColor: a.color + "88" }}>
         <AgentSprite id={agentId} size={big ? 52 : 42} />
         {st === "running" && <span className="zzz work">⚡</span>}
@@ -126,31 +151,48 @@ function PmWalker() {
 
 /** 아트 인턴 미니 책상 — 아트 디렉터 바로 아래, 클릭하면 아트 스튜디오 */
 function InternDesk({ onOpen }: { onOpen: () => void }) {
-  const { artBusy, artStatus, artPhase } = useVE();
+  const { artBusy, artStatus, artPhase, officeBgBusy, officeBgPhase } = useVE();
   const connected = artStatus?.connected === true;
+  const busy = artBusy || officeBgBusy;
+  const phase = artBusy ? artPhase : officeBgPhase;
   return (
     <div
-      className={`desk intern ${artBusy ? "st-running" : connected ? "st-done" : "st-idle"}`}
+      className={`desk intern ${busy ? "st-running" : connected ? "st-done" : "st-idle"}`}
       onClick={onOpen}
       title={connected ? "아트 인턴 — 클릭하면 아트 스튜디오" : "아트 인턴 (Stable Diffusion 미연결) — 클릭해서 설치 안내 보기"}
     >
-      {artBusy && artPhase && <div className="speech">{artPhase.slice(0, 40)}</div>}
+      {busy && phase && <div className="speech">{phase.slice(0, 40)}</div>}
       <div className="office-avatar" style={{ background: "#e879f926", borderColor: "#e879f955" }}>
         <span className="intern-face">🖌️</span>
-        {artBusy ? <span className="zzz work">⚡</span> : connected ? <span className="zzz ok">✅</span> : <span className="zzz">💤</span>}
+        {busy ? <span className="zzz work">⚡</span> : connected ? <span className="zzz ok">✅</span> : <span className="zzz">💤</span>}
       </div>
       <div className="nameplate" style={{ borderColor: "#e879f955" }}>
         아트 인턴
       </div>
-      <div className={`desk-status ${artBusy ? "ds-running" : "ds-idle"}`}>
-        {artBusy ? "그리는 중…" : connected ? "SD 대기 중" : "SD 미연결"}
+      <div className={`desk-status ${busy ? "ds-running" : "ds-idle"}`}>
+        {busy ? "그리는 중…" : connected ? "SD 대기 중" : "SD 미연결"}
       </div>
     </div>
   );
 }
 
 export function OfficeView() {
-  const { projects, activeProject, gddMtime, orchRunning, reports } = useVE();
+  const {
+    projects,
+    activeProject,
+    gddMtime,
+    orchRunning,
+    reports,
+    officeTheme,
+    setOfficeTheme,
+    officeBg,
+    officeBgBusy,
+    officeBgPhase,
+    generateOfficeBg,
+    artStatus,
+    dailyBriefing,
+    briefingBusy,
+  } = useVE();
   const projectName = projects.find((p) => p.id === activeProject)?.name ?? "";
   // 말풍선 TTL 갱신용 틱
   const [, tick] = useState(0);
@@ -165,12 +207,65 @@ export function OfficeView() {
   const row1 = ["scenario", "gameplay", "systems", "uiux", "td"];
   const row2 = ["balance", "bm", "scheduler", "marketing"];
 
+  const bgUrl = themeImage(officeTheme, officeBg?.ts);
+
+  const onNewBg = () => {
+    const req = window.prompt(
+      "아트 인턴에게 어떤 사무실 배경을 그리게 할까요?\n(아트 디렉터가 지금 만드는 게임의 분위기를 반영해 프롬프트를 쓰고, 인턴이 그립니다)",
+      officeBg?.request || "지금 만드는 게임의 분위기가 느껴지는 아늑한 게임 스튜디오 사무실"
+    );
+    if (req?.trim()) void generateOfficeBg(req.trim());
+  };
+
   return (
     <section className="office-view">
       <div className="office-header">
         <span className="office-sign">🏢 Vision Engine 스튜디오</span>
         <span className="office-project">{projectName}</span>
         {orchRunning && <span className="office-live">● 회의 진행 중</span>}
+        <select
+          className="model-select mini office-theme"
+          value={officeTheme}
+          onChange={(e) => setOfficeTheme(e.target.value)}
+          title="사무실 배경 테마 — 아트 인턴이 그린 픽셀아트"
+        >
+          {BG_THEMES.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.label}
+            </option>
+          ))}
+          {officeBg && <option value="custom">🖼️ 커스텀 (인턴 신작)</option>}
+        </select>
+        {artStatus?.connected && (
+          <button
+            className="btn small"
+            onClick={onNewBg}
+            disabled={officeBgBusy}
+            title="아트 인턴에게 새 사무실 배경을 그리게 합니다 (아트 디렉터가 게임 분위기 반영)"
+          >
+            {officeBgBusy ? (
+              <>
+                <span className="spinner" /> 그리는 중…
+              </>
+            ) : (
+              "🖌️ 새 배경"
+            )}
+          </button>
+        )}
+        <button
+          className="btn small"
+          onClick={() => void dailyBriefing()}
+          disabled={briefingBusy || orchRunning}
+          title="PM이 현황·오늘 추천 작업·리스크를 정리해 대화방으로 보고합니다 — 매일 아침 한 번"
+        >
+          {briefingBusy ? (
+            <>
+              <span className="spinner" /> 브리핑…
+            </>
+          ) : (
+            "☀️ 오늘의 브리핑"
+          )}
+        </button>
         <span className="office-doc-tabs">
           <button className="btn small" onClick={() => setDocViewer("gdd")} title="마스터 GDD를 큰 화면으로">
             📄 GDD
@@ -180,7 +275,8 @@ export function OfficeView() {
           </button>
         </span>
       </div>
-      <div className="office-room">
+      {officeBgPhase && <div className="office-bg-phase dim">{officeBgPhase}</div>}
+      <div className={`office-room ${bgUrl ? "has-bg" : ""}`} style={bgUrl ? { backgroundImage: `url("${bgUrl}")` } : undefined}>
         <div className="office-wall">
           <div className="office-window" title={new Date().getHours() >= 6 && new Date().getHours() < 18 ? "낮" : "밤"}>
             <span className="celestial">{new Date().getHours() >= 6 && new Date().getHours() < 18 ? "☀️" : "🌙"}</span>
@@ -219,7 +315,7 @@ export function OfficeView() {
         <PmWalker />
       </div>
       <div className="office-hint dim">
-        캐릭터 클릭 → 1:1 대화 · 🖌️ 아트 인턴 클릭 → 컨셉 아트 스튜디오 · 상단 📄/📋 → 큰 화면 문서 뷰어
+        캐릭터 클릭 → 1:1 대화 · ⚙ → 프로필(모델 교체) · 🖌️ 아트 인턴 → 컨셉 아트 · 상단 테마 셀렉터 → 사무실 배경
       </div>
 
       {docViewer && <DocViewer tab={docViewer} onTab={setDocViewer} onClose={() => setDocViewer(null)} />}

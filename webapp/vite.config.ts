@@ -794,6 +794,95 @@ function artApiPlugin(): Plugin {
   };
 }
 
+/* ── 플러그인: 사무실 배경 (아트 인턴이 그리는 커스텀 배경) ── */
+
+/**
+ * 사무실 뷰의 커스텀 배경을 로컬 SD로 생성해 public/office/custom.png 에 저장한다.
+ * 기본 배경(bg-day/night/cat)은 정적 에셋이고, 이 API는 "새 배경" 한 장만 관리한다.
+ * 생성은 PC 로컬 요청만 허용 — 저장 위치가 앱 소스 트리(public/)이기 때문.
+ */
+function officeBgPlugin(): Plugin {
+  const officeDir = path.resolve(__dirname, "public", "office");
+  const metaFile = path.join(officeDir, "custom.json");
+  return {
+    name: "vision-engine-office-bg",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/office-bg", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            if (req.method === "GET") {
+              let meta: any = null;
+              if (fs.existsSync(metaFile) && fs.existsSync(path.join(officeDir, "custom.png"))) {
+                try {
+                  meta = JSON.parse(fs.readFileSync(metaFile, "utf-8"));
+                } catch {
+                  meta = null;
+                }
+              }
+              res.end(JSON.stringify({ custom: meta }));
+              return;
+            }
+            if (req.method === "POST") {
+              if (!isLocalReq(req)) {
+                res.statusCode = 403;
+                res.end(JSON.stringify({ ok: false, error: "배경 생성은 PC(로컬)에서만 가능합니다" }));
+                return;
+              }
+              const j = JSON.parse((await readBody(req)) || "{}");
+              const prompt = String(j.prompt ?? "").trim();
+              const request = String(j.request ?? "").trim();
+              if (!prompt) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: "prompt 필요" }));
+                return;
+              }
+              const ctl = new AbortController();
+              const t = setTimeout(() => ctl.abort(), 300_000);
+              let sd: any;
+              try {
+                const r = await fetch(`${SD_URL}/sdapi/v1/txt2img`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  signal: ctl.signal,
+                  body: JSON.stringify({
+                    prompt,
+                    negative_prompt:
+                      String(j.negative ?? "").trim() ||
+                      "photo, photorealistic, realistic, 3d render, people, person, human, character, face, text, letters, watermark, signature, logo, blurry, lowres",
+                    steps: 30,
+                    width: 768,
+                    height: 448,
+                    cfg_scale: 6.5,
+                    sampler_name: "DPM++ 2M",
+                  }),
+                });
+                if (!r.ok) throw new Error(`SD 서버 오류 (${r.status})`);
+                sd = await r.json();
+              } finally {
+                clearTimeout(t);
+              }
+              const b64 = sd?.images?.[0];
+              if (!b64) throw new Error("SD가 이미지를 반환하지 않았습니다");
+              fs.mkdirSync(officeDir, { recursive: true });
+              const ts = Date.now();
+              fs.writeFileSync(path.join(officeDir, "custom.png"), Buffer.from(b64, "base64"));
+              fs.writeFileSync(metaFile, JSON.stringify({ ts, prompt, request }), "utf-8");
+              res.end(JSON.stringify({ ok: true, ts }));
+              return;
+            }
+            res.statusCode = 405;
+            res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 300) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
 /* ── 플러그인: AI 모델 프로바이더 (GitHub Models / NVIDIA NIM) ── */
 
 /**
@@ -1192,6 +1281,7 @@ export default defineConfig({
     chatsApiPlugin(),
     reportsApiPlugin(),
     artApiPlugin(),
+    officeBgPlugin(),
     knowledgeApiPlugin(),
     braveKeyPlugin(),
     modelsApiPlugin(),
