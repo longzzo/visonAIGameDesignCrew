@@ -4,6 +4,7 @@ import { uiAlert, uiConfirm, uiPrompt } from "../lib/dialog";
 import { setBraveKey } from "../lib/gdd";
 import { getModelsInfo, registerModelKey, setAgentModels, switchModel, type ModelsInfo } from "../lib/models";
 import { KnowledgeStudio } from "./KnowledgeStudio";
+import { McpPanel } from "./McpPanel";
 import { useVE } from "../store";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -37,6 +38,7 @@ export function Sidebar() {
   } = useVE();
   const obsidianNew = obsidianNotes.filter((n) => n.state !== "learned").length;
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
+  const [mcpOpen, setMcpOpen] = useState(false);
 
   // 에이전트별 읽지 않은 보고서 수 — 확인 여부 배지
   const unreadByAgent: Record<string, number> = {};
@@ -279,6 +281,13 @@ export function Sidebar() {
         >
           {braveOk ? "🔑 웹 검색 활성화됨 ✓ (키 변경)" : "🔑 웹 검색 키 등록"}
         </button>
+        <button
+          className="btn small"
+          onClick={() => setMcpOpen(true)}
+          title="MCP(Model Context Protocol) 도구 서버 — 파일시스템·git 등을 연결해 개발팀 에이전트가 실제 작업에 관여하게 합니다"
+        >
+          🔌 MCP 도구 서버
+        </button>
         {conn !== "connected" && (
           <button className="btn small" onClick={() => void reconnect()}>
             🔌 게이트웨이 재연결
@@ -290,6 +299,7 @@ export function Sidebar() {
         </a>
       </div>
       {knowledgeOpen && <KnowledgeStudio onClose={() => setKnowledgeOpen(false)} />}
+      {mcpOpen && <McpPanel onClose={() => setMcpOpen(false)} />}
     </aside>
   );
 }

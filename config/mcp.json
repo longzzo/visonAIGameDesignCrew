@@ -1,0 +1,30 @@
+{
+  "_note": "MCP(Model Context Protocol) 서버 등록. 여기 추가한 stdio 서버를 앱이 spawn·연결해 도구를 에이전트에게 노출한다. enabled:false면 건너뜀. {{KIT}}는 현재 프로젝트의 kit 폴더로 치환된다(파일시스템 서버용). 키가 필요한 서버는 env에 넣되 커밋 금지.",
+  "servers": [
+    {
+      "id": "filesystem",
+      "label": "파일시스템 (개발 킷)",
+      "enabled": false,
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "{{KIT}}"
+      ],
+      "note": "개발팀이 kit/ 폴더의 파일을 읽고 쓸 수 있게 한다. 활성화하려면 enabled:true."
+    },
+    {
+      "id": "git",
+      "label": "Git",
+      "enabled": false,
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-git",
+        "--repository",
+        "{{KIT}}"
+      ],
+      "note": "커밋·로그·diff 등 git 작업."
+    }
+  ]
+}

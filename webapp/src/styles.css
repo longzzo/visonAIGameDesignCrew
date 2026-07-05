@@ -272,6 +272,33 @@ button { font-family: inherit; }
 .desk.away { opacity: 0.35; }
 .desk.away .office-avatar { filter: grayscale(0.6); }
 
+/* MCP 허브 패널 */
+.mcp-panel { max-width: 720px; }
+.mcp-body { padding: 6px 14px 4px; overflow-y: auto; }
+.mcp-server { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; overflow: hidden; }
+.mcp-server.st-ready { border-color: #3ba55d55; }
+.mcp-server.st-error { border-color: #e05a5a55; }
+.mcp-server-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; cursor: pointer; font-size: 13px; }
+.mcp-server-head:hover { background: rgba(255, 255, 255, 0.03); }
+.mcp-server-head .dim { margin-left: auto; font-size: 11.5px; }
+.mcp-caret { margin-left: 6px; color: var(--text-dim); }
+.mcp-error { padding: 4px 12px 9px; font-size: 11.5px; color: #f08c9c; }
+.mcp-tool { padding: 6px 12px 6px 26px; border-top: 1px solid var(--border); }
+.mcp-tool-name { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.mcp-tool-name code { background: #12151c; border-radius: 5px; padding: 1px 7px; color: #8fd4ff; }
+.mcp-tool-desc { font-size: 11px; margin-top: 3px; line-height: 1.5; }
+.mcp-try { border-top: 1px solid var(--border); padding: 10px 14px; background: var(--panel-2); }
+.mcp-try-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 12.5px; }
+.mcp-try textarea {
+  width: 100%; border-radius: 8px; border: 1px solid var(--border);
+  background: #12151c; color: var(--text); font-family: monospace; font-size: 12px; padding: 8px; resize: vertical;
+}
+.mcp-result {
+  margin-top: 8px; max-height: 240px; overflow: auto; background: #12151c;
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+  font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+}
+
 /* 3D 사무실 */
 .office3d-wrap {
   position: relative; flex: 1; min-height: 560px;

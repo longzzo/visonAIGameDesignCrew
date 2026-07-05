@@ -2083,6 +2083,59 @@ function resolveDevHost(): string {
   return "0.0.0.0";
 }
 
+/* ── 플러그인: MCP 허브 (config/mcp.json의 도구 서버 연결·노출) ── */
+function mcpApiPlugin(): Plugin {
+  // 서버 모듈은 ESM 동적 import — MCP SDK를 안 쓰는 환경에서도 안전하게 로드 실패를 격리
+  let hub: any = null;
+  const load = async () => {
+    if (hub) return hub;
+    hub = await import("./server/mcp-hub.mjs");
+    return hub;
+  };
+  return {
+    name: "vision-engine-mcp-api",
+    configureServer(server: ViteDevServer) {
+      // 서버 기동 시 백그라운드로 허브 연결 (실패해도 앱엔 영향 없음)
+      void load()
+        .then((h) => h.startHub())
+        .catch(() => {});
+      server.middlewares.use("/api/mcp", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            const h = await load();
+            const url = new URL(req.url ?? "/", "http://local");
+            const sub = url.pathname.replace(/\/+$/, "");
+            if (req.method === "GET") {
+              if (!h.isStarted()) await h.startHub();
+              res.end(JSON.stringify({ servers: h.statusList(), tools: h.allTools() }));
+              return;
+            }
+            if (sub === "/reconnect" && req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
+              const servers = await h.reconnect();
+              res.end(JSON.stringify({ ok: true, servers }));
+              return;
+            }
+            if (sub === "/call" && req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
+              const j = JSON.parse((await readBody(req)) || "{}");
+              const out = await h.callTool(String(j.server), String(j.name), j.args ?? {});
+              res.end(JSON.stringify({ ok: true, ...out }));
+              return;
+            }
+            res.statusCode = 405;
+            res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 300) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     react(),
@@ -2101,6 +2154,7 @@ export default defineConfig({
     braveKeyPlugin(),
     modelsApiPlugin(),
     agentBridgePlugin(),
+    mcpApiPlugin(),
   ],
   server: {
     port: 5199,
