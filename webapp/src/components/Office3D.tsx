@@ -89,11 +89,15 @@ function Cat({
   targetsRef,
   onSelect,
   selected,
+  inMeeting,
+  say,
 }: {
   id: string;
   targetsRef: React.MutableRefObject<Targets>;
   onSelect: (id: string) => void;
   selected: boolean;
+  inMeeting?: boolean;
+  say?: string;
 }) {
   const a = AGENT_MAP[id];
   const ref = useRef<Group>(null);
@@ -103,6 +107,9 @@ function Cat({
   const st = agentStatus[id] ?? "idle";
   const peek = livePeek[id] ?? "";
   const [walking, setWalking] = useState(false);
+  const speaking = !!inMeeting && st === "running";
+  // 회의 중엔 마지막 발언을 계속 말풍선으로 (2D 연출과 동일), 실시간 스트리밍이 있으면 그걸 우선
+  const bubbleText = st === "running" && peek ? peek : inMeeting ? say ?? "" : "";
 
   useFrame((state, dt) => {
     const g = ref.current;
@@ -162,10 +169,24 @@ function Cat({
           <meshBasicMaterial color={c} transparent opacity={0.9} />
         </mesh>
       )}
+      {/* 발언자 강조 — 바닥 링 + 스포트라이트 */}
+      {speaking && (
+        <>
+          <mesh position={[0, 0.018, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[0.44, 0.56, 30]} />
+            <meshBasicMaterial color={c} transparent opacity={0.75} />
+          </mesh>
+          <pointLight position={[0, 1.5, 0.3]} intensity={7} color={c} distance={3.2} />
+        </>
+      )}
       {/* 몸통 */}
       <mesh castShadow position={[0, 0.34, 0]}>
         <capsuleGeometry args={[0.22, 0.3, 6, 12]} />
-        <meshStandardMaterial color={c} emissive={selected ? c : "#000000"} emissiveIntensity={selected ? 0.35 : 0} />
+        <meshStandardMaterial
+          color={c}
+          emissive={selected || speaking ? c : "#000000"}
+          emissiveIntensity={speaking ? 0.5 : selected ? 0.35 : 0}
+        />
       </mesh>
       {/* 머리 */}
       <mesh castShadow position={[0, 0.82, 0]}>
@@ -195,17 +216,25 @@ function Cat({
         <coneGeometry args={[0.06, 0.34, 8]} />
         <meshStandardMaterial color={c} />
       </mesh>
+      {/* 발언 중 마커 */}
+      {speaking && !walking && (
+        <Html center position={[0, 1.82, 0]} distanceFactor={10} zIndexRange={[30, 0]}>
+          <div className="o3d-speak">🗣</div>
+        </Html>
+      )}
       {/* 이름표 + 상태 */}
       <Html center position={[0, 1.5, 0]} distanceFactor={11} zIndexRange={[10, 0]}>
-        <div className="o3d-label" style={{ borderColor: c }}>
+        <div className={`o3d-label ${speaking ? "speaking" : ""}`} style={{ borderColor: c }}>
           {st === "running" ? "⚡" : st === "done" ? "✅" : st === "error" ? "💢" : ""}
           {a?.emoji} {a?.name}
         </div>
       </Html>
-      {/* 작업 중 실시간 말풍선 */}
-      {st === "running" && peek && !walking && (
+      {/* 말풍선 — 회의 발언(지속) / 작업 실시간 미리보기 */}
+      {bubbleText && !walking && (
         <Html center position={[0, 2.1, 0]} distanceFactor={10} zIndexRange={[20, 0]}>
-          <div className="o3d-bubble">…{peek.replace(/[#*>`]/g, "").replace(/\s+/g, " ").slice(-46)}</div>
+          <div className={`o3d-bubble ${speaking ? "speaking" : ""}`} style={speaking ? { borderColor: `${c}aa` } : undefined}>
+            …{bubbleText.replace(/[#*>`]/g, "").replace(/\s+/g, " ").slice(inMeeting && !peek ? 0 : -46).slice(0, 60)}
+          </div>
         </Html>
       )}
     </group>
@@ -442,6 +471,9 @@ function ExecRoom() {
 
 /** 별도 회의실 — 건물 오른쪽 유리방 (테이블·의자·프로젝터·러그·조명) */
 function MeetingRoom({ active }: { active: boolean }) {
+  const { meetingMembers, agentStatus } = useVE();
+  const speakerId = meetingMembers.find((id) => agentStatus[id] === "running");
+  const speaker = speakerId ? AGENT_MAP[speakerId] : null;
   const [cx, , cz] = MEETING_CENTER;
   const chairs = Array.from({ length: 8 }, (_, i) => {
     const ang = (i / 8) * Math.PI * 2;
@@ -524,9 +556,19 @@ function MeetingRoom({ active }: { active: boolean }) {
       </mesh>
       <pointLight position={[cx, 2.3, cz]} intensity={active ? 16 : 9} color="#ffe9c4" distance={8} />
 
+      {/* 프로젝터 위 현재 발언자 캡션 */}
+      {active && speaker && (
+        <Html center position={[cx + 2.9, 2.5, cz]} distanceFactor={13}>
+          <div className="o3d-speaker-cap" style={{ borderColor: `${speaker.color}aa` }}>
+            🗣 {speaker.emoji} {speaker.name} 발언 중
+          </div>
+        </Html>
+      )}
       <Plant pos={[cx - 2.6, 0, cz - 2.6]} s={0.95} />
       <Html center position={[cx, 2.9, cz]} distanceFactor={14}>
-        <div className={`o3d-room-label ${active ? "on" : ""}`}>{active ? "🗣 회의 중…" : "🗣 회의실"}</div>
+        <div className={`o3d-room-label ${active ? "on" : ""}`}>
+          {active ? `🗣 회의 중 · ${meetingMembers.length}명` : "🗣 회의실"}
+        </div>
       </Html>
     </group>
   );
@@ -735,6 +777,19 @@ function OfficeScene({
     if (m.from === "pm" && m.to && (m.kind === "instruction" || m.kind === "status")) lastPmVisit = m;
     if (m.to === "pm" && m.from && (m.kind === "draft" || m.kind === "revision" || m.kind === "summary")) lastReport[m.from] = m;
   }
+  // 회의 발언 — 각 참가자의 마지막 발화(2D 연출과 동일)를 지속 말풍선으로
+  const meetingSay: Record<string, string> = {};
+  if (meetingMembers.length > 0) {
+    for (const m of feed) {
+      if (
+        m.from &&
+        meetingMembers.includes(m.from) &&
+        ["talk", "summary", "draft", "revision", "review"].includes(m.kind)
+      )
+        meetingSay[m.from] = m.text;
+    }
+  }
+
   const targets: Targets = {};
   for (const a of AGENTS) {
     const mi = meetingMembers.indexOf(a.id);
@@ -770,7 +825,15 @@ function OfficeScene({
         />
       ))}
       {AGENTS.map((a) => (
-        <Cat key={a.id} id={a.id} targetsRef={targetsRef} onSelect={onSelect} selected={selId === a.id} />
+        <Cat
+          key={a.id}
+          id={a.id}
+          targetsRef={targetsRef}
+          onSelect={onSelect}
+          selected={selId === a.id}
+          inMeeting={meetingMembers.includes(a.id)}
+          say={meetingSay[a.id]}
+        />
       ))}
 
       <CameraRig camApi={camApi} />
