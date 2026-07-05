@@ -3,6 +3,7 @@ import { AGENT_MAP } from "../lib/agents";
 import { uiPrompt } from "../lib/dialog";
 import { AgentSprite } from "./AgentSprite";
 import { Office3D } from "./Office3D";
+import { DevTaskPanel } from "./DevTaskPanel";
 import { ArtStudio } from "./ArtStudio";
 import { PrototypeStudio } from "./PrototypeStudio";
 import { DocViewer } from "./DocViewer";
@@ -38,7 +39,7 @@ function statusLabel(status: string, phase?: string): string {
   return "대기 중";
 }
 
-function Desk({ agentId, big }: { agentId: string; big?: boolean }) {
+function Desk({ agentId, big, onDevTask }: { agentId: string; big?: boolean; onDevTask?: (id: string) => void }) {
   const { agentStatus, cards, feed, selectAgent, livePeek, openProfile, meetingMembers } = useVE();
   const a = AGENT_MAP[agentId];
   const st = agentStatus[agentId] ?? "idle";
@@ -83,6 +84,18 @@ function Desk({ agentId, big }: { agentId: string; big?: boolean }) {
       >
         ⚙
       </button>
+      {onDevTask && (
+        <button
+          className="desk-devtask"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDevTask(agentId);
+          }}
+          title="개발 작업 — MCP 도구로 실제 파일에 관여"
+        >
+          ▶
+        </button>
+      )}
       <div className="office-avatar" style={{ background: a.color + "26", borderColor: a.color + "88" }}>
         <AgentSprite id={agentId} size={big ? 52 : 42} />
         {st === "running" && <span className="zzz work">⚡</span>}
@@ -331,6 +344,7 @@ export function OfficeView() {
   const [docViewer, setDocViewer] = useState<null | "gdd" | "reports">(null);
   const [studioOpen, setStudioOpen] = useState(false);
   const [protoStudioOpen, setProtoStudioOpen] = useState(false);
+  const [devTaskAgent, setDevTaskAgent] = useState<string | null>(null);
   const [mode3d, setMode3d] = useState<boolean>(() => {
     try {
       return localStorage.getItem("ve-office-mode") === "3d";
@@ -495,12 +509,12 @@ export function OfficeView() {
         </div>
         <div className="office-row">
           {devRow1.map((id) => (
-            <Desk key={id} agentId={id} />
+            <Desk key={id} agentId={id} onDevTask={setDevTaskAgent} />
           ))}
         </div>
         <div className="office-row">
           {devRow2.map((id) => (
-            <Desk key={id} agentId={id} />
+            <Desk key={id} agentId={id} onDevTask={setDevTaskAgent} />
           ))}
         </div>
         <div className="office-row meeting-row">
@@ -518,6 +532,7 @@ export function OfficeView() {
       {docViewer && <DocViewer tab={docViewer} onTab={setDocViewer} onClose={() => setDocViewer(null)} />}
       {studioOpen && <ArtStudio onClose={() => setStudioOpen(false)} />}
       {protoStudioOpen && <PrototypeStudio onClose={() => setProtoStudioOpen(false)} />}
+      {devTaskAgent && <DevTaskPanel agentId={devTaskAgent} onClose={() => setDevTaskAgent(null)} />}
     </section>
   );
 }

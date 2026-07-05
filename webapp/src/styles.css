@@ -272,6 +272,32 @@ button { font-family: inherit; }
 .desk.away { opacity: 0.35; }
 .desk.away .office-avatar { filter: grayscale(0.6); }
 
+/* 개발 작업 데스크 버튼 */
+.desk-devtask {
+  position: absolute; top: 4px; left: 4px; z-index: 3;
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 1px solid #38bdf888; background: rgba(56, 189, 248, 0.18); color: #8fd4ff;
+  font-size: 10px; cursor: pointer; padding: 0; line-height: 1;
+}
+.desk-devtask:hover { background: rgba(56, 189, 248, 0.35); }
+
+/* 개발 작업 패널 */
+.devtask-panel { max-width: 760px; }
+.devtask-log { padding: 4px 14px 12px; overflow-y: auto; max-height: 52vh; }
+.devstep { margin-bottom: 8px; font-size: 12.5px; line-height: 1.55; }
+.ds-task { font-weight: 600; color: var(--text); }
+.ds-say { background: var(--panel-2); border-radius: 8px; padding: 7px 10px; white-space: pre-wrap; }
+.ds-tool { color: #8fd4ff; }
+.ds-tool code { background: #12151c; border-radius: 5px; padding: 1px 6px; }
+.ds-result {
+  margin: 4px 0 0; background: #12151c; border: 1px solid var(--border); border-radius: 8px;
+  padding: 6px 9px; font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  max-height: 180px; overflow: auto; color: #9fb3c8;
+}
+.ds-result.err { color: #f0a0ac; border-color: #7c3a4d; }
+.ds-done { color: #6fd08c; font-weight: 600; background: rgba(59, 165, 93, 0.1); border-radius: 8px; padding: 7px 10px; }
+.ds-err { color: #f08c9c; }
+
 /* MCP 허브 패널 */
 .mcp-panel { max-width: 720px; }
 .mcp-body { padding: 6px 14px 4px; overflow-y: auto; }

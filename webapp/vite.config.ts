@@ -2136,6 +2136,58 @@ function mcpApiPlugin(): Plugin {
   };
 }
 
+/* ── 플러그인: 개발 작업 (다이렉트 프로바이더 + MCP 툴 루프) ── */
+function devTaskApiPlugin(): Plugin {
+  let mod: any = null;
+  const load = async () => {
+    if (mod) return mod;
+    mod = await import("./server/dev-provider.mjs");
+    return mod;
+  };
+  return {
+    name: "vision-engine-devtask-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/dev-task", (req, res) => {
+        void (async () => {
+          if (req.method !== "POST") {
+            res.statusCode = 405;
+            res.end();
+            return;
+          }
+          if (blockRemoteWrite(req, res)) return;
+          // SSE 스트리밍 — 진행 단계를 실시간으로 흘린다
+          res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+          res.setHeader("Cache-Control", "no-cache");
+          res.setHeader("Connection", "keep-alive");
+          const send = (obj: unknown) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+          try {
+            const j = JSON.parse((await readBody(req)) || "{}");
+            const agentId = String(j.agentId || "");
+            const task = String(j.task || "").trim();
+            if (!agentId || !task) {
+              send({ kind: "error", text: "agentId·task 필요" });
+              res.end();
+              return;
+            }
+            const dp = await load();
+            const out = await dp.runDevTask({
+              agentId,
+              task,
+              model: j.model,
+              maxSteps: Math.min(Number(j.maxSteps) || 8, 12),
+              onStep: (step: unknown) => send(step),
+            });
+            send({ kind: "done", final: out.final });
+          } catch (e: any) {
+            send({ kind: "error", text: String(e?.message ?? e).slice(0, 300) });
+          }
+          res.end();
+        })();
+      });
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     react(),
@@ -2155,6 +2207,7 @@ export default defineConfig({
     modelsApiPlugin(),
     agentBridgePlugin(),
     mcpApiPlugin(),
+    devTaskApiPlugin(),
   ],
   server: {
     port: 5199,
