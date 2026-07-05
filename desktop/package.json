@@ -21,7 +21,8 @@
     "files": [
       "main.cjs",
       "preload.cjs",
-      "settings.html"
+      "settings.html",
+      "tray-icon.png"
     ],
     "win": {
       "target": [

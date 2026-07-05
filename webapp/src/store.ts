@@ -638,7 +638,15 @@ export const useVE = create<VEState>()((set, get) => {
   };
 
   return {
-    view: "orch",
+    view: ((): View => {
+      try {
+        const v = localStorage.getItem("ve-last-view");
+        if (v === "orch" || v === "chat" || v === "office" || v === "data") return v;
+      } catch {
+        /* noop */
+      }
+      return "orch";
+    })(),
     mobilePanel: "work",
     conn: "idle",
     connDetail: "",
@@ -789,7 +797,14 @@ export const useVE = create<VEState>()((set, get) => {
       await gateway.connect();
     },
 
-    setView: (v) => set({ view: v }),
+    setView: (v) => {
+      try {
+        localStorage.setItem("ve-last-view", v);
+      } catch {
+        /* noop */
+      }
+      set({ view: v });
+    },
     setMobilePanel: (p) => set({ mobilePanel: p }),
     selectAgent: (id) => {
       set({ activeAgent: id, view: "chat", mobilePanel: "work" });

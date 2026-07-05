@@ -3,12 +3,15 @@
 //   · 서버 PC(이 노트북): 로컬 서버를 재사용/자동 기동해서 로드
 //   · 클라이언트 PC(다른 컴퓨터): 설정된 서버 주소(예: 노트북의 Tailscale 주소)로 접속
 // 서버 주소는 첫 실행 설정 화면 또는 연결 실패 시 설정 화면에서 저장한다.
-const { app, BrowserWindow, shell, Menu, ipcMain } = require("electron");
+const { app, BrowserWindow, shell, Menu, ipcMain, Tray, globalShortcut, nativeImage } = require("electron");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
 const http = require("node:http");
 const https = require("node:https");
+
+let tray = null;
+let quitting = false;
 
 const LOCAL_URL = "http://127.0.0.1:5199";
 const WEBAPP_DIR = path.resolve(__dirname, "..", "webapp");
@@ -122,7 +125,39 @@ function createWindow() {
     return { action: "deny" };
   });
   win.webContents.on("did-finish-load", () => console.log("✅ 창 로드 완료"));
+  // 닫기 = 트레이로 숨김 (매일 켜두는 도구) — 실제 종료는 트레이 메뉴에서
+  win.on("close", (e) => {
+    if (!quitting) {
+      e.preventDefault();
+      win.hide();
+    }
+  });
   return win;
+}
+
+function showWindow() {
+  if (!win) {
+    createWindow();
+    void connect();
+  } else {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  }
+}
+
+function setupTray() {
+  if (tray) return;
+  const icon = nativeImage.createFromPath(path.join(__dirname, "tray-icon.png"));
+  tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
+  tray.setToolTip("Vision Engine — 게임 개발 스튜디오");
+  const menu = Menu.buildFromTemplate([
+    { label: "🏢 Vision Engine 열기", click: showWindow },
+    { type: "separator" },
+    { label: "종료", click: () => { quitting = true; app.quit(); } },
+  ]);
+  tray.setContextMenu(menu);
+  tray.on("double-click", showWindow);
 }
 
 /* 설정 화면 IPC */
@@ -137,19 +172,26 @@ ipcMain.handle("ve:save", async (_e, url) => {
   return true;
 });
 
+// 단일 인스턴스 — 두 번째 실행 시 기존 창을 띄운다
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", showWindow);
+}
+
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
+  setupTray();
   createWindow();
   await connect();
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-      void connect();
-    }
-  });
+  // 글로벌 단축키 — 어디서든 Ctrl+Shift+V 로 창을 띄운다
+  globalShortcut.register("CommandOrControl+Shift+V", showWindow);
+  app.on("activate", showWindow);
 });
 
-app.on("window-all-closed", () => app.quit());
+app.on("will-quit", () => globalShortcut.unregisterAll());
+app.on("before-quit", () => { quitting = true; });
+// 트레이 상주 — 모든 창을 닫아도 종료하지 않는다 (트레이 메뉴 종료로만)
 app.on("quit", () => {
   if (serverChild && !serverChild.killed) {
     try {
