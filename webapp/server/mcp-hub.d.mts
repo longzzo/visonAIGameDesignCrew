@@ -7,3 +7,5 @@ export function assignmentsByServer(): Record<string, string[]>;
 export function callTool(server: string, name: string, args: unknown): Promise<{ isError: boolean; text: string }>;
 export function reconnect(): Promise<unknown[]>;
 export function isStarted(): boolean;
+export function readUnityDir(): string | null;
+export function setUnityDir(dir: string): { dir: string; exists: boolean };

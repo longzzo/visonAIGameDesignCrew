@@ -10,6 +10,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..", "..");
 const MCP_CONFIG = path.join(REPO, "config", "mcp.json");
+const UNITY_CONFIG = path.join(REPO, "config", "unity.local.json"); // 사용자별, gitignore
 const PROJECTS_DIR = path.join(REPO, "workspace", "projects");
 
 /** id → { def, status, client, transport, tools, error } */
@@ -22,6 +23,47 @@ function readConfig() {
   } catch {
     return { servers: [] };
   }
+}
+
+/** 등록된 유니티 프로젝트 경로 (없으면 null) */
+export function readUnityDir() {
+  try {
+    const d = JSON.parse(fs.readFileSync(UNITY_CONFIG, "utf-8"));
+    return d.dir && fs.existsSync(d.dir) ? d.dir : d.dir || null;
+  } catch {
+    return process.env.VE_UNITY_DIR || null;
+  }
+}
+
+/** 유니티 프로젝트 경로 저장 (빈 값이면 해제) */
+export function setUnityDir(dir) {
+  const d = String(dir ?? "").trim();
+  fs.mkdirSync(path.dirname(UNITY_CONFIG), { recursive: true });
+  fs.writeFileSync(UNITY_CONFIG, JSON.stringify({ dir: d }, null, 2), "utf-8");
+  return { dir: d, exists: d ? fs.existsSync(d) : false };
+}
+
+/** 유니티 프로젝트가 등록되면 자동 합성되는 파일시스템 서버 def */
+function unityServerDef() {
+  const dir = readUnityDir();
+  if (!dir) return null;
+  return {
+    id: "unity-project",
+    label: "유니티 프로젝트 (등록됨)",
+    enabled: true,
+    command: "npx",
+    args: ["-y", "@modelcontextprotocol/server-filesystem", dir],
+    synthesized: true,
+  };
+}
+
+/** mcp.json 서버 + (등록 시) 합성 유니티 서버 */
+function effectiveServers() {
+  const cfg = readConfig();
+  const list = [...(cfg.servers ?? [])];
+  const u = unityServerDef();
+  if (u && !list.some((s) => s.id === u.id)) list.push(u);
+  return list;
 }
 
 /** {{KIT}}/{{REPO}}/{{UNITY}} 치환 */
@@ -91,11 +133,12 @@ async function connectOne(def, ctx) {
 export async function startHub() {
   started = true;
   const cfg = readConfig();
-  const ctx = { kit: defaultKit(), unity: process.env.VE_UNITY_DIR || cfg.unityDir || REPO };
-  const enabled = (cfg.servers ?? []).filter((s) => s.enabled);
+  const servers = effectiveServers();
+  const ctx = { kit: defaultKit(), unity: readUnityDir() || cfg.unityDir || REPO };
+  const enabled = servers.filter((s) => s.enabled);
   await Promise.all(enabled.map((def) => connectOne(def, ctx)));
   // 비활성 서버도 목록엔 노출 (UI에서 상태 표시)
-  for (const def of cfg.servers ?? []) {
+  for (const def of servers) {
     if (!def.enabled && !conns.has(def.id)) {
       conns.set(def.id, { def, status: "disabled", tools: [], error: null, client: null });
     }
@@ -104,11 +147,11 @@ export async function startHub() {
 }
 
 export function statusList() {
-  const cfg = readConfig();
-  const known = new Set((cfg.servers ?? []).map((s) => s.id));
+  const servers = effectiveServers();
+  const known = new Set(servers.map((s) => s.id));
   // config에서 사라진 연결은 정리
   for (const id of [...conns.keys()]) if (!known.has(id)) conns.delete(id);
-  return (cfg.servers ?? []).map((def) => {
+  return servers.map((def) => {
     const rec = conns.get(def.id);
     return {
       id: def.id,

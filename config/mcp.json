@@ -43,14 +43,14 @@
     }
   ],
   "assignments": {
-    "_note": "에이전트 id → 허용 MCP 서버 id 목록. 여기 없는 에이전트는 모든 ready 서버를 쓴다.",
-    "uarch": ["filesystem", "unity-coplay"],
-    "ugp": ["filesystem", "unity-coplay"],
-    "netcode": ["filesystem", "unity-coplay"],
-    "techart": ["filesystem", "unity-coplay"],
-    "edtool": ["filesystem", "unity-coplay"],
-    "td": ["filesystem", "unity-ankle"],
-    "review": ["filesystem", "unity-hunt"],
-    "testeng": ["filesystem", "unity-hunt"]
+    "_note": "에이전트 id → 허용 MCP 서버 id 목록. 여기 없는 에이전트는 모든 ready 서버를 쓴다. unity-project = 등록한 기존 유니티 프로젝트 파일시스템(리뷰용).",
+    "uarch": ["filesystem", "unity-project", "unity-coplay"],
+    "ugp": ["filesystem", "unity-project", "unity-coplay"],
+    "netcode": ["filesystem", "unity-project", "unity-coplay"],
+    "techart": ["filesystem", "unity-project", "unity-coplay"],
+    "edtool": ["filesystem", "unity-project", "unity-coplay"],
+    "td": ["filesystem", "unity-project", "unity-ankle"],
+    "review": ["filesystem", "unity-project", "unity-hunt"],
+    "testeng": ["filesystem", "unity-project", "unity-hunt"]
   }
 }

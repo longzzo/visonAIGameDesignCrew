@@ -9,12 +9,22 @@ import { notify } from "../lib/notify";
  * OpenClaw 브리지가 아니라 다이렉트 프로바이더(NVIDIA)로 함수호출 루프를 돌며
  * MCP 도구(파일 읽기/쓰기 등)로 진짜 프로젝트 파일에 관여한다.
  */
-export function DevTaskPanel({ agentId, onClose }: { agentId: string; onClose: () => void }) {
+export function DevTaskPanel({
+  agentId,
+  onClose,
+  initialTask,
+  autoMeeting,
+}: {
+  agentId: string;
+  onClose: () => void;
+  initialTask?: string;
+  autoMeeting?: boolean;
+}) {
   const a = AGENT_MAP[agentId];
-  const [task, setTask] = useState("");
+  const [task, setTask] = useState(initialTask ?? "");
   const [steps, setSteps] = useState<DevStep[]>([]);
   const [running, setRunning] = useState(false);
-  const [meetingMode, setMeetingMode] = useState(false);
+  const [meetingMode, setMeetingMode] = useState(!!autoMeeting);
   const [toolCount, setToolCount] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 

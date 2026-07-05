@@ -389,6 +389,20 @@ export function OfficeView() {
   const [studioOpen, setStudioOpen] = useState(false);
   const [protoStudioOpen, setProtoStudioOpen] = useState(false);
   const [devTaskAgent, setDevTaskAgent] = useState<string | null>(null);
+  const [devTaskInit, setDevTaskInit] = useState<{ task?: string; meeting?: boolean }>({});
+  const openDevTask = (id: string) => {
+    setDevTaskInit({});
+    setDevTaskAgent(id);
+  };
+  const startUnityReview = () => {
+    setDevTaskInit({
+      task:
+        "unity-project 도구로 등록된 기존 유니티 프로젝트를 훑어봐라. Assets/Scripts 위주로 주요 스크립트를 읽고, " +
+        "아키텍처·코드 품질·성능·구조 관점에서 보완점을 찾아 우선순위와 함께 정리해라. 파일을 직접 읽어 근거를 대라.",
+      meeting: true,
+    });
+    setDevTaskAgent("td");
+  };
   const [floor, setFloor] = useState<"plan" | "dev" | "meeting">(() => {
     try {
       const f = localStorage.getItem("ve-office-floor");
@@ -406,7 +420,10 @@ export function OfficeView() {
     }
     setFloor(f);
   };
-  const openMeeting = (id: string) => setDevTaskAgent(id); // 인턴 검증 회의 = 개발 작업 패널(회의 모드)
+  const openMeeting = (id: string) => {
+    setDevTaskInit({ meeting: true });
+    setDevTaskAgent(id);
+  }; // 인턴 검증 회의 = 개발 작업 패널(회의 모드)
   const [mode3d, setMode3d] = useState<boolean>(() => {
     try {
       return localStorage.getItem("ve-office-mode") === "3d";
@@ -582,18 +599,23 @@ export function OfficeView() {
 
         {floor === "dev" && (
           <div className="office-depts">
+            <div className="dev-toolbar">
+              <button className="btn small" onClick={startUnityReview} title="등록한 기존 유니티 프로젝트를 개발팀이 직접 읽고 리뷰·보완점을 뽑습니다 (MCP 🔌에서 프로젝트 경로 등록)">
+                🎮 유니티 프로젝트 리뷰
+              </button>
+            </div>
             <Dept title="🛠️ 선임 개발실" hint="아키텍처 + 개발 인턴" accent="#38bdf8">
-              <Desk agentId="td" onDevTask={setDevTaskAgent} />
+              <Desk agentId="td" onDevTask={openDevTask} />
               <DevInternDesk onOpen={() => setProtoStudioOpen(true)} />
             </Dept>
             <Dept title="💻 구현 파트 — 2인 1조로 서로 검증" hint="각 개발자에 인턴 페어" accent="#a78bfa">
               {["uarch", "ugp", "netcode", "techart", "edtool"].map((id) => (
-                <CodeDevPair key={id} agentId={id} onTask={setDevTaskAgent} onMeeting={openMeeting} />
+                <CodeDevPair key={id} agentId={id} onTask={openDevTask} onMeeting={openMeeting} />
               ))}
             </Dept>
             <Dept title="🔍 검증 파트" hint="코드 리뷰 · 테스트" accent="#f43f5e">
               {["review", "testeng"].map((id) => (
-                <Desk key={id} agentId={id} onDevTask={setDevTaskAgent} />
+                <Desk key={id} agentId={id} onDevTask={openDevTask} />
               ))}
             </Dept>
           </div>
@@ -626,7 +648,17 @@ export function OfficeView() {
       {docViewer && <DocViewer tab={docViewer} onTab={setDocViewer} onClose={() => setDocViewer(null)} />}
       {studioOpen && <ArtStudio onClose={() => setStudioOpen(false)} />}
       {protoStudioOpen && <PrototypeStudio onClose={() => setProtoStudioOpen(false)} />}
-      {devTaskAgent && <DevTaskPanel agentId={devTaskAgent} onClose={() => setDevTaskAgent(null)} />}
+      {devTaskAgent && (
+        <DevTaskPanel
+          agentId={devTaskAgent}
+          initialTask={devTaskInit.task}
+          autoMeeting={devTaskInit.meeting}
+          onClose={() => {
+            setDevTaskAgent(null);
+            setDevTaskInit({});
+          }}
+        />
+      )}
     </section>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchMcp, reconnectMcp, callMcpTool, type McpServerStatus } from "../lib/mcp";
+import { fetchMcp, reconnectMcp, callMcpTool, getUnityDir, saveUnityDir, type McpServerStatus } from "../lib/mcp";
 
 /**
  * MCP 허브 패널 — config/mcp.json에 등록된 도구 서버의 연결 상태와 도구 목록을 보여주고,
@@ -16,13 +16,32 @@ export function McpPanel({ onClose }: { onClose: () => void }) {
   const [argText, setArgText] = useState("{}");
   const [result, setResult] = useState<string>("");
   const [running, setRunning] = useState(false);
+  const [unityDir, setUnityDir] = useState("");
+  const [unitySaved, setUnitySaved] = useState<string | null>(null);
+  const [unityBusy, setUnityBusy] = useState(false);
 
   const load = async () => {
     setBusy(true);
     const { servers, assignments } = await fetchMcp();
     setServers(servers);
     setAssignments(assignments ?? {});
+    const ud = await getUnityDir();
+    setUnitySaved(ud);
+    setUnityDir(ud ?? "");
     setBusy(false);
+  };
+
+  const connectUnity = async () => {
+    setUnityBusy(true);
+    try {
+      const { dir, exists } = await saveUnityDir(unityDir.trim());
+      setUnitySaved(dir || null);
+      if (dir && !exists) alert("경로를 저장했지만 폴더가 존재하지 않습니다. 경로를 확인하세요.");
+      await load();
+    } catch (e: any) {
+      alert("저장 실패: " + String(e?.message ?? e));
+    }
+    setUnityBusy(false);
   };
   useEffect(() => {
     void load();
@@ -78,6 +97,26 @@ export function McpPanel({ onClose }: { onClose: () => void }) {
               ✕ 닫기
             </button>
           </div>
+        </div>
+
+        <div className="mcp-unity">
+          <div className="mcp-unity-title">🎮 기존 유니티 프로젝트 리뷰</div>
+          <div className="mcp-unity-desc dim">
+            이미 진행 중이거나 완성된 유니티 프로젝트의 폴더 경로를 등록하면, 개발팀이 실제 파일을 읽고 리뷰·보완점을 뽑습니다.
+            등록 후 사무실 <b>2F 개발팀 → 🎮 유니티 프로젝트 리뷰</b>에서 시작하세요.
+          </div>
+          <div className="mcp-unity-row">
+            <input
+              value={unityDir}
+              onChange={(e) => setUnityDir(e.target.value)}
+              placeholder="예: D:\MyGame  (유니티 프로젝트 루트 — Assets 폴더가 있는 곳)"
+              spellCheck={false}
+            />
+            <button className="btn small primary" onClick={() => void connectUnity()} disabled={unityBusy}>
+              {unityBusy ? "연결 중…" : unitySaved ? "변경" : "연결"}
+            </button>
+          </div>
+          {unitySaved && <div className="mcp-unity-ok">🟢 연결됨: {unitySaved}</div>}
         </div>
 
         <div className="mcp-body">

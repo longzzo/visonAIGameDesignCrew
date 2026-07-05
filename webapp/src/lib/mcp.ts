@@ -37,6 +37,27 @@ export async function reconnectMcp(): Promise<McpServerStatus[]> {
   return j.servers as McpServerStatus[];
 }
 
+export async function getUnityDir(): Promise<string | null> {
+  try {
+    const r = await fetch("/api/mcp/unity");
+    if (!r.ok) return null;
+    return (await r.json()).dir ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveUnityDir(dir: string): Promise<{ dir: string; exists: boolean }> {
+  const r = await fetch("/api/mcp/unity", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dir }),
+  });
+  const j = await r.json();
+  if (!r.ok || !j.ok) throw new Error(j.error || "유니티 경로 저장 실패");
+  return { dir: j.dir, exists: j.exists };
+}
+
 export async function callMcpTool(server: string, name: string, args: Record<string, unknown>): Promise<{ isError: boolean; text: string }> {
   const r = await fetch("/api/mcp/call", {
     method: "POST",
