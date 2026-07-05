@@ -1,30 +1,56 @@
 {
-  "_note": "MCP(Model Context Protocol) 서버 등록. 여기 추가한 stdio 서버를 앱이 spawn·연결해 도구를 에이전트에게 노출한다. enabled:false면 건너뜀. {{KIT}}는 현재 프로젝트의 kit 폴더로 치환된다(파일시스템 서버용). 키가 필요한 서버는 env에 넣되 커밋 금지.",
+  "_note": "MCP 서버 등록 + 에이전트별 배정. enabled:false면 건너뜀. {{KIT}}=현재 프로젝트 kit 폴더, {{UNITY}}=등록한 유니티 프로젝트 경로. 유니티 서버들은 각 저장소의 에디터 패키지 설치 + 유니티 프로젝트가 열려 있어야 동작한다(그래서 기본 disabled). command는 각 저장소 안내대로 채워 넣을 것. assignments = 에이전트가 쓸 수 있는 서버 id 목록(없으면 전체 허용).",
   "servers": [
     {
       "id": "filesystem",
       "label": "파일시스템 (개발 킷)",
       "enabled": false,
       "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-filesystem",
-        "{{KIT}}"
-      ],
-      "note": "개발팀이 kit/ 폴더의 파일을 읽고 쓸 수 있게 한다. 활성화하려면 enabled:true."
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "{{KIT}}"],
+      "note": "개발팀 공용 — kit/ 폴더 파일 읽기/쓰기."
     },
     {
       "id": "git",
       "label": "Git",
       "enabled": false,
       "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-git",
-        "--repository",
-        "{{KIT}}"
-      ],
-      "note": "커밋·로그·diff 등 git 작업."
+      "args": ["-y", "@modelcontextprotocol/server-git", "--repository", "{{KIT}}"],
+      "note": "커밋·로그·diff."
+    },
+    {
+      "id": "unity-coplay",
+      "label": "Unity — CoplayDev (개발 구현팀)",
+      "enabled": false,
+      "command": "uvx",
+      "args": ["mcp-for-unity"],
+      "note": "CoplayDev/unity-mcp (47도구, MIT). 에셋·씬·스크립트·테스트. Unity에 'MCP for Unity' 패키지 설치 + 프로젝트 열림 필요. 명령은 저장소 안내대로 조정."
+    },
+    {
+      "id": "unity-ankle",
+      "label": "Unity — AnkleBreaker (선임 개발)",
+      "enabled": false,
+      "command": "node",
+      "args": ["{{UNITY}}/unity-mcp-server/dist/index.js"],
+      "note": "AnkleBreaker-Studio/unity-mcp-server (288도구). Shader Graph·NavMesh·물리·빌드·프로파일링. 에디터 패키지 + 서버 빌드 필요. 경로는 설치 위치에 맞게 조정."
+    },
+    {
+      "id": "unity-hunt",
+      "label": "Unity — HuntNight advanced (QA팀)",
+      "enabled": false,
+      "command": "node",
+      "args": ["{{UNITY}}/unity-mcp-advanced/server/index.js"],
+      "note": "HuntNight/unity-mcp-advanced. 스크린샷·플레이모드 제어·C# 실행·씬 분석. QA 검증용. 에디터 브리지 + 서버 필요."
     }
-  ]
+  ],
+  "assignments": {
+    "_note": "에이전트 id → 허용 MCP 서버 id 목록. 여기 없는 에이전트는 모든 ready 서버를 쓴다.",
+    "uarch": ["filesystem", "unity-coplay"],
+    "ugp": ["filesystem", "unity-coplay"],
+    "netcode": ["filesystem", "unity-coplay"],
+    "techart": ["filesystem", "unity-coplay"],
+    "edtool": ["filesystem", "unity-coplay"],
+    "td": ["filesystem", "unity-ankle"],
+    "review": ["filesystem", "unity-hunt"],
+    "testeng": ["filesystem", "unity-hunt"]
+  }
 }

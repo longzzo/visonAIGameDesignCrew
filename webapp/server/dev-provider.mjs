@@ -29,9 +29,11 @@ function personaOf(agentId) {
   }
 }
 
-/** MCP 도구 → OpenAI function 포맷. 이름은 server__tool 로 네임스페이스 */
-function toolsForOpenAI() {
-  return hub.allTools().map((t) => ({
+/** MCP 도구 → OpenAI function 포맷. 이름은 server__tool 로 네임스페이스.
+ *  agentId가 있으면 그 에이전트에 배정된 서버의 도구만 (팀별 유니티 MCP 분리). */
+function toolsForOpenAI(agentId) {
+  const tools = agentId ? hub.toolsForAgent(agentId) : hub.allTools();
+  return tools.map((t) => ({
     type: "function",
     function: {
       name: `${t.server}__${t.name}`,
@@ -82,7 +84,7 @@ export async function runDevTask({ agentId, task, model, maxSteps = 8, onStep })
   const modelId = String(useModel).replace(/^nvidia\//, "");
 
   if (!hub.isStarted()) await hub.startHub();
-  const tools = toolsForOpenAI();
+  const tools = toolsForOpenAI(agentId);
 
   const transcript = [];
   const push = (step) => {

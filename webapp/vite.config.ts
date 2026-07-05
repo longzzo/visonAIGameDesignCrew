@@ -2108,7 +2108,7 @@ function mcpApiPlugin(): Plugin {
             const sub = url.pathname.replace(/\/+$/, "");
             if (req.method === "GET") {
               if (!h.isStarted()) await h.startHub();
-              res.end(JSON.stringify({ servers: h.statusList(), tools: h.allTools() }));
+              res.end(JSON.stringify({ servers: h.statusList(), tools: h.allTools(), assignments: h.assignmentsByServer() }));
               return;
             }
             if (sub === "/reconnect" && req.method === "POST") {

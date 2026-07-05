@@ -20,7 +20,7 @@ export interface McpFlatTool {
   inputSchema?: unknown;
 }
 
-export async function fetchMcp(): Promise<{ servers: McpServerStatus[]; tools: McpFlatTool[] }> {
+export async function fetchMcp(): Promise<{ servers: McpServerStatus[]; tools: McpFlatTool[]; assignments?: Record<string, string[]> }> {
   try {
     const r = await fetch("/api/mcp");
     if (!r.ok) return { servers: [], tools: [] };

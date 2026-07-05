@@ -5,8 +5,11 @@ import { fetchMcp, reconnectMcp, callMcpTool, type McpServerStatus } from "../li
  * MCP 허브 패널 — config/mcp.json에 등록된 도구 서버의 연결 상태와 도구 목록을 보여주고,
  * 도구를 직접 실행해볼 수 있다 (개발팀 에이전트가 v2.1b부터 이 도구들을 함수호출로 사용).
  */
+import { AGENT_MAP } from "../lib/agents";
+
 export function McpPanel({ onClose }: { onClose: () => void }) {
   const [servers, setServers] = useState<McpServerStatus[]>([]);
+  const [assignments, setAssignments] = useState<Record<string, string[]>>({});
   const [busy, setBusy] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [tryTool, setTryTool] = useState<{ server: string; name: string } | null>(null);
@@ -16,8 +19,9 @@ export function McpPanel({ onClose }: { onClose: () => void }) {
 
   const load = async () => {
     setBusy(true);
-    const { servers } = await fetchMcp();
+    const { servers, assignments } = await fetchMcp();
     setServers(servers);
+    setAssignments(assignments ?? {});
     setBusy(false);
   };
   useEffect(() => {
@@ -98,6 +102,16 @@ export function McpPanel({ onClose }: { onClose: () => void }) {
                 </span>
                 {s.tools.length > 0 && <span className="mcp-caret">{expanded === s.id ? "▾" : "▸"}</span>}
               </div>
+              {assignments[s.id]?.length > 0 && (
+                <div className="mcp-assign">
+                  담당:{" "}
+                  {assignments[s.id].map((aid) => (
+                    <span key={aid} className="mcp-assign-tag">
+                      {AGENT_MAP[aid]?.emoji} {AGENT_MAP[aid]?.name ?? aid}
+                    </span>
+                  ))}
+                </div>
+              )}
               {s.error && <div className="mcp-error">{s.error}</div>}
               {expanded === s.id &&
                 s.tools.map((t) => (

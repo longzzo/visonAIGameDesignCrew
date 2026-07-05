@@ -24,10 +24,13 @@ function readConfig() {
   }
 }
 
-/** {{KIT}}/{{REPO}} 치환 — 현재는 프로젝트 무관 공용 kit 경로가 없으므로 REPO 기준 */
+/** {{KIT}}/{{REPO}}/{{UNITY}} 치환 */
 function resolveArgs(args, ctx) {
   return (args ?? []).map((a) =>
-    String(a).replace(/\{\{KIT\}\}/g, ctx.kit).replace(/\{\{REPO\}\}/g, REPO)
+    String(a)
+      .replace(/\{\{KIT\}\}/g, ctx.kit)
+      .replace(/\{\{REPO\}\}/g, REPO)
+      .replace(/\{\{UNITY\}\}/g, ctx.unity)
   );
 }
 
@@ -88,7 +91,7 @@ async function connectOne(def, ctx) {
 export async function startHub() {
   started = true;
   const cfg = readConfig();
-  const ctx = { kit: defaultKit() };
+  const ctx = { kit: defaultKit(), unity: process.env.VE_UNITY_DIR || cfg.unityDir || REPO };
   const enabled = (cfg.servers ?? []).filter((s) => s.enabled);
   await Promise.all(enabled.map((def) => connectOne(def, ctx)));
   // 비활성 서버도 목록엔 노출 (UI에서 상태 표시)
@@ -128,6 +131,32 @@ export function allTools() {
     }
   }
   return out;
+}
+
+/** 특정 에이전트에게 허용된 서버 id 집합 (assignments 없으면 전체 허용) */
+export function serversForAgent(agentId) {
+  const cfg = readConfig();
+  const a = cfg.assignments && cfg.assignments[agentId];
+  if (!Array.isArray(a)) return null; // 전체 허용
+  return new Set(a);
+}
+
+/** 에이전트별 도구 목록 — assignments에 배정된 서버의 도구만 (없으면 allTools) */
+export function toolsForAgent(agentId) {
+  const allow = serversForAgent(agentId);
+  if (!allow) return allTools();
+  return allTools().filter((t) => allow.has(t.server));
+}
+
+/** UI용 — 각 서버가 어느 에이전트에 배정됐는지 역맵 */
+export function assignmentsByServer() {
+  const cfg = readConfig();
+  const map = {};
+  for (const [agent, servers] of Object.entries(cfg.assignments ?? {})) {
+    if (agent.startsWith("_") || !Array.isArray(servers)) continue;
+    for (const s of servers) (map[s] ??= []).push(agent);
+  }
+  return map;
 }
 
 export async function callTool(server, name, args) {
