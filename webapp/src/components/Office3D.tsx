@@ -106,6 +106,11 @@ function Cat({ id, targetsRef }: { id: string; targetsRef: React.MutableRefObjec
   const c = a?.color ?? "#8b7cf6";
   return (
     <group ref={ref} position={home}>
+      {/* 블롭 섀도 (실시간 그림자 대신 — 저사양에서도 60fps) */}
+      <mesh position={[0, 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[0.3, 14]} />
+        <meshBasicMaterial color="#000000" transparent opacity={0.32} />
+      </mesh>
       {/* 몸통 */}
       <mesh castShadow position={[0, 0.34, 0]}>
         <capsuleGeometry args={[0.22, 0.3, 6, 12]} />
@@ -134,6 +139,11 @@ function Cat({ id, targetsRef }: { id: string; targetsRef: React.MutableRefObjec
         <sphereGeometry args={[0.035, 8, 8]} />
         <meshStandardMaterial color="#1a1d24" />
       </mesh>
+      {/* 꼬리 */}
+      <mesh castShadow position={[0, 0.28, -0.26]} rotation={[0.9, 0, 0]}>
+        <coneGeometry args={[0.06, 0.34, 8]} />
+        <meshStandardMaterial color={c} />
+      </mesh>
       {/* 이름표 + 상태 */}
       <Html center position={[0, 1.5, 0]} distanceFactor={11} zIndexRange={[10, 0]}>
         <div className="o3d-label" style={{ borderColor: c }}>
@@ -152,7 +162,7 @@ function Cat({ id, targetsRef }: { id: string; targetsRef: React.MutableRefObjec
 }
 
 /* ── 소품 ───────────────────────────────────────────── */
-function Desk({ pos, big }: { pos: V3; big?: boolean }) {
+function Desk({ pos, big, seed }: { pos: V3; big?: boolean; seed: number }) {
   const w = big ? 2.1 : 1.5;
   return (
     <group position={pos}>
@@ -175,6 +185,186 @@ function Desk({ pos, big }: { pos: V3; big?: boolean }) {
         <boxGeometry args={[0.08, 0.1, 0.04]} />
         <meshStandardMaterial color="#333a45" />
       </mesh>
+      {/* 책상 소품 — 자리마다 다른 조합 (커피잔 / 서류 / 스탠드) */}
+      {seed % 3 !== 0 && (
+        <group position={[w * 0.32, 0.5, -0.12]}>
+          <mesh castShadow>
+            <cylinderGeometry args={[0.055, 0.045, 0.09, 10]} />
+            <meshStandardMaterial color={seed % 2 ? "#d9822b" : "#e8e2d6"} />
+          </mesh>
+        </group>
+      )}
+      {seed % 2 === 0 && (
+        <mesh castShadow position={[-w * 0.3, 0.475, -0.05]} rotation={[0, (seed % 7) * 0.2, 0]}>
+          <boxGeometry args={[0.26, 0.015, 0.34]} />
+          <meshStandardMaterial color="#e6e9ee" />
+        </mesh>
+      )}
+      {seed % 4 === 1 && (
+        <group position={[-w * 0.38, 0.6, 0.1]}>
+          <mesh castShadow>
+            <cylinderGeometry args={[0.02, 0.02, 0.26, 6]} />
+            <meshStandardMaterial color="#666f7c" />
+          </mesh>
+          <mesh position={[0.06, 0.12, 0]}>
+            <sphereGeometry args={[0.05, 8, 8]} />
+            <meshStandardMaterial color="#ffe9a8" emissive="#ffdd77" emissiveIntensity={0.9} />
+          </mesh>
+        </group>
+      )}
+    </group>
+  );
+}
+
+/** 화분 */
+function Plant({ pos, s = 1 }: { pos: V3; s?: number }) {
+  return (
+    <group position={pos} scale={s}>
+      <mesh castShadow position={[0, 0.22, 0]}>
+        <cylinderGeometry args={[0.22, 0.28, 0.44, 10]} />
+        <meshStandardMaterial color="#8a5535" />
+      </mesh>
+      <mesh castShadow position={[0, 0.62, 0]}>
+        <sphereGeometry args={[0.34, 12, 10]} />
+        <meshStandardMaterial color="#3f7d4e" />
+      </mesh>
+      <mesh castShadow position={[0.14, 0.86, 0.06]}>
+        <sphereGeometry args={[0.2, 10, 8]} />
+        <meshStandardMaterial color="#4d9660" />
+      </mesh>
+    </group>
+  );
+}
+
+/** 벽시계 — +z를 바라보는 평면 구성, 실제 시간으로 바늘이 돈다 */
+function WallClock({ pos }: { pos: V3 }) {
+  const hour = useRef<Group>(null);
+  const min = useRef<Group>(null);
+  useFrame(() => {
+    const d = new Date();
+    const m = d.getMinutes() + d.getSeconds() / 60;
+    const h = (d.getHours() % 12) + m / 60;
+    if (min.current) min.current.rotation.z = -(m / 60) * Math.PI * 2;
+    if (hour.current) hour.current.rotation.z = -(h / 12) * Math.PI * 2;
+  });
+  return (
+    <group position={pos}>
+      <mesh>
+        <circleGeometry args={[0.5, 24]} />
+        <meshStandardMaterial color="#e8e6df" />
+      </mesh>
+      <mesh position={[0, 0, 0.01]}>
+        <torusGeometry args={[0.5, 0.05, 8, 24]} />
+        <meshStandardMaterial color="#3b4252" />
+      </mesh>
+      <group ref={hour} position={[0, 0, 0.02]}>
+        <mesh position={[0, 0.13, 0]}>
+          <boxGeometry args={[0.05, 0.26, 0.02]} />
+          <meshStandardMaterial color="#2b303b" />
+        </mesh>
+      </group>
+      <group ref={min} position={[0, 0, 0.03]}>
+        <mesh position={[0, 0.19, 0]}>
+          <boxGeometry args={[0.03, 0.38, 0.02]} />
+          <meshStandardMaterial color="#2b303b" />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
+/** 사무실 데코 — 벽·야경 창문·책장·GDD 보드·화분 */
+function Decor() {
+  const bookColors = ["#e05a5a", "#3d6fb4", "#3ba55d", "#d9822b", "#8b7cf6", "#e879f9", "#fbbf24", "#38bdf8"];
+  return (
+    <group>
+      {/* 뒷벽 */}
+      <mesh receiveShadow position={[0, 2.2, -8.3]}>
+        <boxGeometry args={[31, 4.6, 0.3]} />
+        <meshStandardMaterial color="#242a38" />
+      </mesh>
+      {/* 야경 창문 3개 + 달 */}
+      {[-8.5, -1.5, 9.5].map((x, i) => (
+        <group key={x} position={[x, 2.35, -8.12]}>
+          <mesh>
+            <boxGeometry args={[3.6, 2.3, 0.06]} />
+            <meshStandardMaterial color="#151c30" emissive="#1d2a4d" emissiveIntensity={0.65} />
+          </mesh>
+          {/* 창틀 */}
+          <mesh position={[0, 0, 0.04]}>
+            <boxGeometry args={[3.7, 0.09, 0.05]} />
+            <meshStandardMaterial color="#3a4356" />
+          </mesh>
+          <mesh position={[0, 0, 0.04]} rotation={[0, 0, Math.PI / 2]}>
+            <boxGeometry args={[2.4, 0.09, 0.05]} />
+            <meshStandardMaterial color="#3a4356" />
+          </mesh>
+          {i === 1 && (
+            <mesh position={[0.9, 0.55, 0.02]}>
+              <circleGeometry args={[0.34, 20]} />
+              <meshStandardMaterial color="#f2ecd8" emissive="#efe6c2" emissiveIntensity={1.2} />
+            </mesh>
+          )}
+          {/* 먼 도시 불빛 */}
+          {Array.from({ length: 7 }, (_, k) => (
+            <mesh key={k} position={[-1.4 + k * 0.45, -0.55 - (k % 3) * 0.14, 0.02]}>
+              <planeGeometry args={[0.1, 0.28 + (k % 2) * 0.16]} />
+              <meshStandardMaterial color="#2c3a5e" emissive="#4a5f96" emissiveIntensity={0.8} />
+            </mesh>
+          ))}
+        </group>
+      ))}
+      {/* 마스터 GDD 보드 */}
+      <group position={[4.6, 2.2, -8.1]}>
+        <mesh>
+          <boxGeometry args={[2.9, 1.7, 0.08]} />
+          <meshStandardMaterial color="#f0efe9" />
+        </mesh>
+        <mesh position={[0, 0, -0.01]}>
+          <boxGeometry args={[3.05, 1.85, 0.06]} />
+          <meshStandardMaterial color="#5b4636" />
+        </mesh>
+        {[0.45, 0.15, -0.15, -0.45].map((y, k) => (
+          <mesh key={y} position={[-0.25 + (k % 2) * 0.2, y, 0.05]}>
+            <planeGeometry args={[1.8 - (k % 3) * 0.4, 0.09]} />
+            <meshStandardMaterial color={k === 0 ? "#3b4252" : "#9aa5b1"} />
+          </mesh>
+        ))}
+        <Html center position={[0, 1.15, 0]} distanceFactor={13}>
+          <div className="o3d-room-label">📋 마스터 GDD 보드</div>
+        </Html>
+      </group>
+      {/* 벽시계 */}
+      <WallClock pos={[-4.8, 3.3, -8.1]} />
+      {/* 책장 */}
+      <group position={[-12.6, 0, -7.5]}>
+        <mesh castShadow position={[0, 1.15, 0]}>
+          <boxGeometry args={[2.4, 2.3, 0.6]} />
+          <meshStandardMaterial color="#4a3a2d" />
+        </mesh>
+        {[1.86, 1.28, 0.7].map((y, row) => (
+          <group key={y}>
+            <mesh position={[0, y - 0.32, 0.02]}>
+              <boxGeometry args={[2.2, 0.05, 0.55]} />
+              <meshStandardMaterial color="#5b4636" />
+            </mesh>
+            {Array.from({ length: 6 }, (_, k) => (
+              <mesh key={k} castShadow position={[-0.85 + k * 0.34, y, 0.1]}>
+                <boxGeometry args={[0.16, 0.46 - (k % 2) * 0.07, 0.34]} />
+                <meshStandardMaterial color={bookColors[(row * 3 + k) % bookColors.length]} />
+              </mesh>
+            ))}
+          </group>
+        ))}
+      </group>
+      {/* 화분들 */}
+      <Plant pos={[-12.8, 0, 5.6]} s={1.25} />
+      <Plant pos={[13, 0, -7.3]} s={1.1} />
+      <Plant pos={[13.2, 0, 5.8]} />
+      <Plant pos={[-7.9, 0, -6.1]} s={0.8} />
+      {/* 은은한 보조광 */}
+      <pointLight position={[8.6, 3.4, 0.2]} intensity={14} color="#b9a6ff" distance={9} />
+      <pointLight position={[-8, 3.2, -5]} intensity={10} color="#ffd9a0" distance={9} />
     </group>
   );
 }
@@ -238,8 +428,8 @@ function OfficeScene() {
 
   return (
     <>
-      <ambientLight intensity={0.65} />
-      <directionalLight position={[6, 12, 8]} intensity={1.1} castShadow shadow-mapSize={[1024, 1024]} />
+      <ambientLight intensity={0.7} />
+      <directionalLight position={[6, 12, 8]} intensity={1.05} />
       {/* 바닥 — 기획층 / 개발층 투톤 */}
       <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, -2.6]}>
         <planeGeometry args={[30, 9.6]} />
@@ -258,8 +448,14 @@ function OfficeScene() {
         <div className="o3d-room-label">🛠️ 개발팀 층</div>
       </Html>
 
+      <Decor />
       {AGENTS.map((a) => (
-        <Desk key={`desk-${a.id}`} pos={DESK_POS[a.id]} big={a.id === "pm"} />
+        <Desk
+          key={`desk-${a.id}`}
+          pos={DESK_POS[a.id]}
+          big={a.id === "pm"}
+          seed={[...a.id].reduce((s, ch) => s + ch.charCodeAt(0), 0)}
+        />
       ))}
       {AGENTS.map((a) => (
         <Cat key={a.id} id={a.id} targetsRef={targetsRef} />
@@ -280,7 +476,7 @@ function OfficeScene() {
 export function Office3D() {
   return (
     <div className="office3d-wrap">
-      <Canvas shadows dpr={[1, 1.75]} camera={{ position: [2.4, 11, 14.5], fov: 50 }}>
+      <Canvas dpr={[1, 1.5]} camera={{ position: [2.4, 11, 14.5], fov: 50 }}>
         <color attach="background" args={["#171b24"]} />
         <fog attach="fog" args={["#171b24", 26, 44]} />
         <OfficeScene />

@@ -5,9 +5,36 @@
   "description": "Vision Engine — 게임 개발 멀티에이전트 스튜디오 (데스크톱 셸)",
   "main": "main.cjs",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
   },
   "devDependencies": {
-    "electron": "^33.0.0"
+    "electron": "^33.0.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "app.visionengine.desktop",
+    "productName": "Vision Engine",
+    "directories": {
+      "output": "dist-installer"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "settings.html"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Vision Engine",
+      "artifactName": "VisionEngine-Setup-${version}.${ext}"
+    }
   }
 }

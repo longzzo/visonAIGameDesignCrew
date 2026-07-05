@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>Vision Engine — 서버 설정</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: #12151c; color: #e8ecf3;
+      font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+    }
+    .card {
+      width: min(520px, 92vw); background: #1a1f2a; border: 1px solid #2c3342;
+      border-radius: 16px; padding: 30px 32px;
+    }
+    h1 { font-size: 20px; margin: 0 0 6px; }
+    .sub { color: #8b94a5; font-size: 13px; line-height: 1.6; margin-bottom: 18px; }
+    .msg { background: #3a2530; border: 1px solid #7c3a4d; color: #f2b8c6; border-radius: 10px;
+           padding: 10px 12px; font-size: 12.5px; line-height: 1.55; margin-bottom: 16px; display: none; }
+    label { font-size: 12.5px; color: #aab3c2; display: block; margin-bottom: 6px; }
+    input {
+      width: 100%; padding: 11px 13px; border-radius: 10px; border: 1px solid #2c3342;
+      background: #12151c; color: #e8ecf3; font-size: 14px; outline: none;
+    }
+    input:focus { border-color: #8b7cf6; }
+    .row { display: flex; gap: 10px; margin-top: 16px; }
+    button {
+      flex: 1; padding: 11px 0; border-radius: 10px; border: 1px solid #2c3342;
+      background: #232a38; color: #e8ecf3; font-size: 14px; cursor: pointer;
+    }
+    button.primary { background: #6d5ef0; border-color: #6d5ef0; font-weight: 600; }
+    button:hover { filter: brightness(1.12); }
+    .status { min-height: 20px; margin-top: 12px; font-size: 12.5px; color: #8b94a5; }
+    .status.ok { color: #6fd08c; }
+    .status.bad { color: #f08c9c; }
+    .hint { margin-top: 16px; font-size: 11.5px; color: #6b7484; line-height: 1.7; }
+    code { background: #12151c; border-radius: 5px; padding: 1px 6px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🏢 Vision Engine 서버 연결</h1>
+    <div class="sub">이 컴퓨터에서 열 서버의 주소를 입력하세요. 서버 PC(노트북)에서 <code>VisionEngine-Start.bat</code>이 켜져 있어야 합니다.</div>
+    <div class="msg" id="msg"></div>
+    <label for="url">서버 주소</label>
+    <input id="url" placeholder="예: http://100.114.32.46:5199 (서버 PC의 Tailscale 주소)" spellcheck="false" />
+    <div class="row">
+      <button id="test">🔌 연결 테스트</button>
+      <button id="save" class="primary">저장하고 접속</button>
+    </div>
+    <div class="status" id="status"></div>
+    <div class="hint">
+      · 같은 PC에서 서버를 직접 돌릴 거면 비워두고 저장하세요 (자동으로 로컬 서버를 찾거나 띄웁니다)<br />
+      · 다른 PC 접속은 두 컴퓨터 모두 <b>Tailscale</b>에 로그인돼 있으면 가장 간단합니다<br />
+      · 서버 주소는 서버 PC 런처 창에 표시됩니다 (<code>http://100.x.x.x:5199</code>)
+    </div>
+  </div>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const params = new URLSearchParams(location.search);
+    if (params.get("msg")) {
+      $("msg").textContent = params.get("msg");
+      $("msg").style.display = "block";
+    }
+    window.veDesktop.getConfig().then((cfg) => {
+      if (cfg.serverUrl) $("url").value = cfg.serverUrl;
+    });
+    $("test").addEventListener("click", async () => {
+      const url = $("url").value.trim();
+      if (!url) { $("status").textContent = "주소를 입력하세요 (로컬 모드는 테스트 없이 저장)"; return; }
+      $("status").textContent = "테스트 중…";
+      $("status").className = "status";
+      const ok = await window.veDesktop.test(url);
+      $("status").textContent = ok ? "✅ 연결 성공 — 저장하고 접속하세요" : "❌ 연결 실패 — 주소·서버 상태·Tailscale을 확인하세요";
+      $("status").className = "status " + (ok ? "ok" : "bad");
+    });
+    $("save").addEventListener("click", () => {
+      $("status").textContent = "접속 중…";
+      window.veDesktop.save($("url").value.trim());
+    });
+    $("url").addEventListener("keydown", (e) => { if (e.key === "Enter") $("save").click(); });
+  </script>
+</body>
+</html>

@@ -132,6 +132,19 @@ cd ..
 
 사무실 → 아트 인턴 책상 클릭 → 설치 안내를 따라 **SD WebUI Forge** + DreamShaper 8 설치 (무료, RTX 8GB면 충분). 주소가 기본(`127.0.0.1:7860`)과 다르면 환경변수 `VE_SD_URL`로 지정.
 
+### 💻 데스크톱 앱 & 다른 PC에서 쓰기
+
+**이 PC(서버 노트북)에서 프로그램으로 쓰기**: `VisionEngine-Desktop.bat` 더블클릭 — 네이티브 창이 뜹니다. 서버가 없으면 알아서 켭니다.
+
+**다른 PC에 설치해서 쓰기** (서버는 노트북에 그대로 두고):
+1. 서버 PC에서 `VisionEngine-Start.bat` 실행 (Tailscale 주소로 서버가 열립니다 — 창에 주소 표시)
+2. 다른 PC에 `desktop/dist-installer/VisionEngine-Setup-2.0.0.exe`를 복사해 설치 (바탕화면 바로가기 생성)
+3. 첫 실행 시 서버 주소 입력: `http://100.x.x.x:5199` (서버 PC의 Tailscale 주소) → 🔌 연결 테스트 → 저장
+4. 두 PC 모두 [Tailscale](https://tailscale.com)에 같은 계정으로 로그인돼 있어야 합니다
+
+설치본 재생성: `cd desktop && npm run dist` → `desktop/dist-installer/`에 Setup exe가 나옵니다.
+연결이 끊기면 앱이 자동으로 서버 설정 화면을 띄워 안내합니다.
+
 ### 폰에서 쓰기
 
 PC와 폰에 [Tailscale](https://tailscale.com) 설치 + 같은 계정 로그인 → `VisionEngine-Start.bat` 실행 → 런처가 표시하는 `http://100.x.x.x:5199` 주소를 폰에서 열기. 폰에는 열람·실행만 주고 싶으면 환경변수 `VE_REMOTE_MODE=readonly`.
