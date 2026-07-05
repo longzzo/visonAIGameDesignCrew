@@ -11,6 +11,8 @@ export interface AgentDef {
   color: string;
   /** 지원 역할(GDD 섹션 없음) — 오케스트레이션 팬아웃·팀 리뷰 대상에서 제외 */
   staff?: boolean;
+  /** 작업 단계: plan(기획, 기본) | dev(개발). 개발팀은 GDD 섹션 대신 코드/산출물을 다룬다. */
+  phase?: "plan" | "dev";
 }
 
 export const AGENTS: AgentDef[] = [
@@ -26,7 +28,19 @@ export const AGENTS: AgentDef[] = [
   { id: "scheduler", name: "스케줄러", emoji: "📅", role: "일정 설계·마일스톤·대회 역산", section: "## 10.", sectionTitle: "일정", color: "#fb923c" },
   { id: "marketing", name: "마케팅 담당관", emoji: "📢", role: "마케팅 전략·트렌드 조사 (웹서치 기본)", section: "## 11.", sectionTitle: "마케팅", color: "#f87171" },
   { id: "qa", name: "QA 디렉터", emoji: "🧪", role: "산출물 품질 채점·반려 (섹션 없음)", section: "## —", sectionTitle: "품질", color: "#94a3b8", staff: true },
+
+  // ── 개발팀 (phase: dev) — GDD 섹션 없이 실제 코드/산출물을 다룬다. 기획 팬아웃 대상 아님. ──
+  { id: "uarch", name: "Unity 아키텍트", emoji: "🏛️", role: "데이터 주도 설계·ScriptableObject·시스템 구조", section: "## —", sectionTitle: "아키텍처", color: "#38bdf8", staff: true, phase: "dev" },
+  { id: "ugp", name: "게임플레이 스크립터", emoji: "🎯", role: "Unity 게임플레이 구현·상태머신·튜닝 노출", section: "## —", sectionTitle: "게임플레이 구현", color: "#a78bfa", staff: true, phase: "dev" },
+  { id: "netcode", name: "멀티플레이 엔지니어", emoji: "🔗", role: "NGO·서버 권위·예측/보정·안티치트", section: "## —", sectionTitle: "네트워크", color: "#22d3ee", staff: true, phase: "dev" },
+  { id: "techart", name: "테크니컬 아티스트", emoji: "✨", role: "Shader Graph/HLSL·URP/HDRP·VFX·성능예산", section: "## —", sectionTitle: "렌더링", color: "#f0abfc", staff: true, phase: "dev" },
+  { id: "edtool", name: "에디터 툴 개발자", emoji: "🛠️", role: "EditorWindow·PropertyDrawer·검증 자동화", section: "## —", sectionTitle: "에디터 툴", color: "#cbd5e1", staff: true, phase: "dev" },
+  { id: "review", name: "코드 리뷰어", emoji: "👁️", role: "정확성·보안·유지보수·성능 코드 검토", section: "## —", sectionTitle: "코드 리뷰", color: "#c084fc", staff: true, phase: "dev" },
+  { id: "testeng", name: "테스트 엔지니어", emoji: "🧪", role: "증거 기반 통합 테스트·엣지 케이스 (기본 미흡)", section: "## —", sectionTitle: "테스트", color: "#f43f5e", staff: true, phase: "dev" },
 ];
+
+/** 개발팀 (phase: dev) — 킷을 넘겨받아 실제 코드를 짜고·리뷰하고·검증한다 */
+export const DEV_TEAM = AGENTS.filter((a) => a.phase === "dev");
 
 export const AGENT_MAP: Record<string, AgentDef> = Object.fromEntries(
   AGENTS.map((a) => [a.id, a])

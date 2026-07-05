@@ -272,6 +272,22 @@ button { font-family: inherit; }
 .desk.away { opacity: 0.35; }
 .desk.away .office-avatar { filter: grayscale(0.6); }
 
+/* 층 구분선 (기획팀 / 개발팀) */
+.floor-divider {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  margin: 12px 4px 4px; position: relative; z-index: 1;
+}
+.floor-divider::before, .floor-divider::after {
+  content: ""; flex: 1; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border), transparent);
+}
+.floor-divider span {
+  font-size: 11px; color: var(--text-dim); white-space: nowrap;
+  background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 999px; padding: 2px 12px;
+}
+.office-room.has-bg .floor-divider span { background: rgba(13, 17, 24, 0.72); }
+
 /* 개발 착수 킷 패널 */
 .devkit-panel {
   margin: 8px 12px 0; padding: 10px 12px; border: 1px solid var(--border);

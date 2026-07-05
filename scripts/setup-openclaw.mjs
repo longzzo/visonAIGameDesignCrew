@@ -1,4 +1,4 @@
-// Vision Engine — OpenClaw 에이전트 12명 자동 설정
+// Vision Engine — OpenClaw 에이전트 19명(기획 12 + 개발 7) 자동 설정
 // config/openclaw.json 템플릿을 ~/.openclaw/openclaw.json 에 적용한다.
 //   - 이미 등록된 API 키·게이트웨이 토큰은 그대로 보존
 //   - 기존 설정은 openclaw.json.bak-setup-<시각> 으로 백업

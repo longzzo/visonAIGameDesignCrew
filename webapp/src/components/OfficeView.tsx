@@ -333,6 +333,8 @@ export function OfficeView() {
 
   const row1 = ["scenario", "gameplay", "systems", "uiux"];
   const row2 = ["balance", "bm", "scheduler", "marketing"];
+  const devRow1 = ["uarch", "ugp", "netcode", "techart"];
+  const devRow2 = ["edtool", "review", "testeng"];
 
   const bgUrl = themeImage(officeTheme, officeBg?.ts);
 
@@ -460,6 +462,19 @@ export function OfficeView() {
             <InternDesk onOpen={() => setStudioOpen(true)} />
           </div>
         </div>
+        <div className="floor-divider">
+          <span>🛠️ 개발팀 — 기획을 넘겨받아 실제 코드를 짜는 층</span>
+        </div>
+        <div className="office-row">
+          {devRow1.map((id) => (
+            <Desk key={id} agentId={id} />
+          ))}
+        </div>
+        <div className="office-row">
+          {devRow2.map((id) => (
+            <Desk key={id} agentId={id} />
+          ))}
+        </div>
         <div className="office-row meeting-row">
           <MeetingRoom />
         </div>
@@ -468,7 +483,7 @@ export function OfficeView() {
         <MeetingWalkers />
       </div>
       <div className="office-hint dim">
-        캐릭터 클릭 → 1:1 대화 · ⚙ → 프로필(모델 교체) · 🖌️ 아트 인턴 → 컨셉 아트 · 🧑‍💻 개발 인턴 → 페이퍼 프로토타입 · 상단 테마 셀렉터 → 사무실 배경
+        위층 = 기획팀(GDD 작성) · 아래층 = 개발팀(코드 구현) · 캐릭터 클릭 → 1:1 대화 · ⚙ → 프로필(모델 교체) · 🖌️/🧑‍💻 인턴 → 아트·프로토타입
       </div>
 
       {docViewer && <DocViewer tab={docViewer} onTab={setDocViewer} onClose={() => setDocViewer(null)} />}

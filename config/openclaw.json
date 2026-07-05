@@ -427,6 +427,251 @@
             "process"
           ]
         }
+      },
+      {
+        "id": "uarch",
+        "name": "Unity 아키텍트",
+        "workspace": "{{REPO}}\\agents\\uarch",
+        "identity": {
+          "name": "Unity 아키텍트",
+          "emoji": "🏛️"
+        },
+        "model": "nvidia/qwen/qwen3-next-80b-a3b-instruct",
+        "tools": {
+          "deny": [
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process"
+          ]
+        }
+      },
+      {
+        "id": "ugp",
+        "name": "게임플레이 스크립터",
+        "workspace": "{{REPO}}\\agents\\ugp",
+        "identity": {
+          "name": "게임플레이 스크립터",
+          "emoji": "🎯"
+        },
+        "model": "nvidia/qwen/qwen3-next-80b-a3b-instruct",
+        "tools": {
+          "deny": [
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process"
+          ]
+        }
+      },
+      {
+        "id": "netcode",
+        "name": "멀티플레이 엔지니어",
+        "workspace": "{{REPO}}\\agents\\netcode",
+        "identity": {
+          "name": "멀티플레이 엔지니어",
+          "emoji": "🔗"
+        },
+        "model": "nvidia/qwen/qwen3-next-80b-a3b-instruct",
+        "tools": {
+          "deny": [
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process"
+          ]
+        }
+      },
+      {
+        "id": "techart",
+        "name": "테크니컬 아티스트",
+        "workspace": "{{REPO}}\\agents\\techart",
+        "identity": {
+          "name": "테크니컬 아티스트",
+          "emoji": "✨"
+        },
+        "model": "nvidia/qwen/qwen3-next-80b-a3b-instruct",
+        "tools": {
+          "deny": [
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process"
+          ]
+        }
+      },
+      {
+        "id": "edtool",
+        "name": "에디터 툴 개발자",
+        "workspace": "{{REPO}}\\agents\\edtool",
+        "identity": {
+          "name": "에디터 툴 개발자",
+          "emoji": "🛠️"
+        },
+        "model": "nvidia/qwen/qwen3-next-80b-a3b-instruct",
+        "tools": {
+          "deny": [
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process"
+          ]
+        }
+      },
+      {
+        "id": "review",
+        "name": "코드 리뷰어",
+        "workspace": "{{REPO}}\\agents\\review",
+        "identity": {
+          "name": "코드 리뷰어",
+          "emoji": "👁️"
+        },
+        "model": "nvidia/qwen/qwen3-next-80b-a3b-instruct",
+        "tools": {
+          "deny": [
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process"
+          ]
+        }
+      },
+      {
+        "id": "testeng",
+        "name": "테스트 엔지니어",
+        "workspace": "{{REPO}}\\agents\\testeng",
+        "identity": {
+          "name": "테스트 엔지니어",
+          "emoji": "🧪"
+        },
+        "model": "nvidia/qwen/qwen3-next-80b-a3b-instruct",
+        "tools": {
+          "deny": [
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process"
+          ]
+        }
       }
     ]
   },

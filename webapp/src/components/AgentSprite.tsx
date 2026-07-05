@@ -117,6 +117,57 @@ function Accessory({ id, c }: { id: string; c: string }) {
           <path d="M10.5 32 l1.2 1.2 2.2-2.4" stroke="#3ba55d" strokeWidth="1.2" fill="none" />
         </>
       );
+    case "uarch": // 청사진 격자
+      return (
+        <>
+          <rect x="24" y="30" width="8" height="6.5" rx="0.6" fill="#1e3a5f" stroke={c} strokeWidth="0.9" />
+          <path d="M26 30 v6.5 M28 30 v6.5 M30 30 v6.5 M24 32.2 h8 M24 34.3 h8" stroke={c} strokeWidth="0.5" opacity="0.7" />
+        </>
+      );
+    case "ugp": // 게임패드
+      return (
+        <>
+          <rect x="24" y="31.5" width="8" height="4.5" rx="2.2" fill="#39424e" />
+          <path d="M26 33.2 v1.6 M25.2 34 h1.6" stroke="#cbd5e1" strokeWidth="0.8" />
+          <circle cx="30" cy="33.4" r="0.7" fill="#e05a5a" /><circle cx="31" cy="34.4" r="0.7" fill="#3ba55d" />
+        </>
+      );
+    case "netcode": // 노드 연결 그래프
+      return (
+        <>
+          <path d="M25 35 L28 31 L31 34" stroke={c} strokeWidth="1" fill="none" />
+          <circle cx="25" cy="35" r="1.4" fill={c} /><circle cx="28" cy="31" r="1.4" fill={c} /><circle cx="31" cy="34" r="1.4" fill={c} />
+        </>
+      );
+    case "techart": // 반짝임(셰이더)
+      return (
+        <>
+          <path d="M28 30 l1 2.4 2.4 1-2.4 1-1 2.4-1-2.4-2.4-1 2.4-1z" fill={c} />
+          <circle cx="24.5" cy="35" r="1" fill={c} opacity="0.8" />
+        </>
+      );
+    case "edtool": // 렌치 + 기어
+      return (
+        <>
+          <circle cx="26" cy="33.5" r="2.4" fill="none" stroke="#9aa5b1" strokeWidth="1.1" />
+          <circle cx="26" cy="33.5" r="0.8" fill="#39424e" />
+          <path d="M30 31 l2.4 2.4 -1 1 -2.4 -2.4z" fill="#9aa5b1" />
+        </>
+      );
+    case "review": // 돋보기 + 코드 괄호
+      return (
+        <>
+          <path d="M24.5 31 l-1.5 2 1.5 2 M31.5 31 l1.5 2 -1.5 2" stroke={c} strokeWidth="1.1" fill="none" strokeLinecap="round" />
+          <path d="M27.5 30.5 l1 4" stroke={c} strokeWidth="0.9" />
+        </>
+      );
+    case "testeng": // 체크/엑스 판정
+      return (
+        <>
+          <path d="M24 33 l1.4 1.4 2.4 -2.8" stroke="#3ba55d" strokeWidth="1.3" fill="none" />
+          <path d="M29.5 31.6 l2.8 2.8 M32.3 31.6 l-2.8 2.8" stroke="#e05a5a" strokeWidth="1.2" />
+        </>
+      );
     default:
       return null;
   }
