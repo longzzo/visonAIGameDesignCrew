@@ -5,6 +5,7 @@ import { setBraveKey } from "../lib/gdd";
 import { getModelsInfo, registerModelKey, setAgentModels, switchModel, type ModelsInfo } from "../lib/models";
 import { KnowledgeStudio } from "./KnowledgeStudio";
 import { McpPanel } from "./McpPanel";
+import { notifyEnabled, setNotifyEnabled } from "../lib/notify";
 import { useVE } from "../store";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -39,6 +40,7 @@ export function Sidebar() {
   const obsidianNew = obsidianNotes.filter((n) => n.state !== "learned").length;
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [mcpOpen, setMcpOpen] = useState(false);
+  const [notifyOn, setNotifyOn] = useState(notifyEnabled());
 
   // 에이전트별 읽지 않은 보고서 수 — 확인 여부 배지
   const unreadByAgent: Record<string, number> = {};
@@ -287,6 +289,17 @@ export function Sidebar() {
           title="MCP(Model Context Protocol) 도구 서버 — 파일시스템·git 등을 연결해 개발팀 에이전트가 실제 작업에 관여하게 합니다"
         >
           🔌 MCP 도구 서버
+        </button>
+        <button
+          className="btn small"
+          onClick={() => {
+            const next = !notifyOn;
+            setNotifyEnabled(next);
+            setNotifyOn(next);
+          }}
+          title="회의·개발 작업·킷 생성이 끝나면 데스크톱 알림을 띄웁니다 (창이 백그라운드일 때만) — 던져놓고 다른 일 하다 돌아오세요"
+        >
+          {notifyOn ? "🔔 완료 알림 켜짐" : "🔕 완료 알림 꺼짐"}
         </button>
         {conn !== "connected" && (
           <button className="btn small" onClick={() => void reconnect()}>

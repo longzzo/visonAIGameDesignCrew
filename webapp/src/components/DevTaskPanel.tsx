@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AGENT_MAP, DEV_TEAM } from "../lib/agents";
 import { runDevTask, type DevStep } from "../lib/devtask";
 import { fetchMcp } from "../lib/mcp";
+import { notify } from "../lib/notify";
 
 /**
  * 개발 작업 패널 — 개발팀 에이전트에게 실제 작업을 시킨다.
@@ -33,7 +34,10 @@ export function DevTaskPanel({ agentId, onClose }: { agentId: string; onClose: (
     setSteps([]);
     setRunning(true);
     try {
-      await runDevTask(agentId, task.trim(), (s) => setSteps((prev) => [...prev, s]));
+      await runDevTask(agentId, task.trim(), (s) => {
+        setSteps((prev) => [...prev, s]);
+        if (s.kind === "done") void notify(`${a?.emoji} ${a?.name} 작업 완료`, task.trim());
+      });
     } catch (e: any) {
       setSteps((prev) => [...prev, { kind: "error", text: String(e?.message ?? e) }]);
     }

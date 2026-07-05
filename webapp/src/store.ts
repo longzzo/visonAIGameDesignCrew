@@ -91,6 +91,7 @@ import {
   type KitFile,
   type DecisionItem,
 } from "./lib/kit";
+import { notify } from "./lib/notify";
 import {
   fetchGdd,
   saveGdd,
@@ -1385,6 +1386,7 @@ export const useVE = create<VEState>()((set, get) => {
         }
       }
       set({ orchRunning: false });
+      if (results.length > 0) void notify("🎪 회의 완료", `${req.slice(0, 60)} — 산출물 ${results.length}건이 반영되었습니다`);
     },
 
     stopOrch: () => {
@@ -2111,6 +2113,7 @@ export const useVE = create<VEState>()((set, get) => {
         await saveReport(project, "pm", title, body);
         await get().loadReports();
         pushFeed({ from: "system", kind: "status", text: "📋 팀 리뷰 결과가 보고서함에 저장되었습니다." });
+        void notify("📥 기존 기획 리뷰 완료", `${members.length}명이 보완점·평가를 제출했습니다`);
       } catch (e: any) {
         pushFeed({ from: "system", kind: "error", text: `⚠️ 팀 리뷰 실패: ${String(e?.message ?? e).slice(0, 120)}` });
       }
@@ -2274,6 +2277,7 @@ export const useVE = create<VEState>()((set, get) => {
         kind: "status",
         text: n > 0 ? `🚀 개발 착수 킷 완성 — 파일 ${n}개. ZIP으로 내려받아 유니티 프로젝트를 시작하세요.` : "⚠️ 개발 착수 킷 생성 실패 — 로그를 확인하세요.",
       });
+      if (n > 0) void notify("📦 개발 착수 킷 완성", `파일 ${n}개 — ZIP으로 내려받으세요`);
     },
 
     /* ── GDD + 버전 히스토리 ───────────────────────── */
