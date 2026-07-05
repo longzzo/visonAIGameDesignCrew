@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AGENT_MAP } from "../lib/agents";
 import { uiPrompt } from "../lib/dialog";
 import { AgentSprite } from "./AgentSprite";
+import { Office3D } from "./Office3D";
 import { ArtStudio } from "./ArtStudio";
 import { PrototypeStudio } from "./PrototypeStudio";
 import { DocViewer } from "./DocViewer";
@@ -330,6 +331,23 @@ export function OfficeView() {
   const [docViewer, setDocViewer] = useState<null | "gdd" | "reports">(null);
   const [studioOpen, setStudioOpen] = useState(false);
   const [protoStudioOpen, setProtoStudioOpen] = useState(false);
+  const [mode3d, setMode3d] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("ve-office-mode") === "3d";
+    } catch {
+      return false;
+    }
+  });
+  const toggleMode3d = () => {
+    setMode3d((v) => {
+      try {
+        localStorage.setItem("ve-office-mode", v ? "2d" : "3d");
+      } catch {
+        /* noop */
+      }
+      return !v;
+    });
+  };
 
   const row1 = ["scenario", "gameplay", "systems", "uiux"];
   const row2 = ["balance", "bm", "scheduler", "marketing"];
@@ -354,6 +372,13 @@ export function OfficeView() {
         <span className="office-sign">🏢 Vision Engine 스튜디오</span>
         <span className="office-project">{projectName}</span>
         {orchRunning && <span className="office-live">● 회의 진행 중</span>}
+        <button
+          className={`btn small ${mode3d ? "primary" : ""}`}
+          onClick={toggleMode3d}
+          title="3D 사무실 — 에이전트가 실제로 걸어다니며 보고·회의하는 입체 뷰"
+        >
+          {mode3d ? "🟦 2D 사무실" : "🧊 3D 사무실"}
+        </button>
         <select
           className="model-select mini office-theme"
           value={officeTheme}
@@ -422,6 +447,9 @@ export function OfficeView() {
       </div>
       {officeBgPhase && <div className="office-bg-phase dim">{officeBgPhase}</div>}
       {planReviewPhase && <div className="office-bg-phase dim">{planReviewPhase}</div>}
+      {mode3d ? (
+        <Office3D />
+      ) : (
       <div className={`office-room ${bgUrl ? "has-bg" : ""}`} style={bgUrl ? { backgroundImage: `url("${bgUrl}")` } : undefined}>
         <div className="office-wall">
           <div className="office-window" title={new Date().getHours() >= 6 && new Date().getHours() < 18 ? "낮" : "밤"}>
@@ -482,6 +510,7 @@ export function OfficeView() {
         <PmWalker />
         <MeetingWalkers />
       </div>
+      )}
       <div className="office-hint dim">
         위층 = 기획팀(GDD 작성) · 아래층 = 개발팀(코드 구현) · 캐릭터 클릭 → 1:1 대화 · ⚙ → 프로필(모델 교체) · 🖌️/🧑‍💻 인턴 → 아트·프로토타입
       </div>

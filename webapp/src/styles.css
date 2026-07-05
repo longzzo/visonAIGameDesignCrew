@@ -272,6 +272,34 @@ button { font-family: inherit; }
 .desk.away { opacity: 0.35; }
 .desk.away .office-avatar { filter: grayscale(0.6); }
 
+/* 3D 사무실 */
+.office3d-wrap {
+  position: relative; flex: 1; min-height: 560px;
+  border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+  background: #171b24;
+}
+.office3d-wrap canvas { display: block; }
+.o3d-hint {
+  position: absolute; left: 10px; bottom: 8px; font-size: 11px;
+  background: rgba(13, 17, 24, 0.72); border-radius: 8px; padding: 3px 9px; pointer-events: none;
+}
+.o3d-label {
+  font-size: 11px; white-space: nowrap; color: #e8ecf3;
+  background: rgba(13, 17, 24, 0.82); border: 1px solid; border-radius: 8px;
+  padding: 1px 7px; pointer-events: none; user-select: none;
+}
+.o3d-bubble {
+  max-width: 170px; font-size: 10.5px; line-height: 1.35; color: #dfe6f0;
+  background: rgba(20, 25, 34, 0.92); border: 1px solid #8b7cf666; border-radius: 10px;
+  padding: 4px 8px; pointer-events: none; user-select: none;
+}
+.o3d-room-label {
+  font-size: 12px; white-space: nowrap; color: var(--text-dim);
+  background: rgba(13, 17, 24, 0.78); border: 1px solid var(--border);
+  border-radius: 999px; padding: 2px 12px; pointer-events: none; user-select: none;
+}
+.o3d-room-label.on { color: #c4b5fd; border-color: #8b7cf6aa; font-weight: 600; }
+
 /* 층 구분선 (기획팀 / 개발팀) */
 .floor-divider {
   display: flex; align-items: center; justify-content: center; gap: 10px;

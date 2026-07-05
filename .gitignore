@@ -1,6 +1,8 @@
 webapp/node_modules/
 webapp/dist/
 webapp/.env.local
+desktop/node_modules/
+desktop/package-lock.json
 # 아트 인턴이 런타임에 그리는 커스텀 사무실 배경 (기본 배경 3종은 커밋됨)
 webapp/public/office/custom.png
 webapp/public/office/custom.json

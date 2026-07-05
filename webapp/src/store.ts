@@ -2345,3 +2345,8 @@ export const useVE = create<VEState>()((set, get) => {
     },
   };
 });
+
+// 개발 모드 전용 — 콘솔/자동화에서 상태를 직접 조작·검증하기 위한 훅 (프로덕션 빌드 제외)
+if (import.meta.env.DEV) {
+  (window as any).__VE = useVE;
+}
