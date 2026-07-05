@@ -1,10 +1,12 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useVE } from "./store";
+import { Onboarding, needsOnboarding } from "./components/Onboarding";
 import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
 import { ChatPanel } from "./components/ChatPanel";
 import { OrchestrationView } from "./components/OrchestrationView";
 import { OfficeView } from "./components/OfficeView";
+import { DataPanel } from "./components/DataPanel";
 import { GddPanel } from "./components/GddPanel";
 import { AgentProfile } from "./components/AgentProfile";
 import { DialogHost } from "./components/DialogHost";
@@ -24,12 +26,15 @@ export default function App() {
     meetingDiffOpen,
   } = useVE();
 
+  const [onboard, setOnboard] = useState(false);
   useEffect(() => {
     void init();
+    setOnboard(needsOnboarding());
   }, [init]);
 
   return (
     <div className="app">
+      {onboard && <Onboarding onClose={() => setOnboard(false)} />}
       <TopBar />
       {conn !== "connected" && conn !== "idle" && (
         <div className="app-banner warn">
@@ -50,7 +55,15 @@ export default function App() {
       <div className={`app-body panel-${mobilePanel}`}>
         <Sidebar />
         <main className="main-panel">
-          {view === "orch" ? <OrchestrationView /> : view === "office" ? <OfficeView /> : <ChatPanel />}
+          {view === "orch" ? (
+            <OrchestrationView />
+          ) : view === "office" ? (
+            <OfficeView />
+          ) : view === "data" ? (
+            <DataPanel />
+          ) : (
+            <ChatPanel />
+          )}
         </main>
         <GddPanel />
       </div>

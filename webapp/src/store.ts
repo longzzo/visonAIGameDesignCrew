@@ -114,7 +114,7 @@ import {
   type GddVersion,
 } from "./lib/gdd";
 
-export type View = "orch" | "chat" | "office";
+export type View = "orch" | "chat" | "office" | "data";
 export type MobilePanel = "agents" | "work" | "gdd";
 export type AgentStatus = "idle" | "running" | "done" | "error";
 

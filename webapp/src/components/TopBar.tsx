@@ -81,7 +81,7 @@ export function TopBar() {
     });
     if (ok) void deleteProjectAction(current.id);
   };
-  const switchView = (v: "orch" | "chat" | "office") => {
+  const switchView = (v: "orch" | "chat" | "office" | "data") => {
     setView(v);
     setMobilePanel("work");
   };
@@ -119,6 +119,9 @@ export function TopBar() {
         </button>
         <button className={view === "office" ? "active" : ""} onClick={() => switchView("office")}>
           🏢 사무실
+        </button>
+        <button className={view === "data" ? "active" : ""} onClick={() => switchView("data")} title="게임 데이터 파일(JSON/CSV) — 방치형 등 데이터 주도 게임의 밸런스·경제 테이블을 모아 편집">
+          🧮 데이터
         </button>
       </nav>
       <div className="topbar-right">
