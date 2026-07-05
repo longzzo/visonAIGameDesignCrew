@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AGENT_MAP, DEV_TEAM } from "../lib/agents";
-import { runDevTask, type DevStep } from "../lib/devtask";
+import { runDevTask, runDevMeeting, type DevStep } from "../lib/devtask";
 import { fetchMcp } from "../lib/mcp";
 import { notify } from "../lib/notify";
 
@@ -14,6 +14,7 @@ export function DevTaskPanel({ agentId, onClose }: { agentId: string; onClose: (
   const [task, setTask] = useState("");
   const [steps, setSteps] = useState<DevStep[]>([]);
   const [running, setRunning] = useState(false);
+  const [meetingMode, setMeetingMode] = useState(false);
   const [toolCount, setToolCount] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -33,11 +34,15 @@ export function DevTaskPanel({ agentId, onClose }: { agentId: string; onClose: (
     if (!task.trim() || running) return;
     setSteps([]);
     setRunning(true);
+    const onStep = (s: DevStep) => {
+      setSteps((prev) => [...prev, s]);
+      if (s.kind === "done") {
+        void notify(meetingMode ? "🤝 개발 회의 완료" : `${a?.emoji} ${a?.name} 작업 완료`, s.final || task.trim());
+      }
+    };
     try {
-      await runDevTask(agentId, task.trim(), (s) => {
-        setSteps((prev) => [...prev, s]);
-        if (s.kind === "done") void notify(`${a?.emoji} ${a?.name} 작업 완료`, task.trim());
-      });
+      if (meetingMode) await runDevMeeting(agentId, task.trim(), onStep);
+      else await runDevTask(agentId, task.trim(), onStep);
     } catch (e: any) {
       setSteps((prev) => [...prev, { kind: "error", text: String(e?.message ?? e) }]);
     }
@@ -70,9 +75,15 @@ export function DevTaskPanel({ agentId, onClose }: { agentId: string; onClose: (
             rows={2}
             disabled={running}
           />
-          <button className="btn primary" onClick={() => void run()} disabled={running || !task.trim()}>
-            {running ? "작업 중…" : "▶ 작업 시작"}
-          </button>
+          <div className="devtask-run">
+            <label className="devtask-mode" title="켜면 구현 → 코드 리뷰어 검토 → 테스트 엔지니어 검증까지 3단계 교차 검증으로 진행합니다 (시간이 더 걸립니다)">
+              <input type="checkbox" checked={meetingMode} onChange={(e) => setMeetingMode(e.target.checked)} disabled={running} />
+              🤝 회의 모드
+            </label>
+            <button className="btn primary" onClick={() => void run()} disabled={running || !task.trim()}>
+              {running ? "작업 중…" : meetingMode ? "🤝 개발 회의 시작" : "▶ 작업 시작"}
+            </button>
+          </div>
         </div>
 
         <div className="devtask-log">
@@ -83,8 +94,14 @@ export function DevTaskPanel({ agentId, onClose }: { agentId: string; onClose: (
           )}
           {steps.map((s, i) => (
             <div key={i} className={`devstep k-${s.kind}`}>
+              {s.kind === "phase" && <div className="ds-phase">{s.text}</div>}
               {s.kind === "task" && <div className="ds-task">📋 {s.text}</div>}
-              {s.kind === "say" && <div className="ds-say">{s.text}</div>}
+              {s.kind === "say" && (
+                <div className="ds-say">
+                  {s.agent && <b className="ds-agent">{AGENT_MAP[s.agent]?.emoji} {AGENT_MAP[s.agent]?.name}</b>}
+                  {s.text}
+                </div>
+              )}
               {s.kind === "tool" && (
                 <div className="ds-tool">
                   🔧 <code>{s.server}·{s.name}</code>

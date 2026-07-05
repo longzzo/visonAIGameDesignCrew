@@ -155,3 +155,43 @@ export async function runDevTask({ agentId, task, model, maxSteps = 8, onStep })
   }
   return { ok: true, transcript, final: "(최대 단계 도달 — 작업이 길어 중단됨)" };
 }
+
+/**
+ * 개발 회의 — 구현(리드) → 코드 리뷰어 검토 → 테스트 엔지니어 검증을 순차로.
+ * 각 단계가 MCP 도구로 실제 kit 파일을 읽고(리뷰·테스트)/쓰며(구현) 교차 검증한다.
+ * onStep에 { agent } 태그를 붙여 누가 말하는지 구분한다.
+ */
+export async function runDevMeeting({ leadId, task, onStep }) {
+  const emit = (agent) => (s) => onStep?.({ ...s, agent });
+  const say = (kind, text, agent) => onStep?.({ kind, text, agent });
+
+  // 1) 구현
+  say("phase", `🔨 구현 — ${leadId}`, leadId);
+  const impl = await runDevTask({ agentId: leadId, task, maxSteps: 10, onStep: emit(leadId) });
+
+  // 2) 코드 리뷰
+  say("phase", "👁️ 코드 리뷰 — review", "review");
+  const rev = await runDevTask({
+    agentId: "review",
+    task:
+      `방금 팀원이 아래 작업을 수행했다:\n${impl.final}\n\n` +
+      `도구로 관련 파일을 직접 읽어 코드 리뷰를 해라. 심각도(🔴 반드시수정 / 🟡 개선 / 🟢 좋음)로 분류하고, 구체적 위치와 수정 방향을 제시해라.`,
+    maxSteps: 8,
+    onStep: emit("review"),
+  });
+
+  // 3) 테스트·검증
+  say("phase", "🧪 검증 — testeng", "testeng");
+  const test = await runDevTask({
+    agentId: "testeng",
+    task:
+      `구현 요약:\n${impl.final}\n\n리뷰 요약:\n${rev.final}\n\n` +
+      `도구로 결과 파일을 직접 읽어 검증하고, 엣지 케이스를 점검해라. 판정을 ✅ 통과 / ⚠️ 조건부 / ❌ 미흡 중 하나로 명시하고 근거를 대라.`,
+    maxSteps: 8,
+    onStep: emit("testeng"),
+  });
+
+  const verdict = /❌|미흡/.test(test.final) ? "❌ 미흡" : /⚠️|조건부/.test(test.final) ? "⚠️ 조건부" : "✅ 통과";
+  onStep?.({ kind: "done", final: `개발 회의 완료 — 최종 판정 ${verdict}` });
+  return { ok: true, impl, rev, test, verdict };
+}

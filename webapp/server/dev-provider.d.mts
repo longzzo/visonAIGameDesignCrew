@@ -10,3 +10,8 @@ export function runDevTask(opts: {
   maxSteps?: number;
   onStep?: (step: DevStep) => void;
 }): Promise<{ ok: boolean; transcript: DevStep[]; final: string }>;
+export function runDevMeeting(opts: {
+  leadId: string;
+  task: string;
+  onStep?: (step: DevStep) => void;
+}): Promise<{ ok: boolean; verdict: string }>;

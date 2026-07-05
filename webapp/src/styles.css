@@ -293,7 +293,12 @@ button { font-family: inherit; }
 .devtask-log { padding: 4px 14px 12px; overflow-y: auto; max-height: 52vh; }
 .devstep { margin-bottom: 8px; font-size: 12.5px; line-height: 1.55; }
 .ds-task { font-weight: 600; color: var(--text); }
+.ds-phase {
+  font-weight: 700; font-size: 13px; color: var(--accent-2);
+  border-top: 1px solid var(--border-soft); padding-top: 10px; margin-top: 4px;
+}
 .ds-say { background: var(--panel-2); border-radius: 8px; padding: 7px 10px; white-space: pre-wrap; }
+.ds-agent { display: block; color: var(--text-dim); font-size: 11.5px; margin-bottom: 3px; }
 .ds-tool { color: #8fd4ff; }
 .ds-tool code { background: #12151c; border-radius: 5px; padding: 1px 6px; }
 .ds-result {
@@ -303,6 +308,8 @@ button { font-family: inherit; }
 }
 .ds-result.err { color: #f0a0ac; border-color: #7c3a4d; }
 .ds-done { color: #6fd08c; font-weight: 600; background: rgba(59, 165, 93, 0.1); border-radius: 8px; padding: 7px 10px; }
+.devtask-run { display: flex; align-items: center; gap: 12px; }
+.devtask-mode { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--text-dim); cursor: pointer; white-space: nowrap; }
 .ds-err { color: #f08c9c; }
 
 /* 데이터 탭 */

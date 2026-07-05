@@ -2144,46 +2144,55 @@ function devTaskApiPlugin(): Plugin {
     mod = await import("./server/dev-provider.mjs");
     return mod;
   };
+  const sse = (req: any, res: any, run: (send: (o: unknown) => void, body: any) => Promise<void>) => {
+    void (async () => {
+      if (req.method !== "POST") {
+        res.statusCode = 405;
+        res.end();
+        return;
+      }
+      if (blockRemoteWrite(req, res)) return;
+      res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      const send = (obj: unknown) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+      try {
+        const body = JSON.parse((await readBody(req)) || "{}");
+        await run(send, body);
+      } catch (e: any) {
+        send({ kind: "error", text: String(e?.message ?? e).slice(0, 300) });
+      }
+      res.end();
+    })();
+  };
   return {
     name: "vision-engine-devtask-api",
     configureServer(server: ViteDevServer) {
-      server.middlewares.use("/api/dev-task", (req, res) => {
-        void (async () => {
-          if (req.method !== "POST") {
-            res.statusCode = 405;
-            res.end();
-            return;
-          }
-          if (blockRemoteWrite(req, res)) return;
-          // SSE 스트리밍 — 진행 단계를 실시간으로 흘린다
-          res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-          res.setHeader("Cache-Control", "no-cache");
-          res.setHeader("Connection", "keep-alive");
-          const send = (obj: unknown) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
-          try {
-            const j = JSON.parse((await readBody(req)) || "{}");
-            const agentId = String(j.agentId || "");
-            const task = String(j.task || "").trim();
-            if (!agentId || !task) {
-              send({ kind: "error", text: "agentId·task 필요" });
-              res.end();
-              return;
-            }
-            const dp = await load();
-            const out = await dp.runDevTask({
-              agentId,
-              task,
-              model: j.model,
-              maxSteps: Math.min(Number(j.maxSteps) || 8, 12),
-              onStep: (step: unknown) => send(step),
-            });
-            send({ kind: "done", final: out.final });
-          } catch (e: any) {
-            send({ kind: "error", text: String(e?.message ?? e).slice(0, 300) });
-          }
-          res.end();
-        })();
-      });
+      server.middlewares.use("/api/dev-task", (req, res) =>
+        sse(req, res, async (send, j) => {
+          const agentId = String(j.agentId || "");
+          const task = String(j.task || "").trim();
+          if (!agentId || !task) return void send({ kind: "error", text: "agentId·task 필요" });
+          const dp = await load();
+          const out = await dp.runDevTask({
+            agentId,
+            task,
+            model: j.model,
+            maxSteps: Math.min(Number(j.maxSteps) || 8, 12),
+            onStep: (step: unknown) => send(step),
+          });
+          send({ kind: "done", final: out.final });
+        })
+      );
+      server.middlewares.use("/api/dev-meeting", (req, res) =>
+        sse(req, res, async (send, j) => {
+          const leadId = String(j.leadId || j.agentId || "");
+          const task = String(j.task || "").trim();
+          if (!leadId || !task) return void send({ kind: "error", text: "leadId·task 필요" });
+          const dp = await load();
+          await dp.runDevMeeting({ leadId, task, onStep: (step: unknown) => send(step) });
+        })
+      );
     },
   };
 }
