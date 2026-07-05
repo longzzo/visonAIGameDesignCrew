@@ -248,6 +248,11 @@ interface VEState {
   /** 프로필 창이 열린 에이전트 (모델/API 개별 설정) */
   profileAgent: string | null;
 
+  /** 전체화면 문서 뷰어 (GDD·보고서·아트 보관함) — 어디서든 열 수 있는 전역 모달 */
+  docViewer: "gdd" | "reports" | "art" | null;
+  /** 아트 스튜디오(아트 인턴 SD 작업실) 모달 열림 */
+  artStudioOpen: boolean;
+
   /** PM 오늘의 브리핑 진행 중 */
   briefingBusy: boolean;
 
@@ -376,6 +381,11 @@ interface VEState {
   /** 에이전트 프로필 창 (개별 모델/API 설정·활동 요약) */
   openProfile: (id: string) => void;
   closeProfile: () => void;
+
+  /** 전체화면 문서 뷰어 열기/닫기 + 아트 스튜디오 토글 */
+  openDocViewer: (t: "gdd" | "reports" | "art") => void;
+  closeDocViewer: () => void;
+  setArtStudioOpen: (b: boolean) => void;
 
   /** PM 오늘의 브리핑 — 현황·오늘 추천 작업·리스크를 PM 대화방으로 받는다 */
   dailyBriefing: () => Promise<void>;
@@ -703,6 +713,8 @@ export const useVE = create<VEState>()((set, get) => {
     officeBgBusy: false,
     officeBgPhase: "",
     profileAgent: null,
+    docViewer: null,
+    artStudioOpen: false,
     briefingBusy: false,
     knowledge: [],
     pendingKnowledge: null,
@@ -1063,6 +1075,8 @@ export const useVE = create<VEState>()((set, get) => {
         orchRunning: true,
         stopRequested: false,
         cards: { pm: { agentId: "pm", state: "pending", output: "" } },
+        // 지시를 접수했으면 입력창을 비운다 — 요청 원문은 아래 피드에 남는다
+        orchRequest: "",
       });
       pushFeed({ from: "user", kind: "request", text: req });
 
@@ -1808,6 +1822,17 @@ export const useVE = create<VEState>()((set, get) => {
     openProfile: (id) => set({ profileAgent: AGENT_MAP[id] ? id : null }),
     closeProfile: () => set({ profileAgent: null }),
 
+    openDocViewer: (t) => {
+      set({ docViewer: t });
+      if (t === "reports" || t === "art") void get().loadReports();
+      if (t === "art") void get().loadArt();
+    },
+    closeDocViewer: () => set({ docViewer: null }),
+    setArtStudioOpen: (b) => {
+      set({ artStudioOpen: b });
+      if (b) void get().checkArtStatus();
+    },
+
     /* ── PM 오늘의 브리핑 (데일리 스탠드업) ─────────── */
 
     dailyBriefing: async () => {
@@ -2043,7 +2068,7 @@ export const useVE = create<VEState>()((set, get) => {
       const runTag = `collab-${project}-${Date.now().toString(36)}`;
       orchAbort = new AbortController();
       const signal = orchAbort.signal;
-      set({ orchRunning: true, stopRequested: false });
+      set({ orchRunning: true, stopRequested: false, orchRequest: "" });
       pushFeed({ from: "user", kind: "request", text: `🤝 협업 세션: ${topic}` });
       pushFeed({
         from: "system",

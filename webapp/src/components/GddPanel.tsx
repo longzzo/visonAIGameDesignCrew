@@ -38,6 +38,7 @@ export function GddPanel() {
     agentStatus,
     livePeek,
     cards,
+    openDocViewer,
   } = useVE();
   const [dragOver, setDragOver] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
@@ -157,11 +158,21 @@ export function GddPanel() {
             !collapsed && (
               <>
                 <button
-                  className={`btn tiny ${showReports || reportPreview ? "primary" : ""}`}
-                  onClick={toggleReports}
-                  title={`보고서함 (${reports.length}건) — 아트 명세서, 개발 명세서, 일정표 등`}
+                  className="btn tiny primary"
+                  onClick={() => openDocViewer("gdd")}
+                  title="마스터 GDD를 넓은 전체화면으로 — 목차 내비게이션 + 읽기 좋은 폭"
+                >
+                  ⛶ 크게
+                </button>
+                <button
+                  className="btn tiny"
+                  onClick={() => openDocViewer("reports")}
+                  title={`보고서함 (${reports.length}건) — 전체화면으로 열기`}
                 >
                   📋{reports.length > 0 ? ` ${reports.length}` : ""}
+                </button>
+                <button className="btn tiny" onClick={() => openDocViewer("art")} title="아트 보관함 — 생성된 컨셉 아트">
+                  🖼️
                 </button>
                 <button className={`btn tiny ${showVersions ? "primary" : ""}`} onClick={toggleVersions} title="버전 히스토리">
                   🕘
@@ -177,6 +188,12 @@ export function GddPanel() {
           )}
         </div>
       </div>
+
+      {!collapsed && !gddEditing && !reportPreview && !gddPreview && (
+        <div className="gdd-legend dim">
+          팀이 작성하는 기획서입니다 · <b>⛶ 크게</b>로 넓게 읽기 · <b>✏️</b> 직접 편집 · 대화 결과를 드래그해 반영
+        </div>
+      )}
 
       {/* 작업 중 실시간 텍스트 창 — 지금 쓰고 있는 내용을 GDD 위에서 바로 읽는다 (접어도 보임) */}
       {runningAgents.length > 0 && (

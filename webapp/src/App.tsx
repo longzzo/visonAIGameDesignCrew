@@ -11,6 +11,8 @@ import { GddPanel } from "./components/GddPanel";
 import { AgentProfile } from "./components/AgentProfile";
 import { DialogHost } from "./components/DialogHost";
 import { DiffViewer } from "./components/DiffViewer";
+import { DocViewer } from "./components/DocViewer";
+import { ArtStudio } from "./components/ArtStudio";
 
 export default function App() {
   const {
@@ -24,6 +26,9 @@ export default function App() {
     dismissQuota,
     switchToLocalModel,
     meetingDiffOpen,
+    docViewer,
+    artStudioOpen,
+    setArtStudioOpen,
   } = useVE();
 
   const [onboard, setOnboard] = useState(false);
@@ -69,6 +74,8 @@ export default function App() {
       </div>
       {profileAgent && <AgentProfile />}
       {meetingDiffOpen && <DiffViewer />}
+      {docViewer && <DocViewer />}
+      {artStudioOpen && <ArtStudio onClose={() => setArtStudioOpen(false)} />}
       <DialogHost />
       {/* 모바일 전용 하단 탭 (900px 이하에서만 표시) */}
       <nav className="mobile-tabs">

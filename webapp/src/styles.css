@@ -145,8 +145,42 @@ button { font-family: inherit; }
   .doc-viewer { padding: 0; }
   .doc-window { width: 100vw; height: 100vh; border-radius: 0; }
   .doc-split { flex-direction: column; }
-  .doc-list { width: 100%; max-height: 30vh; border-right: none; border-bottom: 1px solid var(--border); }
+  .doc-list, .doc-nav { width: 100%; max-height: 26vh; border-right: none; border-bottom: 1px solid var(--border); }
 }
+/* GDD 목차 내비 (좌측) */
+.doc-nav {
+  width: 210px; flex-shrink: 0; overflow-y: auto; border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; padding: 8px; gap: 2px; background: var(--bg-2);
+}
+.doc-nav-title { font-size: 11px; font-weight: 700; letter-spacing: 0.4px; padding: 4px 8px 6px; }
+.doc-nav-item {
+  text-align: left; background: transparent; border: none; border-left: 2px solid transparent;
+  border-radius: 0 6px 6px 0; padding: 6px 10px; cursor: pointer; color: var(--text-dim);
+  font-size: 12.5px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.doc-nav-item:hover { background: var(--panel-2); color: var(--text); border-left-color: var(--accent); }
+/* 읽기 좋은 폭 — 긴 줄을 제한해 가독성 확보 */
+.doc-readable { max-width: 760px; margin: 0 auto; }
+/* 아트 보관함 (그리드) */
+.art-archive { padding: 16px 20px; }
+.art-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px;
+}
+.art-card {
+  margin: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+  background: var(--panel-2); display: flex; flex-direction: column;
+}
+.art-card img { width: 100%; display: block; aspect-ratio: 3/2; object-fit: cover; background: #0c0f16; }
+.art-card figcaption { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; font-size: 12px; }
+.art-card .art-caption { color: var(--text-dim); line-height: 1.35; word-break: break-word; }
+.art-card-actions { display: flex; gap: 6px; }
+.art-card-actions .btn { flex: 1; }
+/* GDD 패널 안내 문구 */
+.gdd-legend {
+  padding: 7px 12px; font-size: 11.5px; line-height: 1.4;
+  border-bottom: 1px solid var(--border-soft); background: rgba(139, 124, 246, 0.04);
+}
+.gdd-legend b { color: var(--text-dim); }
 
 /* ── 아트 스튜디오 (아트 인턴) ────────────────────── */
 /* .art-form 은 아트/프로토타입/개발작업 패널이 공용 — textarea 스타일을 전역으로 (하얀 기본 배경 방지) */

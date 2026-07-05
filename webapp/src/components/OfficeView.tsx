@@ -4,9 +4,7 @@ import { uiPrompt } from "../lib/dialog";
 import { AgentSprite } from "./AgentSprite";
 import { Office3D } from "./Office3D";
 import { DevTaskPanel } from "./DevTaskPanel";
-import { ArtStudio } from "./ArtStudio";
 import { PrototypeStudio } from "./PrototypeStudio";
-import { DocViewer } from "./DocViewer";
 import { useVE, type FeedMsg } from "../store";
 
 /**
@@ -400,6 +398,8 @@ export function OfficeView() {
     planReviewBusy,
     planReviewPhase,
     meetingMembers,
+    openDocViewer,
+    setArtStudioOpen,
   } = useVE();
   const projectName = projects.find((p) => p.id === activeProject)?.name ?? "";
   // 말풍선 TTL 갱신용 틱
@@ -409,8 +409,6 @@ export function OfficeView() {
     return () => clearInterval(t);
   }, []);
 
-  const [docViewer, setDocViewer] = useState<null | "gdd" | "reports">(null);
-  const [studioOpen, setStudioOpen] = useState(false);
   const [protoStudioOpen, setProtoStudioOpen] = useState(false);
   const [devTaskAgent, setDevTaskAgent] = useState<string | null>(null);
   const [devTaskInit, setDevTaskInit] = useState<{ task?: string; meeting?: boolean }>({});
@@ -562,11 +560,14 @@ export function OfficeView() {
           )}
         </button>
         <span className="office-doc-tabs">
-          <button className="btn small" onClick={() => setDocViewer("gdd")} title="마스터 GDD를 큰 화면으로">
+          <button className="btn small" onClick={() => openDocViewer("gdd")} title="마스터 GDD를 큰 화면으로">
             📄 GDD
           </button>
-          <button className="btn small" onClick={() => setDocViewer("reports")} title="보고서함을 큰 화면으로">
+          <button className="btn small" onClick={() => openDocViewer("reports")} title="보고서함을 큰 화면으로">
             📋 보고서{reports.length > 0 ? ` ${reports.length}` : ""}
+          </button>
+          <button className="btn small" onClick={() => openDocViewer("art")} title="아트 보관함을 큰 화면으로">
+            🖼️ 아트
           </button>
         </span>
       </div>
@@ -597,7 +598,7 @@ export function OfficeView() {
             <span className="cloud c2" />
             <span className="cloud c3" />
           </div>
-          <button className="gdd-board" onClick={() => setDocViewer("gdd")} title="GDD를 큰 화면으로 보기">
+          <button className="gdd-board" onClick={() => openDocViewer("gdd")} title="GDD를 큰 화면으로 보기">
             📄 마스터 GDD 보드
             <span className="dim">{gddMtime ? `갱신 ${new Date(gddMtime).toLocaleTimeString("ko-KR", { hour12: false })}` : "대기"}</span>
           </button>
@@ -626,7 +627,7 @@ export function OfficeView() {
             </Dept>
             <Dept title="🎨 아트 파트" hint="아트 디렉터 + 인턴" accent="#e879f9">
               <Desk agentId="visual" />
-              <InternDesk onOpen={() => setStudioOpen(true)} />
+              <InternDesk onOpen={() => setArtStudioOpen(true)} />
             </Dept>
           </div>
         )}
@@ -679,8 +680,6 @@ export function OfficeView() {
             : "회의실 — 회의가 시작되면 참가자가 모입니다"}
       </div>
 
-      {docViewer && <DocViewer tab={docViewer} onTab={setDocViewer} onClose={() => setDocViewer(null)} />}
-      {studioOpen && <ArtStudio onClose={() => setStudioOpen(false)} />}
       {protoStudioOpen && <PrototypeStudio onClose={() => setProtoStudioOpen(false)} />}
       {devTaskAgent && (
         <DevTaskPanel
