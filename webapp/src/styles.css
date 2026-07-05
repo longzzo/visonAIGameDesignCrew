@@ -473,6 +473,73 @@ button { font-family: inherit; }
   border-radius: 999px; padding: 2px 12px; pointer-events: none; user-select: none;
 }
 .o3d-room-label.on { color: #c4b5fd; border-color: #8b7cf6aa; font-weight: 600; }
+.o3d-floor-sign {
+  font-size: 12px; font-weight: 700; white-space: nowrap; letter-spacing: 0.3px;
+  color: #cbd5e1; background: rgba(13, 17, 24, 0.7); border: 1px solid #3a4560;
+  border-left: 3px solid #64748b; border-radius: 4px; padding: 2px 9px;
+  pointer-events: none; user-select: none;
+}
+.o3d-floor-sign.dev { color: #7dd3fc; border-left-color: #38bdf8; }
+
+/* 3D 카메라 컨트롤 오버레이 (층 이동 / 회전 / 이동) */
+.o3d-ctl {
+  position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column;
+  gap: 7px; align-items: flex-end; z-index: 5;
+}
+.o3d-ctl-group {
+  display: flex; gap: 5px; background: rgba(13, 17, 24, 0.78);
+  border: 1px solid var(--border); border-radius: 10px; padding: 5px;
+  backdrop-filter: blur(4px);
+}
+.o3d-cbtn {
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--text-dim);
+  border-radius: 7px; padding: 5px 10px; cursor: pointer; font-size: 12px; font-weight: 600;
+  line-height: 1; white-space: nowrap;
+}
+.o3d-cbtn:hover { color: var(--text); background: var(--accent-soft); border-color: rgba(139, 124, 246, 0.45); }
+.o3d-cbtn.ic { padding: 5px 9px; font-size: 15px; min-width: 30px; }
+
+/* 직원 정보 팝업 */
+.o3d-popup {
+  position: absolute; left: 12px; bottom: 40px; width: 268px; z-index: 6;
+  background: rgba(18, 23, 32, 0.96); border: 1px solid; border-radius: 12px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5); overflow: hidden;
+  animation: o3dPopIn 0.14s ease-out;
+}
+@keyframes o3dPopIn { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: none; } }
+.o3d-pop-head { display: flex; align-items: center; gap: 9px; padding: 10px 11px; }
+.o3d-pop-emoji { font-size: 24px; line-height: 1; }
+.o3d-pop-title { flex: 1; min-width: 0; }
+.o3d-pop-name { font-size: 14px; font-weight: 700; color: var(--text); }
+.o3d-pop-role { font-size: 11px; color: var(--text-dim); margin-top: 1px; line-height: 1.3; }
+.o3d-pop-x {
+  background: transparent; border: none; color: var(--text-mute); cursor: pointer;
+  font-size: 14px; padding: 2px 4px; align-self: flex-start;
+}
+.o3d-pop-x:hover { color: var(--text); }
+.o3d-pop-body { padding: 8px 11px 10px; border-top: 1px solid var(--border-soft); }
+.o3d-pop-meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 6px; }
+.o3d-pop-tag { font-size: 10.5px; font-weight: 600; border-radius: 999px; padding: 1px 8px; }
+.o3d-pop-tag.plan { color: #a3e635; background: rgba(163, 230, 53, 0.13); }
+.o3d-pop-tag.dev { color: #7dd3fc; background: rgba(56, 189, 248, 0.13); }
+.o3d-pop-status { font-size: 11px; color: var(--text-dim); }
+.o3d-pop-status.s-running { color: #fbbf24; }
+.o3d-pop-status.s-done { color: #34d399; }
+.o3d-pop-status.s-error { color: #f87171; }
+.o3d-pop-sec { font-size: 11.5px; color: var(--text-mute); }
+.o3d-pop-peek {
+  margin-top: 7px; font-size: 11px; line-height: 1.4; color: #cbd5e1;
+  background: rgba(139, 124, 246, 0.09); border-radius: 8px; padding: 6px 8px;
+  max-height: 54px; overflow: hidden;
+}
+.o3d-pop-actions { display: flex; gap: 6px; padding: 0 11px 11px; }
+.o3d-pop-btn {
+  flex: 1; background: var(--panel-2); border: 1px solid var(--border); color: var(--text-dim);
+  border-radius: 8px; padding: 7px; cursor: pointer; font-size: 12px; font-weight: 600;
+}
+.o3d-pop-btn:hover { color: var(--text); background: var(--panel); }
+.o3d-pop-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.o3d-pop-btn.primary:hover { filter: brightness(1.08); }
 
 /* 층 이동 네비 (1F 기획 / 2F 개발 / 회의실) */
 .floor-nav { display: flex; gap: 8px; padding: 10px 14px 0; }
