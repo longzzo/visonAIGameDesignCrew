@@ -199,21 +199,30 @@ export function OrchestrationView() {
           disabled={orchRunning}
         />
         <div className="orch-options">
-          <div className="chips">
-            {SPECIALISTS.map((a) => (
-              <button
-                key={a.id}
-                className={`chip ${selected[a.id] ? "on" : ""}`}
-                style={selected[a.id] ? { borderColor: a.color, color: a.color } : undefined}
-                onClick={() => toggleSelected(a.id)}
-                disabled={orchRunning}
-                title={a.role}
-              >
-                {a.emoji} {a.name.replace(" 디자이너", "").replace(" 라이터", "").replace(" 전략가", "").replace(" 디렉터", "")}
-              </button>
-            ))}
-            {autoRoute && <span className="dim chips-hint">← PM이 이 중에서 담당자를 골라 배정합니다</span>}
+          <div className="chips-cluster">
+            <div className="chips-cluster-title">
+              담당자 선택{autoRoute ? " · 🎯 PM이 이 중에서 자동 배정합니다" : ` · 선택한 ${selectedCount}명 전원에게 전달`}
+            </div>
+            <div className="chips">
+              {SPECIALISTS.map((a) => (
+                <button
+                  key={a.id}
+                  className={`chip ${selected[a.id] ? "on" : ""}`}
+                  style={selected[a.id] ? { borderColor: a.color, color: a.color } : undefined}
+                  onClick={() => toggleSelected(a.id)}
+                  disabled={orchRunning}
+                  title={a.role}
+                >
+                  {a.emoji} {a.name.replace(" 디자이너", "").replace(" 라이터", "").replace(" 전략가", "").replace(" 디렉터", "")}
+                </button>
+              ))}
+            </div>
           </div>
+          <details className="orch-opts-box">
+            <summary>
+              ⚙ 회의 옵션 — {autoRoute ? "자동분배" : "전원전달"} · {crossReview ? "교차검토" : "검토없음"} ·{" "}
+              {qaGate ? "QA게이트" : "QA없음"} · 동시 {concurrency}
+            </summary>
           <div className="orch-controls">
             <label title="PM이 지시를 먼저 분석해 관련 담당자에게만 배정합니다. 특정 지시는 한 명에게만 갈 수도 있습니다. 끄면 위에서 선택한 전원에게 전달됩니다.">
               <input type="checkbox" checked={autoRoute} onChange={(e) => setAutoRoute(e.target.checked)} disabled={orchRunning} />
@@ -250,29 +259,40 @@ export function OrchestrationView() {
                 <option value={7}>7</option>
               </select>
             </label>
-            {orchRunning ? (
+          </div>
+          </details>
+          {orchRunning ? (
+            <div className="orch-actions">
               <button className="btn danger" onClick={stopOrch}>
-                ⏹ 중단
+                ⏹ 진행 중단
               </button>
-            ) : (
-              <>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept=".md,.txt,.markdown"
-                  style={{ display: "none" }}
-                  onChange={(e) => {
-                    onImportFile(e.target.files?.[0]);
-                    e.target.value = "";
-                  }}
-                />
+            </div>
+          ) : (
+            <div className="orch-actions">
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".md,.txt,.markdown"
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  onImportFile(e.target.files?.[0]);
+                  e.target.value = "";
+                }}
+              />
+              <div className="act-primary">
+                <button className="btn primary" onClick={() => void startOrch()} disabled={!orchRequest.trim()}>
+                  🚀 시작
+                </button>
                 <button
                   className="btn"
-                  onClick={() => fileRef.current?.click()}
-                  title="기존에 갖고 있던 기획 문서(.md/.txt)를 불러옵니다 — 원문은 보고서함에 보관되고, 원하면 PM 분배로 GDD에 통합됩니다"
+                  onClick={() => void fullMeeting()}
+                  disabled={!orchRequest.trim()}
+                  title="전원 + 교차 검토 + GDD 반영으로 즉시 시작"
                 >
-                  📥 문서 가져오기
+                  🎪 풀 기획 회의
                 </button>
+              </div>
+              <div className="act-secondary">
                 <button
                   className="btn"
                   onClick={() => void dailyBriefing()}
@@ -284,7 +304,7 @@ export function OrchestrationView() {
                       <span className="spinner" /> 브리핑…
                     </>
                   ) : (
-                    "☀️ 오늘의 브리핑"
+                    "☀️ 브리핑"
                   )}
                 </button>
                 <button
@@ -293,15 +313,14 @@ export function OrchestrationView() {
                   disabled={!orchRequest.trim() || selectedCount < 2 || selectedCount > 4}
                   title="선택한 에이전트 2~4명이 주제를 놓고 서로 직접 대화하며 결론을 만듭니다 (예: BM+UI/UX+시스템 → 수익모델·컨텐츠 활용 방안). 결론은 보고서함에 저장"
                 >
-                  🤝 협업 세션{selectedCount >= 2 && selectedCount <= 4 ? ` (${selectedCount}명)` : ""}
+                  🤝 협업{selectedCount >= 2 && selectedCount <= 4 ? ` (${selectedCount})` : ""}
                 </button>
                 <button
                   className="btn"
-                  onClick={() => void fullMeeting()}
-                  disabled={!orchRequest.trim()}
-                  title="전원 + 교차 검토 + GDD 반영으로 즉시 시작"
+                  onClick={() => fileRef.current?.click()}
+                  title="기존에 갖고 있던 기획 문서(.md/.txt)를 불러옵니다 — 원문은 보고서함에 보관되고, 원하면 PM 분배로 GDD에 통합됩니다"
                 >
-                  🎪 풀 기획 회의
+                  📥 문서
                 </button>
                 <button
                   className="btn"
@@ -311,18 +330,15 @@ export function OrchestrationView() {
                 >
                   {devKitBusy ? (
                     <>
-                      <span className="spinner" /> 킷 생성 중…
+                      <span className="spinner" /> 킷…
                     </>
                   ) : (
-                    "📦 개발 착수 킷"
+                    "📦 개발 킷"
                   )}
                 </button>
-                <button className="btn primary" onClick={() => void startOrch()} disabled={!orchRequest.trim()}>
-                  🚀 시작
-                </button>
-              </>
-            )}
-          </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
