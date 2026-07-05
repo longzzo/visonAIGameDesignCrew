@@ -35,11 +35,35 @@ export function GddPanel() {
     openReport,
     closeReportPreview,
     removeReport,
+    agentStatus,
+    livePeek,
+    cards,
   } = useVE();
   const [dragOver, setDragOver] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
   const [showReports, setShowReports] = useState(false);
   const [reportQuery, setReportQuery] = useState("");
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("ve-gdd-collapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleCollapsed = () => {
+    setCollapsed((c) => {
+      const n = !c;
+      try {
+        localStorage.setItem("ve-gdd-collapsed", n ? "1" : "0");
+      } catch {
+        /* noop */
+      }
+      return n;
+    });
+  };
+
+  // 지금 작업 중인 에이전트들 — 실시간으로 쓰고 있는 텍스트를 GDD 위에서 읽는다
+  const runningAgents = AGENTS.filter((a) => agentStatus[a.id] === "running");
 
   const toggleVersions = () => {
     const next = !showVersions;
@@ -111,6 +135,15 @@ export function GddPanel() {
           </div>
         </div>
         <div className="gdd-tools">
+          {!gddEditing && (
+            <button
+              className={`btn tiny ${collapsed ? "primary" : ""}`}
+              onClick={toggleCollapsed}
+              title={collapsed ? "마스터 GDD 펼치기" : "마스터 GDD 접기"}
+            >
+              {collapsed ? "▸ 펼치기" : "▾ 접기"}
+            </button>
+          )}
           {gddEditing ? (
             <>
               <button className="btn tiny primary" disabled={gddSaving} onClick={() => void saveGddDraft()}>
@@ -121,28 +154,54 @@ export function GddPanel() {
               </button>
             </>
           ) : (
-            <>
-              <button
-                className={`btn tiny ${showReports || reportPreview ? "primary" : ""}`}
-                onClick={toggleReports}
-                title={`보고서함 (${reports.length}건) — 아트 명세서, 개발 명세서, 일정표 등`}
-              >
-                📋{reports.length > 0 ? ` ${reports.length}` : ""}
-              </button>
-              <button className={`btn tiny ${showVersions ? "primary" : ""}`} onClick={toggleVersions} title="버전 히스토리">
-                🕘
-              </button>
-              <button className="btn tiny" onClick={() => setGddEditing(true)} disabled={!!gddPreview || !!reportPreview}>
-                ✏️ 편집
-              </button>
-              <button className="btn tiny" onClick={() => void loadGdd()} title="파일에서 다시 읽기">
-                🔄
-              </button>
-            </>
+            !collapsed && (
+              <>
+                <button
+                  className={`btn tiny ${showReports || reportPreview ? "primary" : ""}`}
+                  onClick={toggleReports}
+                  title={`보고서함 (${reports.length}건) — 아트 명세서, 개발 명세서, 일정표 등`}
+                >
+                  📋{reports.length > 0 ? ` ${reports.length}` : ""}
+                </button>
+                <button className={`btn tiny ${showVersions ? "primary" : ""}`} onClick={toggleVersions} title="버전 히스토리">
+                  🕘
+                </button>
+                <button className="btn tiny" onClick={() => setGddEditing(true)} disabled={!!gddPreview || !!reportPreview}>
+                  ✏️ 편집
+                </button>
+                <button className="btn tiny" onClick={() => void loadGdd()} title="파일에서 다시 읽기">
+                  🔄
+                </button>
+              </>
+            )
           )}
         </div>
       </div>
 
+      {/* 작업 중 실시간 텍스트 창 — 지금 쓰고 있는 내용을 GDD 위에서 바로 읽는다 (접어도 보임) */}
+      {runningAgents.length > 0 && (
+        <div className="gdd-live">
+          <div className="gdd-live-head">
+            <span className="gdd-live-dot" /> 작업 중 · {runningAgents.length}명
+          </div>
+          {runningAgents.map((a) => {
+            const peek = livePeek[a.id]?.trim();
+            const phase = cards[a.id]?.phase;
+            return (
+              <div key={a.id} className="gdd-live-item">
+                <div className="gdd-live-who" style={{ color: a.color }}>
+                  {a.emoji} {a.name}
+                  {phase && <span className="gdd-live-phase"> · {phase}</span>}
+                </div>
+                {peek && <div className="gdd-live-text">{peek}</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {!collapsed && (
+        <>
       {showReports && (
         <div className="version-drawer">
           {reports.length === 0 && (
@@ -260,6 +319,11 @@ export function GddPanel() {
             }
           />
         </div>
+      )}
+        </>
+      )}
+      {collapsed && !runningAgents.length && (
+        <div className="gdd-collapsed-note dim">마스터 GDD가 접혀 있습니다 — 상단 ▸ 펼치기로 다시 엽니다.</div>
       )}
       {dragOver && <div className="drop-veil">여기에 놓으면 해당 에이전트의 GDD 섹션에 반영됩니다</div>}
     </aside>
