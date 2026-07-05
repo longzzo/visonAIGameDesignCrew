@@ -273,6 +273,51 @@ function WallClock({ pos }: { pos: V3 }) {
   );
 }
 
+/** 낮은 파티션 벽 하나 */
+function Partition({ pos, size, color = "#3a4560", opacity = 0.55 }: { pos: V3; size: [number, number, number]; color?: string; opacity?: number }) {
+  return (
+    <mesh position={pos} castShadow>
+      <boxGeometry args={size} />
+      <meshStandardMaterial color={color} transparent opacity={opacity} />
+    </mesh>
+  );
+}
+
+/** 부서 파티션 + PM 임원실 — 역할별 공간을 실제 벽으로 나눈다 */
+function Partitions() {
+  return (
+    <group>
+      {/* ── PM 임원실 (뒤쪽 별도 공간, 찾아오는 느낌) ── */}
+      {/* 바닥 단(플랫폼) */}
+      <mesh receiveShadow position={[1.55, 0.03, -6.2]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[6.6, 3.4]} />
+        <meshStandardMaterial color="#2d2740" />
+      </mesh>
+      {/* 좌·우 유리 벽 (앞은 트여 있어 걸어 들어감) */}
+      <Partition pos={[-1.9, 0.65, -6.4]} size={[0.12, 1.3, 3.2]} color="#5b4d86" opacity={0.4} />
+      <Partition pos={[5.0, 0.65, -6.4]} size={[0.12, 1.3, 3.2]} color="#5b4d86" opacity={0.4} />
+      {/* 앞 벽 일부 (가운데 입구 비움) */}
+      <Partition pos={[-0.9, 0.65, -4.85]} size={[1.8, 1.3, 0.12]} color="#5b4d86" opacity={0.4} />
+      <Partition pos={[4.0, 0.65, -4.85]} size={[1.8, 1.3, 0.12]} color="#5b4d86" opacity={0.4} />
+      <Html center position={[1.55, 1.75, -6.3]} distanceFactor={13}>
+        <div className="o3d-room-label on">🎯 임원실 (PM·QA)</div>
+      </Html>
+
+      {/* ── 기획팀 부서 파티션 (낮은 칸막이) ── */}
+      {/* 기획/사업 파트 사이 세로 칸막이 */}
+      <Partition pos={[-6.4, 0.45, -1.85]} size={[0.1, 0.9, 3.6]} />
+      <Partition pos={[6.4, 0.45, -1.85]} size={[0.1, 0.9, 3.6]} />
+      {/* row1과 row2 사이 낮은 칸막이 */}
+      <Partition pos={[0, 0.32, -1.85]} size={[13, 0.64, 0.1]} opacity={0.35} />
+
+      {/* ── 개발팀 부서 파티션 ── */}
+      <Partition pos={[-5.4, 0.45, 3.75]} size={[0.1, 0.9, 3.4]} color="#4a3f6e" />
+      <Partition pos={[5.4, 0.45, 3.75]} size={[0.1, 0.9, 3.4]} color="#4a3f6e" />
+      <Partition pos={[0, 0.3, 3.75]} size={[11, 0.6, 0.1]} color="#4a3f6e" opacity={0.35} />
+    </group>
+  );
+}
+
 /** 사무실 데코 — 벽·야경 창문·책장·GDD 보드·화분 */
 function Decor() {
   const bookColors = ["#e05a5a", "#3d6fb4", "#3ba55d", "#d9822b", "#8b7cf6", "#e879f9", "#fbbf24", "#38bdf8"];
@@ -445,10 +490,14 @@ function OfficeScene() {
         <meshStandardMaterial color="#38bdf8" transparent opacity={0.5} />
       </mesh>
       <Html center position={[-9.5, 0.6, 1.7]} distanceFactor={14}>
-        <div className="o3d-room-label">🛠️ 개발팀 층</div>
+        <div className="o3d-room-label">🛠️ 개발팀 구역</div>
+      </Html>
+      <Html center position={[-9.5, 0.6, -2.6]} distanceFactor={14}>
+        <div className="o3d-room-label">📝 기획팀 구역</div>
       </Html>
 
       <Decor />
+      <Partitions />
       {AGENTS.map((a) => (
         <Desk
           key={`desk-${a.id}`}
