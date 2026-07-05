@@ -517,8 +517,31 @@ button { font-family: inherit; }
 .pair-meeting-btn:hover { background: rgba(139, 124, 246, 0.24); }
 .pair-busy { position: absolute; top: 4px; right: 6px; font-size: 12px; }
 
-/* 회의실 층 */
-.meeting-floor { align-items: center; padding-top: 40px; }
+/* 회의실 층 — 참가자가 원탁 둘레로 모인다 */
+.meeting-floor { align-items: center; padding-top: 30px; }
+.meeting-floor .meeting-room {
+  position: relative; width: min(460px, 80%); height: 300px; border-radius: 20px;
+  display: flex; align-items: center; justify-content: center;
+}
+.meeting-floor .meeting-table { font-size: 64px; opacity: 0.85; }
+.meeting-floor .meeting-label { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); }
+.mtg-seat {
+  position: absolute; transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  animation: mtg-in 0.5s ease-out both;
+}
+@keyframes mtg-in { from { opacity: 0; transform: translate(-50%, -30%) scale(0.7); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+.mtg-seat-av {
+  width: 40px; height: 40px; border-radius: 12px; border: 2px solid; background: rgba(20, 27, 43, 0.85);
+  display: inline-flex; align-items: center; justify-content: center;
+  animation: idle-bob 3s ease-in-out infinite;
+}
+.mtg-seat-name { font-size: 10px; color: var(--text-dim); background: rgba(13, 17, 24, 0.8); border-radius: 6px; padding: 0 5px; }
+.mtg-bubble {
+  position: absolute; bottom: 100%; margin-bottom: 4px; white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis;
+  font-size: 10px; color: #dfe6f0; background: rgba(20, 25, 34, 0.94); border: 1px solid #8b7cf655;
+  border-radius: 8px; padding: 3px 7px; pointer-events: none;
+}
 .meeting-help { text-align: center; font-size: 12.5px; line-height: 1.8; margin-top: 24px; max-width: 460px; }
 
 /* 층 구분선 (기획팀 / 개발팀) */

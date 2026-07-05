@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AGENT_MAP } from "../lib/agents";
 import { uiPrompt } from "../lib/dialog";
 import { AgentSprite } from "./AgentSprite";
@@ -168,12 +168,36 @@ function PmWalker() {
 
 /** 회의실 — 협업 세션·팀 리뷰 중일 때 참가자들이 실제로 걸어와 모이는 구역 */
 function MeetingRoom() {
-  const { meetingMembers } = useVE();
+  const { meetingMembers, feed } = useVE();
   const active = meetingMembers.length > 0;
+  const n = meetingMembers.length;
+  // 각 참가자의 최근 발언 (옆에 붙어 대화하는 느낌)
+  const lastSay: Record<string, string> = {};
+  for (const m of feed) if (m.from && meetingMembers.includes(m.from)) lastSay[m.from] = m.text;
   return (
     <div className={`meeting-room ${active ? "active" : ""}`} data-meeting="room" title="회의실">
-      <span className="meeting-table">🪑 🟫 🪑</span>
-      <div className="meeting-label">{active ? "회의 중…" : "회의실"}</div>
+      {/* 원탁 둘레로 참가자가 둘러앉는다 */}
+      {active &&
+        meetingMembers.map((id, i) => {
+          const a = AGENT_MAP[id];
+          const ang = (i / Math.max(n, 1)) * Math.PI * 2 - Math.PI / 2;
+          const rx = 108;
+          const ry = 66;
+          const left = 50 + (Math.cos(ang) * rx) / 2.4;
+          const top = 50 + (Math.sin(ang) * ry) / 2.4;
+          const say = lastSay[id];
+          return (
+            <div key={id} className="mtg-seat" style={{ left: `${left}%`, top: `${top}%`, animationDelay: `${i * 0.12}s` }}>
+              {say && <div className="mtg-bubble">{say.replace(/[#*>`]/g, "").replace(/\s+/g, " ").slice(0, 40)}</div>}
+              <div className="mtg-seat-av" style={{ borderColor: (a?.color ?? "#8b7cf6") + "aa" }}>
+                <AgentSprite id={id} size={30} />
+              </div>
+              <span className="mtg-seat-name">{a?.name?.split(" ")[0]}</span>
+            </div>
+          );
+        })}
+      <span className="meeting-table">🟫</span>
+      <div className="meeting-label">{active ? `🗣 회의 중 · ${n}명` : "회의실 (대기)"}</div>
     </div>
   );
 }
@@ -424,6 +448,16 @@ export function OfficeView() {
     setDevTaskInit({ meeting: true });
     setDevTaskAgent(id);
   }; // 인턴 검증 회의 = 개발 작업 패널(회의 모드)
+
+  // 회의가 시작되면(참가자 모임) 자동으로 회의실 층으로 이동 — 모이는 모습을 보여준다
+  const prevMeetingCount = useRef(0);
+  useEffect(() => {
+    if (meetingMembers.length > 0 && prevMeetingCount.current === 0 && !mode3d) {
+      goFloor("meeting");
+    }
+    prevMeetingCount.current = meetingMembers.length;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetingMembers.length]);
   const [mode3d, setMode3d] = useState<boolean>(() => {
     try {
       return localStorage.getItem("ve-office-mode") === "3d";
