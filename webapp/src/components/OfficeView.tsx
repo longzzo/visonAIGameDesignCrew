@@ -313,6 +313,49 @@ function DevInternDesk({ onOpen }: { onOpen: () => void }) {
   );
 }
 
+/** 파티션 부서 — 역할별로 실제 벽으로 구분된 사무 공간 */
+function Dept({ title, hint, accent, children }: { title: string; hint?: string; accent?: string; children: React.ReactNode }) {
+  return (
+    <div className="office-dept" style={accent ? { borderColor: accent + "55" } : undefined}>
+      <div className="dept-label" style={accent ? { color: accent } : undefined}>
+        {title}
+        {hint && <span className="dept-hint dim"> {hint}</span>}
+      </div>
+      <div className="dept-desks">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * 코드 개발자 + 인턴 2인 1조 — 실제 코드에 관여하는 개발자에게 인턴을 붙여
+ * 서로 검증(개발 회의: 구현→리뷰→검증)을 자주 하게 한다.
+ * ▶ 버튼은 단독 작업, 🤝 버튼은 인턴과 함께 교차 검증 회의를 연다.
+ */
+function CodeDevPair({ agentId, onTask, onMeeting }: { agentId: string; onTask: (id: string) => void; onMeeting: (id: string) => void }) {
+  const a = AGENT_MAP[agentId];
+  const { agentStatus } = useVE();
+  const st = agentStatus[agentId] ?? "idle";
+  return (
+    <div className="code-pair">
+      <Desk agentId={agentId} onDevTask={onTask} />
+      <div className="pair-intern" title={`${a?.name}의 인턴 — 함께 검증`}>
+        <div className="pair-intern-av" style={{ borderColor: (a?.color ?? "#8b7cf6") + "66" }}>
+          🧑‍🎓
+        </div>
+        <span className="pair-intern-tag">인턴</span>
+      </div>
+      <button
+        className="pair-meeting-btn"
+        onClick={() => onMeeting(agentId)}
+        title="개발 회의 — 구현 → 코드 리뷰어 검토 → 테스트 검증으로 인턴과 교차 확인"
+      >
+        🤝 검증
+      </button>
+      {st === "running" && <span className="pair-busy">⚡</span>}
+    </div>
+  );
+}
+
 export function OfficeView() {
   const {
     projects,
@@ -332,6 +375,7 @@ export function OfficeView() {
     reviewExistingPlan,
     planReviewBusy,
     planReviewPhase,
+    meetingMembers,
   } = useVE();
   const projectName = projects.find((p) => p.id === activeProject)?.name ?? "";
   // 말풍선 TTL 갱신용 틱
@@ -345,6 +389,24 @@ export function OfficeView() {
   const [studioOpen, setStudioOpen] = useState(false);
   const [protoStudioOpen, setProtoStudioOpen] = useState(false);
   const [devTaskAgent, setDevTaskAgent] = useState<string | null>(null);
+  const [floor, setFloor] = useState<"plan" | "dev" | "meeting">(() => {
+    try {
+      const f = localStorage.getItem("ve-office-floor");
+      if (f === "plan" || f === "dev" || f === "meeting") return f;
+    } catch {
+      /* noop */
+    }
+    return "plan";
+  });
+  const goFloor = (f: "plan" | "dev" | "meeting") => {
+    try {
+      localStorage.setItem("ve-office-floor", f);
+    } catch {
+      /* noop */
+    }
+    setFloor(f);
+  };
+  const openMeeting = (id: string) => setDevTaskAgent(id); // 인턴 검증 회의 = 개발 작업 패널(회의 모드)
   const [mode3d, setMode3d] = useState<boolean>(() => {
     try {
       return localStorage.getItem("ve-office-mode") === "3d";
@@ -365,8 +427,6 @@ export function OfficeView() {
 
   const row1 = ["scenario", "gameplay", "systems", "uiux"];
   const row2 = ["balance", "bm", "scheduler", "marketing"];
-  const devRow1 = ["uarch", "ugp", "netcode", "techart"];
-  const devRow2 = ["edtool", "review", "testeng"];
 
   const bgUrl = themeImage(officeTheme, officeBg?.ts);
 
@@ -461,6 +521,20 @@ export function OfficeView() {
       </div>
       {officeBgPhase && <div className="office-bg-phase dim">{officeBgPhase}</div>}
       {planReviewPhase && <div className="office-bg-phase dim">{planReviewPhase}</div>}
+      {!mode3d && (
+        <div className="floor-nav">
+          <button className={`floor-btn ${floor === "plan" ? "on" : ""}`} onClick={() => goFloor("plan")}>
+            🏢 1F 기획팀
+          </button>
+          <button className={`floor-btn ${floor === "dev" ? "on" : ""}`} onClick={() => goFloor("dev")}>
+            🛠️ 2F 개발팀
+          </button>
+          <button className={`floor-btn ${floor === "meeting" ? "on" : ""}`} onClick={() => goFloor("meeting")}>
+            🗣️ 회의실
+            {meetingMembers.length > 0 && <span className="floor-badge">{meetingMembers.length}</span>}
+          </button>
+        </div>
+      )}
       {mode3d ? (
         <Office3D />
       ) : (
@@ -482,51 +556,71 @@ export function OfficeView() {
           <span className="office-plant p1">🪴</span>
           <span className="office-plant p2">🌿</span>
         </div>
-        <div className="office-row pm-row">
-          <Desk agentId="pm" big />
-          <Desk agentId="qa" />
-        </div>
-        <div className="office-row">
-          {row1.map((id) => (
-            <Desk key={id} agentId={id} />
-          ))}
-          <div className="art-corner">
-            <Desk agentId="td" />
-            <DevInternDesk onOpen={() => setProtoStudioOpen(true)} />
+
+        {floor === "plan" && (
+          <div className="office-depts">
+            <Dept title="🎯 PM실" hint="총괄·품질" accent="#8b7cf6">
+              <Desk agentId="pm" big />
+              <Desk agentId="qa" />
+            </Dept>
+            <Dept title="📝 기획 파트" hint="세계관·플레이·시스템·UX" accent="#60a5fa">
+              {row1.map((id) => (
+                <Desk key={id} agentId={id} />
+              ))}
+            </Dept>
+            <Dept title="📊 사업 파트" hint="밸런스·수익·마케팅·일정" accent="#fbbf24">
+              {row2.map((id) => (
+                <Desk key={id} agentId={id} />
+              ))}
+            </Dept>
+            <Dept title="🎨 아트 파트" hint="아트 디렉터 + 인턴" accent="#e879f9">
+              <Desk agentId="visual" />
+              <InternDesk onOpen={() => setStudioOpen(true)} />
+            </Dept>
           </div>
-        </div>
-        <div className="office-row">
-          {row2.map((id) => (
-            <Desk key={id} agentId={id} />
-          ))}
-          <div className="art-corner">
-            <Desk agentId="visual" />
-            <InternDesk onOpen={() => setStudioOpen(true)} />
+        )}
+
+        {floor === "dev" && (
+          <div className="office-depts">
+            <Dept title="🛠️ 선임 개발실" hint="아키텍처 + 개발 인턴" accent="#38bdf8">
+              <Desk agentId="td" onDevTask={setDevTaskAgent} />
+              <DevInternDesk onOpen={() => setProtoStudioOpen(true)} />
+            </Dept>
+            <Dept title="💻 구현 파트 — 2인 1조로 서로 검증" hint="각 개발자에 인턴 페어" accent="#a78bfa">
+              {["uarch", "ugp", "netcode", "techart", "edtool"].map((id) => (
+                <CodeDevPair key={id} agentId={id} onTask={setDevTaskAgent} onMeeting={openMeeting} />
+              ))}
+            </Dept>
+            <Dept title="🔍 검증 파트" hint="코드 리뷰 · 테스트" accent="#f43f5e">
+              {["review", "testeng"].map((id) => (
+                <Desk key={id} agentId={id} onDevTask={setDevTaskAgent} />
+              ))}
+            </Dept>
           </div>
-        </div>
-        <div className="floor-divider">
-          <span>🛠️ 개발팀 — 기획을 넘겨받아 실제 코드를 짜는 층</span>
-        </div>
-        <div className="office-row">
-          {devRow1.map((id) => (
-            <Desk key={id} agentId={id} onDevTask={setDevTaskAgent} />
-          ))}
-        </div>
-        <div className="office-row">
-          {devRow2.map((id) => (
-            <Desk key={id} agentId={id} onDevTask={setDevTaskAgent} />
-          ))}
-        </div>
-        <div className="office-row meeting-row">
-          <MeetingRoom />
-        </div>
+        )}
+
+        {floor === "meeting" && (
+          <div className="office-depts meeting-floor">
+            <MeetingRoom />
+            <div className="meeting-help dim">
+              협업 세션·기존 기획 리뷰·개발 회의가 시작되면 참가자들이 이 회의실로 모입니다.
+              <br />
+              오케스트레이션 뷰의 🤝 협업 세션, 사무실 상단 📥 기존 기획 리뷰, 개발 데스크의 🤝 검증에서 시작하세요.
+            </div>
+          </div>
+        )}
+
         <div className="office-floor" />
-        <PmWalker />
-        <MeetingWalkers />
+        {floor === "plan" && <PmWalker />}
+        {floor === "meeting" && <MeetingWalkers />}
       </div>
       )}
       <div className="office-hint dim">
-        위층 = 기획팀(GDD 작성) · 아래층 = 개발팀(코드 구현) · 캐릭터 클릭 → 1:1 대화 · ⚙ → 프로필(모델 교체) · 🖌️/🧑‍💻 인턴 → 아트·프로토타입
+        {floor === "plan"
+          ? "1층 기획팀 — 캐릭터 클릭 → 1:1 대화 · ⚙ → 프로필 · 🖌️ 아트 인턴 → 컨셉 아트"
+          : floor === "dev"
+            ? "2층 개발팀 — ▶ 단독 작업 · 🤝 검증(인턴과 교차) · 🧑‍💻 개발 인턴 → 프로토타입"
+            : "회의실 — 회의가 시작되면 참가자가 모입니다"}
       </div>
 
       {docViewer && <DocViewer tab={docViewer} onTab={setDocViewer} onClose={() => setDocViewer(null)} />}

@@ -10,6 +10,22 @@ import { uiAlert } from "../lib/dialog";
  */
 const isData = (p: string) => /\.(json|csv)$/i.test(p);
 
+/** 파일명으로 용도를 추정해 짧은 설명을 붙인다 (방치형 등 데이터 주도 게임 이해용) */
+function describeFile(path: string): string {
+  const n = path.toLowerCase();
+  if (/stat|스탯/.test(n)) return "캐릭터·유닛의 기본 능력치 테이블 (HP·공격력 등)";
+  if (/growth|curve|성장|곡선/.test(n)) return "레벨·시간에 따른 성장/증가 곡선 — 방치형 수익 곡선의 핵심";
+  if (/boss|difficult|난이도/.test(n)) return "구간별 난이도·보스 스펙 테이블";
+  if (/econom|cost|price|gold|경제|비용|가격/.test(n)) return "재화·비용·가격 등 경제 상수 (인플레이션 관리)";
+  if (/upgrade|skill|업그레이드|스킬/.test(n)) return "업그레이드·스킬 트리 데이터 (효과·비용·해금 조건)";
+  if (/enem|monster|적|몬스터/.test(n)) return "적/몬스터 정의 (스탯·드랍·출현)";
+  if (/item|드랍|아이템/.test(n)) return "아이템·드랍 테이블";
+  if (/decay|risk|리스크/.test(n)) return "감쇠·리스크 시나리오 (밸런스 검증용)";
+  if (/asset|manifest|에셋/.test(n)) return "필요 에셋 목록 (씬별·우선순위·SD프롬프트)";
+  if (/reward|보상/.test(n)) return "보상·드랍률 테이블";
+  return path.endsWith(".json") ? "JSON 데이터 파일 — 배열/객체 구조" : "CSV 테이블 — 첫 행이 헤더";
+}
+
 export function DataPanel() {
   const { activeProject, buildDevKit, devKitBusy, devKitPhase } = useVE();
   const [files, setFiles] = useState<KitFile[]>([]);
@@ -124,9 +140,12 @@ export function DataPanel() {
           )}
           {dataFiles.map((f) => (
             <button key={f.path} className={`data-file ${sel === f.path ? "on" : ""}`} onClick={() => void open(f.path)}>
-              <span className="data-file-ico">{f.path.endsWith(".json") ? "🔧" : "📊"}</span>
-              <span className="data-file-name">{f.path.replace(/^data\//, "")}</span>
-              <span className="data-file-size dim">{(f.size / 1024).toFixed(1)}KB</span>
+              <div className="data-file-top">
+                <span className="data-file-ico">{f.path.endsWith(".json") ? "🔧" : "📊"}</span>
+                <span className="data-file-name">{f.path.replace(/^data\//, "")}</span>
+                <span className="data-file-size dim">{(f.size / 1024).toFixed(1)}KB</span>
+              </div>
+              <div className="data-file-desc">{describeFile(f.path)}</div>
             </button>
           ))}
         </div>

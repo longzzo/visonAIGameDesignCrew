@@ -149,11 +149,14 @@ button { font-family: inherit; }
 }
 
 /* ── 아트 스튜디오 (아트 인턴) ────────────────────── */
-.art-studio .art-form { display: flex; gap: 8px; padding: 12px 14px 4px; flex-shrink: 0; }
-.art-studio .art-form textarea {
+/* .art-form 은 아트/프로토타입/개발작업 패널이 공용 — textarea 스타일을 전역으로 (하얀 기본 배경 방지) */
+.art-form { display: flex; gap: 8px; padding: 12px 14px 4px; flex-shrink: 0; }
+.art-form textarea,
+.art-form input[type="text"] {
   flex: 1; background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
   border-radius: 8px; padding: 9px 11px; font-size: 13px; resize: vertical; font-family: inherit;
 }
+.art-form textarea:focus { outline: none; border-color: var(--accent); }
 .art-phase { padding: 6px 16px; font-size: 12.5px; color: var(--text-dim); display: flex; align-items: center; gap: 7px; }
 .art-phase.error { color: var(--err); }
 .sd-guide { padding: 10px 14px 0; }
@@ -324,14 +327,16 @@ button { font-family: inherit; }
 .data-body { flex: 1; display: grid; grid-template-columns: 260px 1fr; min-height: 0; }
 .data-list { border-right: 1px solid var(--border); overflow-y: auto; padding: 8px; }
 .data-file {
-  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  display: block; width: 100%; text-align: left;
   background: transparent; border: 1px solid transparent; border-radius: 9px;
-  padding: 8px 10px; cursor: pointer; color: var(--text); margin-bottom: 2px; font-size: 12.5px;
+  padding: 8px 10px; cursor: pointer; color: var(--text); margin-bottom: 3px;
 }
 .data-file:hover { background: var(--panel); }
 .data-file.on { background: var(--accent-soft); border-color: rgba(139, 124, 246, 0.4); }
-.data-file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.data-file-top { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.data-file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .data-file-size { font-size: 11px; flex-shrink: 0; }
+.data-file-desc { font-size: 11px; color: var(--text-mute); line-height: 1.4; margin-top: 3px; padding-left: 22px; }
 .data-editor { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .data-editor-head {
   display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border-soft);
@@ -458,6 +463,53 @@ button { font-family: inherit; }
   border-radius: 999px; padding: 2px 12px; pointer-events: none; user-select: none;
 }
 .o3d-room-label.on { color: #c4b5fd; border-color: #8b7cf6aa; font-weight: 600; }
+
+/* 층 이동 네비 (1F 기획 / 2F 개발 / 회의실) */
+.floor-nav { display: flex; gap: 8px; padding: 10px 14px 0; }
+.floor-btn {
+  position: relative; background: var(--panel); border: 1px solid var(--border); color: var(--text-dim);
+  border-radius: 10px 10px 0 0; padding: 9px 18px; cursor: pointer; font-size: 13px; font-weight: 600;
+  border-bottom: none;
+}
+.floor-btn:hover { color: var(--text); background: var(--panel-2); }
+.floor-btn.on { background: var(--accent-soft); color: var(--accent-2); border-color: rgba(139, 124, 246, 0.45); }
+.floor-badge {
+  position: absolute; top: 3px; right: 6px; background: var(--accent); color: #fff;
+  border-radius: 999px; font-size: 10px; padding: 0 5px; min-width: 15px; text-align: center;
+}
+
+/* 부서 파티션 레이아웃 */
+.office-depts { display: flex; flex-direction: column; gap: 14px; padding: 16px; position: relative; z-index: 1; }
+.office-dept {
+  border: 1.5px solid var(--border); border-radius: 14px; padding: 12px 14px 16px;
+  background: rgba(20, 27, 43, 0.5); position: relative;
+}
+.office-room.has-bg .office-dept { background: rgba(13, 17, 24, 0.62); backdrop-filter: blur(2px); }
+.dept-label { font-size: 13px; font-weight: 700; margin-bottom: 12px; letter-spacing: 0.2px; }
+.dept-hint { font-size: 11px; font-weight: 400; }
+.dept-desks { display: flex; flex-wrap: wrap; gap: 14px 18px; align-items: flex-start; }
+
+/* 코드 개발자 + 인턴 2인 1조 */
+.code-pair {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  border: 1px dashed var(--border-soft); border-radius: 12px; padding: 8px 10px 6px; background: rgba(167, 139, 250, 0.05);
+}
+.pair-intern { display: flex; flex-direction: column; align-items: center; gap: 1px; margin-top: -4px; }
+.pair-intern-av {
+  width: 26px; height: 26px; border-radius: 8px; border: 1px solid; background: rgba(255, 255, 255, 0.04);
+  display: inline-flex; align-items: center; justify-content: center; font-size: 15px;
+}
+.pair-intern-tag { font-size: 9.5px; color: var(--text-mute); }
+.pair-meeting-btn {
+  background: var(--accent-soft); border: 1px solid rgba(139, 124, 246, 0.4); color: var(--accent-2);
+  border-radius: 7px; padding: 2px 8px; font-size: 10.5px; cursor: pointer; font-weight: 600;
+}
+.pair-meeting-btn:hover { background: rgba(139, 124, 246, 0.24); }
+.pair-busy { position: absolute; top: 4px; right: 6px; font-size: 12px; }
+
+/* 회의실 층 */
+.meeting-floor { align-items: center; padding-top: 40px; }
+.meeting-help { text-align: center; font-size: 12.5px; line-height: 1.8; margin-top: 24px; max-width: 460px; }
 
 /* 층 구분선 (기획팀 / 개발팀) */
 .floor-divider {
