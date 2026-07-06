@@ -8,8 +8,19 @@ import { useVE } from "../store";
  * 오너 요청 → 아트 디렉터가 확정 아트 방향에 맞는 SD 프롬프트 작성 → 인턴이 생성.
  */
 export function ArtStudio({ onClose }: { onClose: () => void }) {
-  const { activeProject, artStatus, checkArtStatus, artImages, artBusy, artPhase, generateArt, removeArt, attachArtToGdd } =
-    useVE();
+  const {
+    activeProject,
+    artStatus,
+    checkArtStatus,
+    artImages,
+    artBusy,
+    artPhase,
+    generateArt,
+    removeArt,
+    attachArtToGdd,
+    artProvider,
+    setArtProvider,
+  } = useVE();
   const [attached, setAttached] = useState<number[]>([]);
   const [request, setRequest] = useState("");
   const [showGuide, setShowGuide] = useState(false);
@@ -25,6 +36,10 @@ export function ArtStudio({ onClose }: { onClose: () => void }) {
   }, []);
 
   const connected = artStatus?.connected === true;
+  const nvidiaOk = artStatus?.nvidia === true;
+  // 로컬 미연결이어도 NVIDIA가 있으면(자동/NVIDIA) 생성 가능. 로컬 전용 선택 시엔 로컬 필요.
+  const canGenerate =
+    artProvider === "local" ? connected : connected || nvidiaOk;
 
   return (
     <div className="doc-viewer" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -33,11 +48,8 @@ export function ArtStudio({ onClose }: { onClose: () => void }) {
           <div className="head-meta">
             <div className="head-name">🖌️ 아트 스튜디오 — 아트 인턴</div>
             <div className="head-role dim">
-              {connected ? (
-                <>로컬 Stable Diffusion 연결됨 ✓ ({artStatus?.url})</>
-              ) : (
-                <>Stable Diffusion 미연결 — 아래 안내를 따라 설치·실행하면 활성화됩니다</>
-              )}
+              🖥️ 로컬 SD {connected ? "연결됨 ✓" : "미연결"} · ☁️ NVIDIA {nvidiaOk ? "사용 가능 ✓" : "키 없음"}
+              {connected ? ` (${artStatus?.url})` : ""}
             </div>
           </div>
           <button className="btn small" onClick={() => void checkArtStatus()}>
@@ -48,7 +60,32 @@ export function ArtStudio({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        {!connected && (
+        {/* 제공자 라우팅 선택 — 규제 소지 있는 아트는 로컬이 안전 */}
+        <div className="art-provider-bar">
+          <span className="dim">생성 위치</span>
+          {(
+            [
+              ["auto", "⚖️ 자동", "규제 소지는 로컬 · 안전한 건 NVIDIA (권장)"],
+              ["local", "🖥️ 로컬", "규제 없음·무제한 (로컬 SD 필요)"],
+              ["nvidia", "☁️ NVIDIA", "빠름·GPU 불필요 (정책 필터 있음)"],
+            ] as const
+          ).map(([val, label, tip]) => (
+            <button
+              key={val}
+              className={`art-prov-btn ${artProvider === val ? "on" : ""}`}
+              onClick={() => setArtProvider(val)}
+              title={tip}
+              disabled={artBusy}
+            >
+              {label}
+            </button>
+          ))}
+          {artProvider === "auto" && (
+            <span className="dim art-prov-hint">유혈·무기·성인 등 규제 소지 요청은 자동으로 로컬에서 생성됩니다</span>
+          )}
+        </div>
+
+        {!connected && artProvider !== "nvidia" && (
           <div className="sd-guide">
             <button className="btn small" onClick={() => setShowGuide(!showGuide)}>
               {showGuide ? "▼" : "▶"} 로컬 Stable Diffusion 설치 안내 (RTX 4060 8GB 기준, 무료)
@@ -80,9 +117,15 @@ export function ArtStudio({ onClose }: { onClose: () => void }) {
           />
           <button
             className="btn primary"
-            disabled={!connected || artBusy || !request.trim()}
+            disabled={!canGenerate || artBusy || !request.trim()}
             onClick={() => void generateArt(request)}
-            title={connected ? "아트 디렉터 프롬프트 → 로컬 SD 생성" : "Stable Diffusion을 먼저 연결하세요"}
+            title={
+              canGenerate
+                ? "아트 디렉터가 프롬프트를 쓰고 → 선택한 제공자로 생성"
+                : artProvider === "local"
+                  ? "로컬 Stable Diffusion을 먼저 연결하세요"
+                  : "로컬 SD를 연결하거나 NVIDIA 키를 등록하세요"
+            }
           >
             {artBusy ? "작업 중…" : "🖌️ 컨셉 아트 생성"}
           </button>
@@ -106,7 +149,12 @@ export function ArtStudio({ onClose }: { onClose: () => void }) {
                 <img src={artFileUrl(activeProject, img.ts)} alt={img.request ?? img.prompt} loading="lazy" />
               </a>
               <figcaption>
-                <span className="art-caption" title={`SD 프롬프트: ${img.prompt}`}>
+                <span className="art-caption" title={`프롬프트: ${img.prompt}`}>
+                  {img.provider && (
+                    <span className={`art-prov-badge ${img.provider}`}>
+                      {img.provider === "nvidia" ? "☁️ NVIDIA" : "🖥️ 로컬"}
+                    </span>
+                  )}
                   {img.request || img.prompt.slice(0, 60)}
                 </span>
                 <button

@@ -177,7 +177,12 @@ export function DocViewer() {
                       <img src={artFileUrl(activeProject, img.ts)} alt={img.request ?? img.prompt} loading="lazy" />
                     </a>
                     <figcaption>
-                      <span className="art-caption" title={`SD 프롬프트: ${img.prompt}`}>
+                      <span className="art-caption" title={`프롬프트: ${img.prompt}`}>
+                        {img.provider && (
+                          <span className={`art-prov-badge ${img.provider}`}>
+                            {img.provider === "nvidia" ? "☁️ NVIDIA" : "🖥️ 로컬"}
+                          </span>
+                        )}
                         {img.request || img.prompt.slice(0, 60)}
                       </span>
                       <div className="art-card-actions">

@@ -1047,6 +1047,17 @@ const SD_URL = process.env.VE_SD_URL || "http://127.0.0.1:7860";
 
 function artApiPlugin(): Plugin {
   const artDir = (projectId: string) => path.join(projectDir(projectId), "art");
+  // NVIDIA 이미지 제공자 + 규제 라우팅 모듈 (동적 import — 없어도 로컬 SD는 그대로 동작)
+  let imgMod: any = null;
+  const loadImg = async () => {
+    if (imgMod) return imgMod;
+    try {
+      imgMod = await import("./server/image-provider.mjs");
+    } catch {
+      imgMod = null;
+    }
+    return imgMod;
+  };
   return {
     name: "vision-engine-art-api",
     configureServer(server: ViteDevServer) {
@@ -1059,14 +1070,16 @@ function artApiPlugin(): Plugin {
             // SD 서버 연결 상태
             if (sub === "/status" && req.method === "GET") {
               res.setHeader("Content-Type", "application/json; charset=utf-8");
+              const img = await loadImg();
+              const nvidia = !!img?.nvidiaAvailable?.();
               try {
                 const ctl = new AbortController();
                 const t = setTimeout(() => ctl.abort(), 2000);
                 const r = await fetch(`${SD_URL}/sdapi/v1/options`, { signal: ctl.signal });
                 clearTimeout(t);
-                res.end(JSON.stringify({ connected: r.ok, url: SD_URL }));
+                res.end(JSON.stringify({ connected: r.ok, url: SD_URL, nvidia }));
               } catch {
-                res.end(JSON.stringify({ connected: false, url: SD_URL }));
+                res.end(JSON.stringify({ connected: false, url: SD_URL, nvidia }));
               }
               return;
             }
@@ -1119,53 +1132,122 @@ function artApiPlugin(): Plugin {
               return;
             }
 
-            // 생성
+            // 생성 — provider: "auto"(기본) | "local" | "nvidia"
             if (req.method === "POST") {
               if (blockRemoteWrite(req, res)) return;
               const j = JSON.parse((await readBody(req)) || "{}");
               const prompt = String(j.prompt ?? "").trim();
               const negative = String(j.negative ?? "").trim();
               const request = String(j.request ?? "").trim();
+              const provider = String(j.provider ?? "auto");
               if (!prompt) {
                 res.statusCode = 400;
                 res.end(JSON.stringify({ ok: false, error: "prompt 필요" }));
                 return;
               }
-              const ctl = new AbortController();
-              const t = setTimeout(() => ctl.abort(), 300_000);
-              let sd: any;
+
+              const img = await loadImg();
+              const nvidiaOk = !!img?.nvidiaAvailable?.();
+              const sensitive = !!img?.classifySensitive?.(request, prompt);
+
+              // 로컬 SD 생성 (규제 게이트 없음 — 최종 목표)
+              const genLocal = async (): Promise<string> => {
+                const ctl = new AbortController();
+                const t = setTimeout(() => ctl.abort(), 300_000);
+                try {
+                  const r = await fetch(`${SD_URL}/sdapi/v1/txt2img`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    signal: ctl.signal,
+                    body: JSON.stringify({
+                      prompt,
+                      negative_prompt:
+                        negative || "lowres, blurry, bad anatomy, watermark, text, signature, jpeg artifacts",
+                      steps: 28,
+                      width: 768,
+                      height: 512,
+                      cfg_scale: 6,
+                      sampler_name: "DPM++ 2M",
+                    }),
+                  });
+                  if (!r.ok) throw new Error(`로컬 SD 오류 (${r.status})`);
+                  const sd = await r.json();
+                  const b = sd?.images?.[0];
+                  if (!b) throw new Error("로컬 SD가 이미지를 반환하지 않았습니다");
+                  return b;
+                } finally {
+                  clearTimeout(t);
+                }
+              };
+              // NVIDIA 클라우드 생성 (콘텐츠 정책 필터 있음)
+              const genNvidia = async (): Promise<string> => {
+                const ctl = new AbortController();
+                const t = setTimeout(() => ctl.abort(), 120_000);
+                try {
+                  return await img.generateNvidiaImage(prompt, negative, { signal: ctl.signal });
+                } finally {
+                  clearTimeout(t);
+                }
+              };
+              const shortMsg = (e: any) => String(e?.message ?? e).slice(0, 90);
+
+              let b64 = "";
+              let used = "local";
+              let note = "";
               try {
-                const r = await fetch(`${SD_URL}/sdapi/v1/txt2img`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  signal: ctl.signal,
-                  body: JSON.stringify({
-                    prompt,
-                    negative_prompt:
-                      negative || "lowres, blurry, bad anatomy, watermark, text, signature, jpeg artifacts",
-                    steps: 28,
-                    width: 768,
-                    height: 512,
-                    cfg_scale: 6,
-                    sampler_name: "DPM++ 2M",
-                  }),
-                });
-                if (!r.ok) throw new Error(`SD 서버 오류 (${r.status})`);
-                sd = await r.json();
-              } finally {
-                clearTimeout(t);
+                if (provider === "local" || (provider === "auto" && !nvidiaOk && !sensitive)) {
+                  b64 = await genLocal();
+                  used = "local";
+                } else if (provider === "nvidia") {
+                  try {
+                    b64 = await genNvidia();
+                    used = "nvidia";
+                  } catch (e: any) {
+                    b64 = await genLocal();
+                    used = "local";
+                    note = `NVIDIA 실패 → 로컬 폴백 (${shortMsg(e)})`;
+                  }
+                } else if (sensitive) {
+                  // 자동: 규제 소지 → 로컬 우선 (클라우드는 이런 콘텐츠를 거부함)
+                  try {
+                    b64 = await genLocal();
+                    used = "local";
+                    note = "규제 소지 감지 → 로컬 SD로 생성";
+                  } catch (e: any) {
+                    throw new Error(
+                      `이 요청은 규제 소지(폭력·유혈·성인 등)가 있어 로컬 SD가 필요합니다. 로컬 Stable Diffusion을 연결하세요 — 클라우드는 이런 콘텐츠를 거부합니다. (${shortMsg(e)})`
+                    );
+                  }
+                } else {
+                  // 자동: 안전 + NVIDIA 사용 가능 → 클라우드, 정책 거부/실패 시 로컬 폴백
+                  try {
+                    b64 = await genNvidia();
+                    used = "nvidia";
+                  } catch (e: any) {
+                    try {
+                      b64 = await genLocal();
+                      used = "local";
+                      note = `NVIDIA ${e?.name === "PolicyRefusal" ? "정책 거부" : "실패"} → 로컬 폴백`;
+                    } catch {
+                      throw e;
+                    }
+                  }
+                }
+              } catch (e: any) {
+                res.statusCode = 502;
+                res.end(JSON.stringify({ ok: false, error: shortMsg(e) }));
+                return;
               }
-              const b64 = sd?.images?.[0];
-              if (!b64) throw new Error("SD가 이미지를 반환하지 않았습니다");
+
               fs.mkdirSync(dir, { recursive: true });
               const ts = Date.now();
               fs.writeFileSync(path.join(dir, `${ts}.png`), Buffer.from(b64, "base64"));
               fs.writeFileSync(
                 path.join(dir, `${ts}.json`),
-                JSON.stringify({ ts, prompt, negative, request }, null, 0),
+                JSON.stringify({ ts, prompt, negative, request, provider: used, note }, null, 0),
                 "utf-8"
               );
-              res.end(JSON.stringify({ ok: true, ts }));
+              res.end(JSON.stringify({ ok: true, ts, provider: used, note }));
               return;
             }
 

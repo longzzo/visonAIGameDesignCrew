@@ -79,6 +79,7 @@ import {
   generateOfficeBgImage,
   type ArtImage,
   type ArtStatus,
+  type ArtProvider,
   type OfficeBgMeta,
 } from "./lib/art";
 import { listPrototypes, savePrototype, deletePrototype, type ProtoDoc } from "./lib/proto";
@@ -223,12 +224,14 @@ interface VEState {
     error?: string;
   } | null;
 
-  /** 아트 인턴 (로컬 Stable Diffusion) */
+  /** 아트 인턴 (로컬 Stable Diffusion + NVIDIA 클라우드) */
   artStatus: ArtStatus | null;
   artImages: ArtImage[];
   artBusy: boolean;
   /** 진행 단계 표시 ("프롬프트 의뢰 중" / "이미지 생성 중") */
   artPhase: string;
+  /** 아트 생성 제공자 라우팅: auto(규제소지→로컬·안전→NVIDIA) | local | nvidia — localStorage 영속 */
+  artProvider: ArtProvider;
 
   /** 개발 인턴 (기능별 HTML 페이퍼 프로토타입) */
   protoList: ProtoDoc[];
@@ -364,6 +367,7 @@ interface VEState {
   checkArtStatus: () => Promise<void>;
   loadArt: () => Promise<void>;
   generateArt: (request: string) => Promise<void>;
+  setArtProvider: (p: ArtProvider) => void;
   removeArt: (ts: number) => Promise<void>;
   /** 컨셉 아트를 GDD "8. 아트" 섹션에 이미지로 삽입 */
   attachArtToGdd: (ts: number) => Promise<void>;
@@ -698,6 +702,15 @@ export const useVE = create<VEState>()((set, get) => {
     artImages: [],
     artBusy: false,
     artPhase: "",
+    artProvider: ((): ArtProvider => {
+      try {
+        const v = localStorage.getItem("ve-art-provider");
+        if (v === "auto" || v === "local" || v === "nvidia") return v;
+      } catch {
+        /* noop */
+      }
+      return "auto";
+    })(),
     protoList: [],
     protoBusy: false,
     protoPhase: "",
@@ -1663,17 +1676,41 @@ export const useVE = create<VEState>()((set, get) => {
         if (!parsed) throw new Error("아트 디렉터의 프롬프트를 해석하지 못했습니다");
         setAgentStatus("visual", "done");
 
-        // 2) 아트 인턴(로컬 SD)이 이미지를 생성한다
-        set({ artPhase: "🖌️ 아트 인턴이 이미지 생성 중… (로컬 GPU, 수십 초)" });
-        await generateArtImage(project, parsed.prompt, parsed.negative, req);
+        // 2) 아트 인턴이 이미지를 생성한다 (제공자 라우팅: auto/local/nvidia)
+        const prov = get().artProvider;
+        set({
+          artPhase:
+            prov === "nvidia"
+              ? "🖌️ 아트 인턴이 이미지 생성 중… (☁️ NVIDIA)"
+              : prov === "local"
+                ? "🖌️ 아트 인턴이 이미지 생성 중… (🖥️ 로컬 GPU, 수십 초)"
+                : "🖌️ 아트 인턴이 이미지 생성 중… (자동 라우팅 — 규제 소지는 로컬, 안전한 건 NVIDIA)",
+        });
+        const outcome = await generateArtImage(project, parsed.prompt, parsed.negative, req, prov);
         await get().loadArt();
+        if (outcome.note) {
+          set({ artPhase: `ℹ️ ${outcome.note}` });
+          setTimeout(() => {
+            if (!get().artBusy) set({ artPhase: "" });
+          }, 4000);
+        }
       } catch (e: any) {
         setAgentStatus("visual", "error");
         // 실패 사유는 다음 시도 전까지 스튜디오에 남겨둔다
-        set({ artBusy: false, artPhase: `⚠️ ${String(e?.message ?? e).slice(0, 120)}` });
+        set({ artBusy: false, artPhase: `⚠️ ${String(e?.message ?? e).slice(0, 160)}` });
         return;
       }
-      set({ artBusy: false, artPhase: "" });
+      set({ artBusy: false });
+      if (!get().artPhase.startsWith("ℹ️")) set({ artPhase: "" });
+    },
+
+    setArtProvider: (p) => {
+      try {
+        localStorage.setItem("ve-art-provider", p);
+      } catch {
+        /* noop */
+      }
+      set({ artProvider: p });
     },
 
     removeArt: async (ts) => {

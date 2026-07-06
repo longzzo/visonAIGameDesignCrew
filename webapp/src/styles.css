@@ -204,6 +204,26 @@ button { font-family: inherit; }
 .art-item img { width: 100%; display: block; aspect-ratio: 3/2; object-fit: cover; }
 .art-item figcaption { display: flex; align-items: center; gap: 6px; padding: 6px 8px; font-size: 11.5px; }
 .art-caption { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
+
+/* 아트 제공자 라우팅 바 + 배지 */
+.art-provider-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 16px; border-bottom: 1px solid var(--border-soft); font-size: 12px;
+}
+.art-prov-btn {
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--text-dim);
+  border-radius: 8px; padding: 5px 11px; cursor: pointer; font-size: 12px; font-weight: 600;
+}
+.art-prov-btn:hover:not(:disabled) { color: var(--text); }
+.art-prov-btn.on { background: var(--accent-soft); color: var(--accent-2); border-color: rgba(139, 124, 246, 0.45); }
+.art-prov-btn:disabled { opacity: 0.5; cursor: default; }
+.art-prov-hint { font-size: 11px; }
+.art-prov-badge {
+  display: inline-block; font-size: 9.5px; font-weight: 700; border-radius: 5px;
+  padding: 0 5px; margin-right: 5px; vertical-align: middle;
+}
+.art-prov-badge.nvidia { color: #7dd3fc; background: rgba(56, 189, 248, 0.14); }
+.art-prov-badge.local { color: #a3e635; background: rgba(163, 230, 53, 0.14); }
 .proto-frame { width: 100%; aspect-ratio: 3/2; display: block; border: 0; background: #fff; pointer-events: none; }
 .proto-item figcaption { flex-wrap: wrap; }
 .proto-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; justify-content: center; }
