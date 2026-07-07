@@ -266,6 +266,8 @@ interface VEState {
   commScope: Record<string, CommScope>;
   /** 채용/퇴사로 로스터(AGENTS 배열)가 바뀔 때마다 +1 — 로스터를 그리는 컴포넌트의 리렌더 신호 */
   rosterVersion: number;
+  /** 방금 입사한 직원 id — 3D 사무실 축하 연출(폭죽·동료 환영 인사) 트리거, ~14초 뒤 자동 해제 */
+  welcomeAgent: string | null;
   /** 직원 채용 — 서버가 페르소나 생성 + OpenClaw 설정 추가 + 게이트웨이 재시작(~10초) */
   hireAgentAction: (req: HireRequest) => Promise<void>;
   /** 채용 직원 퇴사 처리 (기본 로스터는 불가) */
@@ -785,6 +787,7 @@ export const useVE = create<VEState>()((set, get) => {
     artStudioOpen: false,
     commScope: loadCommScopes(),
     rosterVersion: 0,
+    welcomeAgent: null,
     janitorBusy: false,
     briefingBusy: false,
     knowledge: [],
@@ -1979,7 +1982,11 @@ export const useVE = create<VEState>()((set, get) => {
     hireAgentAction: async (req) => {
       const hire = await hireAgentApi(req);
       if (registerCustomAgent(hire)) {
-        set((s) => ({ rosterVersion: s.rosterVersion + 1, selected: { ...s.selected, [hire.id]: true } }));
+        set((s) => ({ rosterVersion: s.rosterVersion + 1, selected: { ...s.selected, [hire.id]: true }, welcomeAgent: hire.id }));
+        // 축하 연출 종료 — 폭죽·환영 인사를 걷고 일상으로
+        setTimeout(() => {
+          if (get().welcomeAgent === hire.id) set({ welcomeAgent: null });
+        }, 14000);
         pushFeed({
           from: "system",
           kind: "status",

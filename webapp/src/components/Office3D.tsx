@@ -120,6 +120,55 @@ const BREAK_LINE_MS = 4200;
 const BREAK_WALK_GRACE = 6000;
 type BreakInfo = { spot: V3; until: number; startedAt: number; partner?: string; convo?: number; role?: 0 | 1 };
 
+/* ── 신입 환영 연출 — 채용 직후 동료들이 몰려와 축하한다 ── */
+const WELCOME_LINES = ["환영합니다! 🎉", "잘 부탁드려요~ 👏", "커피는 휴게실에 있어요 ☕", "드디어 오셨군요! 🙌"];
+/** 새 책상 주변 환영 인사 자리 (상대 좌표) */
+const WELCOME_SPOTS: [number, number][] = [[-1.7, 0.5], [1.7, 0.5], [-0.9, 1.8], [0.9, 1.8]];
+const CONFETTI_COLORS = ["#8b7cf6", "#e879f9", "#34d399", "#fbbf24", "#f87171", "#60a5fa", "#fb923c"];
+
+/** 폭죽 — 새 책상 위로 색종이가 쏟아진다 */
+function Confetti({ pos }: { pos: V3 }) {
+  const parts = useMemo(
+    () =>
+      Array.from({ length: 44 }, (_, i) => ({
+        x: (Math.random() - 0.5) * 3.4,
+        z: (Math.random() - 0.5) * 3,
+        y: 2.2 + Math.random() * 3.2,
+        speed: 0.9 + Math.random() * 1.3,
+        spin: (Math.random() - 0.5) * 9,
+        color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+      })),
+    []
+  );
+  const refs = useRef<(Group | null)[]>([]);
+  useFrame((_, dt) => {
+    refs.current.forEach((g, i) => {
+      if (!g) return;
+      const p = parts[i];
+      g.position.y -= p.speed * dt;
+      g.rotation.x += p.spin * dt;
+      g.rotation.z += p.spin * 0.7 * dt;
+      if (g.position.y < 0.05) g.position.y = 2.2 + Math.random() * 3.2; // 다시 위에서
+    });
+  });
+  return (
+    <group position={pos}>
+      {parts.map((p, i) => (
+        <group key={i} ref={(el) => (refs.current[i] = el)} position={[p.x, p.y, p.z]}>
+          <mesh>
+            <boxGeometry args={[0.09, 0.012, 0.14]} />
+            <meshStandardMaterial color={p.color} emissive={p.color} emissiveIntensity={0.35} />
+          </mesh>
+        </group>
+      ))}
+      <Html center position={[0, 3.2, 0]} distanceFactor={11} zIndexRange={[30, 0]}>
+        <div className="o3d-welcome">🎉 신규 입사를 환영합니다!</div>
+      </Html>
+      <pointLight position={[0, 2.4, 0]} intensity={9} color="#ffd98a" distance={7} />
+    </group>
+  );
+}
+
 /** 대기 중 잡담 (샘플의 캐주얼 말풍선 — 연출용 고정 문구, LLM 호출 없음) */
 const CHATTER: string[] = [
   "오 안녕하세요 😊",
@@ -1069,6 +1118,7 @@ function OfficeScene({
   // selector 구독 — 무관한 store 변경(헬스 폴링 등)으로 씬 전체가 리렌더되지 않게
   const feed = useVE((s) => s.feed);
   const meetingMembers = useVE((s) => s.meetingMembers);
+  const welcomeAgent = useVE((s) => s.welcomeAgent);
   useVE((s) => s.rosterVersion); // 채용/퇴사 시 로스터 다시 그리기
   const P = useMemo(() => paletteFor(mode), [mode]);
   const night = mode === "night";
@@ -1154,12 +1204,30 @@ function OfficeScene({
       if (li >= 0 && li < lines.length && li % 2 === (b.role ?? 0)) breakSay[id] = lines[li];
     }
   }
+  // 신입 환영 — 같은 부서 동료(부족하면 아무나) 최대 4명이 새 책상 앞으로 모여 인사한다
+  let greeters: string[] = [];
+  const welcomeSay: Record<string, string> = {};
+  let welcomeDesk: V3 | null = null;
+  if (welcomeAgent && AGENT_MAP[welcomeAgent]) {
+    welcomeDesk = deskFor(welcomeAgent);
+    const zone = AGENT_ZONE[welcomeAgent] ?? "plan";
+    const same = AGENTS.filter((a) => a.id !== welcomeAgent && (AGENT_ZONE[a.id] ?? "") === zone).map((a) => a.id);
+    const others = AGENTS.filter((a) => a.id !== welcomeAgent && !same.includes(a.id)).map((a) => a.id);
+    greeters = [...same, ...others].filter((id) => !meetingMembers.includes(id)).slice(0, 4);
+    greeters.forEach((id, i) => {
+      welcomeSay[id] = WELCOME_LINES[i % WELCOME_LINES.length];
+    });
+  }
   const targets: Targets = {};
   for (const a of AGENTS) {
     const mi = meetingMembers.indexOf(a.id);
     const br = breaksRef.current[a.id];
+    const wi = greeters.indexOf(a.id);
     if (mi >= 0) {
       targets[a.id] = meetingSeat(mi);
+    } else if (welcomeDesk && wi >= 0) {
+      const [dx, dz] = WELCOME_SPOTS[wi % WELCOME_SPOTS.length];
+      targets[a.id] = [welcomeDesk[0] + dx, 0, welcomeDesk[2] + dz];
     } else if (a.id !== "pm" && lastReport[a.id] && now - lastReport[a.id].ts < REPORT_TTL) {
       targets[a.id] = pmFront(a.id);
     } else if (a.id === "pm" && lastPmVisit && now - lastPmVisit.ts < VISIT_TTL && AGENT_MAP[lastPmVisit.to!]) {
@@ -1203,9 +1271,11 @@ function OfficeScene({
           onSelect={onSelect}
           selected={selId === a.id}
           inMeeting={meetingMembers.includes(a.id)}
-          say={meetingMembers.includes(a.id) ? meetingSay[a.id] : breakSay[a.id]}
+          say={meetingMembers.includes(a.id) ? meetingSay[a.id] : welcomeSay[a.id] ?? breakSay[a.id]}
         />
       ))}
+      {/* 신입 환영 폭죽 — 새 책상 위 */}
+      {welcomeAgent && welcomeDesk && <Confetti key={welcomeAgent} pos={welcomeDesk} />}
 
       <CameraRig camApi={camApi} />
     </>

@@ -26,6 +26,8 @@ export function DecisionOverlay() {
     pendingKnowledge,
     approveKnowledge,
     dismissKnowledge,
+    openReport,
+    openDocViewer,
   } = useVE();
 
   const rv = reportVerify?.status === "ready" ? reportVerify : null;
@@ -81,6 +83,25 @@ export function DecisionOverlay() {
           )}
         </div>
         <div className="decision-verdict dim">{((rv ? rv.verdict : pk!.summary || pk!.reason) ?? "").slice(0, 400)}</div>
+        {/* 반영안 미리보기 — 무엇이 GDD에 들어가는지 보고 결정한다 */}
+        {rv?.finalText && (
+          <div className="decision-preview">
+            <div className="decision-preview-head">
+              <b>📄 반영안 미리보기</b> <span className="dim">— 승인하면 이 내용이 GDD 섹션에 들어갑니다</span>
+              <button
+                className="btn tiny"
+                onClick={() => {
+                  void openReport(rv.ts);
+                  openDocViewer("reports");
+                }}
+                title="보고서 원문 전체를 큰 화면으로"
+              >
+                원문 보기
+              </button>
+            </div>
+            <div className="decision-preview-body">{rv.finalText.slice(0, 1600)}{rv.finalText.length > 1600 ? "\n…(원문 보기에서 계속)" : ""}</div>
+          </div>
+        )}
         <div className="decision-opts">
           {rv ? (
             <>

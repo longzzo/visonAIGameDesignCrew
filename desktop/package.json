@@ -1,6 +1,6 @@
 {
   "name": "vision-engine-desktop",
-  "version": "2.1.1",
+  "version": "3.4.0",
   "private": true,
   "description": "Vision Engine — 게임 개발 멀티에이전트 스튜디오 (데스크톱 셸)",
   "main": "main.cjs",
@@ -34,8 +34,10 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
       "shortcutName": "Vision Engine",
+      "runAfterFinish": true,
       "artifactName": "VisionEngine-Setup-${version}.${ext}"
     }
   }

@@ -393,6 +393,8 @@ function pdfTextApiPlugin(): Plugin {
             res.end(JSON.stringify({ ok: false, error: "POST only" }));
             return;
           }
+          // OCR은 CPU를 크게 쓰므로 원격 읽기전용 모드에서는 차단
+          if (blockRemoteWrite(req, res)) return;
           try {
             const buf = await readRawBody(req);
             if (buf.length < 5 || buf.subarray(0, 5).toString("latin1") !== "%PDF-") {
@@ -468,6 +470,88 @@ function blockRemoteWrite(req: any, res: any): boolean {
   res.end(JSON.stringify({ ok: false, error: "원격 읽기전용 모드입니다 — 이 작업은 PC에서만 가능합니다 (VE_REMOTE_MODE=readonly)" }));
   return true;
 }
+
+/* ── 전역 보안 가드 — DNS 리바인딩·CSRF 차단 ────────────
+ * ① Host 검증(모든 요청): 악성 사이트가 자기 도메인을 127.0.0.1로 리바인딩해
+ *    브라우저 경유로 이 서버를 때리는 공격을 막는다. IP 리터럴·localhost·
+ *    Tailscale(*.ts.net)·VE_ALLOWED_HOSTS(쉼표 구분 접미사)만 허용.
+ * ② Origin 검증(쓰기 요청): 오너가 방문한 임의의 웹사이트가 no-cors POST로
+ *    로컬 API(페르소나 수정·MCP 호출 등)를 몰래 부르는 CSRF를 막는다.
+ *    브라우저 아닌 클라이언트(curl 등)는 Origin이 없으므로 통과.
+ */
+const EXTRA_HOSTS = (process.env.VE_ALLOWED_HOSTS ?? "")
+  .split(",")
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
+
+function hostnameAllowed(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (!h) return false;
+  if (h === "localhost" || h.endsWith(".localhost")) return true;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h)) return true; // IPv4 리터럴 (127.0.0.1 / LAN / tailnet IP)
+  if (h.includes(":")) return true; // IPv6 리터럴
+  if (h.endsWith(".ts.net")) return true; // Tailscale MagicDNS
+  return EXTRA_HOSTS.some((x) => h === x || h.endsWith("." + x));
+}
+
+function securityGuardPlugin(): Plugin {
+  return {
+    name: "vision-engine-security-guard",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use((req: any, res: any, next: any) => {
+        const host = String(req.headers?.host ?? "").replace(/:\d+$/, "");
+        if (!hostnameAllowed(host)) {
+          res.statusCode = 403;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end("차단됨: 허용되지 않은 Host 헤더 (DNS rebinding 방어). 필요하면 VE_ALLOWED_HOSTS 환경변수에 호스트를 추가하세요.");
+          return;
+        }
+        const method = String(req.method ?? "GET").toUpperCase();
+        const origin = String(req.headers?.origin ?? "");
+        if (origin && method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+          let oHost = "";
+          try {
+            oHost = new URL(origin).hostname;
+          } catch {
+            /* 형식 불명 Origin은 아래에서 차단 */
+          }
+          if (!hostnameAllowed(oHost)) {
+            res.statusCode = 403;
+            res.setHeader("Content-Type", "application/json; charset=utf-8");
+            res.end(JSON.stringify({ ok: false, error: "차단됨: 외부 사이트에서 온 쓰기 요청 (CSRF 방어)" }));
+            return;
+          }
+        }
+        next();
+      });
+    },
+  };
+}
+
+/* ── 서버측 비용 가드 — IP당 10분 슬라이딩 윈도 호출 상한 ──
+ * 클라이언트 가드(상단 🪙)를 우회하는 경로(직접 호출·다중 탭·폭주 스크립트)의 백스톱.
+ */
+const rateBuckets = new Map<string, number[]>();
+function rateLimited(req: any, res: any, key: string, max: number): boolean {
+  const ip = String(req?.socket?.remoteAddress ?? "?");
+  const k = `${key}:${ip}`;
+  const now = Date.now();
+  const arr = (rateBuckets.get(k) ?? []).filter((t) => now - t < 600_000);
+  if (arr.length >= max) {
+    rateBuckets.set(k, arr);
+    res.statusCode = 429;
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.end(JSON.stringify({ ok: false, error: `🛑 서버 비용 가드 — 10분당 ${key} 호출 한도(${max}회)를 넘었습니다. 에이전트가 폭주 중일 수 있어 차단했습니다. 잠시 후 다시 시도하세요.` }));
+    return true;
+  }
+  arr.push(now);
+  rateBuckets.set(k, arr);
+  return false;
+}
+const AGENT_MAX_10MIN = Math.max(10, Number(process.env.VE_AGENT_MAX_10MIN) || 120);
+const DEVTASK_MAX_10MIN = Math.max(2, Number(process.env.VE_DEVTASK_MAX_10MIN) || 12);
+/** 개발 작업(실파일 관여)은 기본 PC 로컬 전용 — 폰에서도 쓰려면 VE_ALLOW_REMOTE_DEVTASK=1 */
+const ALLOW_REMOTE_DEVTASK = process.env.VE_ALLOW_REMOTE_DEVTASK === "1";
 
 /**
  * 소프트 삭제 — 즉시 지우지 않고 같은 위치의 .trash/ 폴더로 옮긴다.
@@ -872,6 +956,7 @@ function chatsApiPlugin(): Plugin {
               return;
             }
             if (req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
               const { feed } = JSON.parse((await readBody(req)) || "{}");
               if (!Array.isArray(feed)) {
                 res.statusCode = 400;
@@ -1652,6 +1737,9 @@ function protoApiPlugin(): Plugin {
               }
               res.setHeader("Content-Type", "text/html; charset=utf-8");
               res.setHeader("Cache-Control", "max-age=86400");
+              // 에이전트가 만든 HTML은 불투명 출처(opaque origin)로 격리 —
+              // 프로토타입 안의 스크립트가 이 서버의 API를 같은 출처로 호출하지 못하게 한다
+              res.setHeader("Content-Security-Policy", "sandbox allow-scripts allow-pointer-lock");
               fs.createReadStream(f).pipe(res);
               return;
             }
@@ -1964,6 +2052,8 @@ function kitApiPlugin(): Plugin {
               }
               const mime = f.endsWith(".html") ? "text/html" : f.endsWith(".csv") ? "text/csv" : "text/plain";
               res.setHeader("Content-Type", `${mime}; charset=utf-8`);
+              // 에이전트 산출 HTML(그레이박스 등)은 불투명 출처로 격리 — API 접근 차단
+              if (f.endsWith(".html")) res.setHeader("Content-Security-Policy", "sandbox allow-scripts allow-pointer-lock");
               fs.createReadStream(f).pipe(res);
               return;
             }
@@ -2406,6 +2496,8 @@ function agentBridgePlugin(): Plugin {
         }
         // 원격 읽기전용 모드에서는 에이전트 실행도 차단 (열람만 허용)
         if (blockRemoteWrite(req, res)) return;
+        // 서버측 비용 가드 — 클라이언트 가드를 우회한 폭주(다중 탭·스크립트)의 백스톱
+        if (rateLimited(req, res, "LLM 실행", AGENT_MAX_10MIN)) return;
         let body = "";
         req.on("data", (c) => (body += c));
         req.on("end", () => {
@@ -2425,6 +2517,16 @@ function agentBridgePlugin(): Plugin {
           if (!agentId || !message) {
             res.statusCode = 400;
             res.end(JSON.stringify({ ok: false, error: "agentId, message 필요" }));
+            return;
+          }
+          if (!isSafeId(agentId)) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ ok: false, error: "잘못된 agentId" }));
+            return;
+          }
+          if (message.length > 120_000) {
+            res.statusCode = 413;
+            res.end(JSON.stringify({ ok: false, error: "메시지가 너무 깁니다 (120,000자 제한)" }));
             return;
           }
           const entry = findOpenclawEntry();
@@ -2583,6 +2685,15 @@ function devTaskApiPlugin(): Plugin {
         return;
       }
       if (blockRemoteWrite(req, res)) return;
+      // 개발 작업은 실제 파일에 관여(MCP write/exec) — 기본 PC 로컬 전용
+      if (!ALLOW_REMOTE_DEVTASK && !isLocalReq(req)) {
+        res.statusCode = 403;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify({ ok: false, error: "보안: 개발 작업(실파일 관여)은 PC에서만 실행할 수 있습니다 (VE_ALLOW_REMOTE_DEVTASK=1로 해제 가능)" }));
+        return;
+      }
+      // 서버측 비용 가드 — 개발 작업은 1회당 최대 12스텝의 LLM 호출을 유발한다
+      if (rateLimited(req, res, "개발 작업", DEVTASK_MAX_10MIN)) return;
       res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
       res.setHeader("Cache-Control", "no-cache");
       res.setHeader("Connection", "keep-alive");
@@ -2630,6 +2741,7 @@ function devTaskApiPlugin(): Plugin {
 
 export default defineConfig({
   plugins: [
+    securityGuardPlugin(), // 반드시 첫 번째 — 모든 요청의 Host/Origin 검증
     react(),
     projectsApiPlugin(),
     gddApiPlugin(),
