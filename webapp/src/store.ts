@@ -44,9 +44,12 @@ import {
   janitorFeedPrompt,
   janitorChatPrompt,
   DEFAULT_REPORT_TOPIC,
+  registerCustomAgent,
+  unregisterCustomAgent,
   type AgentDef,
   type WebMode,
 } from "./lib/agents";
+import { listHires, hireAgentApi, fireAgentApi, type HireRequest } from "./lib/hire";
 import {
   listKnowledge,
   saveKnowledge,
@@ -116,7 +119,7 @@ import {
   type ProjectInfo,
   type GddVersion,
 } from "./lib/gdd";
-import { loadCommScopes, saveCommScopes, scopeMutual, type CommScope } from "./lib/zones";
+import { loadCommScopes, saveCommScopes, scopeMutual, zoneOf, type CommScope } from "./lib/zones";
 
 export type View = "studio" | "orch" | "chat" | "office" | "data";
 export type MobilePanel = "agents" | "work" | "gdd";
@@ -259,8 +262,14 @@ interface VEState {
   /** 아트 스튜디오(아트 인턴 SD 작업실) 모달 열림 */
   artStudioOpen: boolean;
 
-  /** 에이전트별 소통 범위 (전체/부서 내/커스텀) — 교차 검토·협업 세션에 적용, localStorage 영속 */
+  /** 에이전트별 소통 범위 (전체/부서 내/커스텀/피드 위탁) — 교차 검토·협업 세션에 적용, localStorage 영속 */
   commScope: Record<string, CommScope>;
+  /** 채용/퇴사로 로스터(AGENTS 배열)가 바뀔 때마다 +1 — 로스터를 그리는 컴포넌트의 리렌더 신호 */
+  rosterVersion: number;
+  /** 직원 채용 — 서버가 페르소나 생성 + OpenClaw 설정 추가 + 게이트웨이 재시작(~10초) */
+  hireAgentAction: (req: HireRequest) => Promise<void>;
+  /** 채용 직원 퇴사 처리 (기본 로스터는 불가) */
+  fireAgentAction: (id: string) => Promise<void>;
   /** 사무실 관리인 — 피드·채팅이 커지면 자동 요약 정리(compact) 중 */
   janitorBusy: boolean;
 
@@ -606,11 +615,22 @@ export const useVE = create<VEState>()((set, get) => {
     const excluded = members.slice(1).filter((m) => !scopeMutual(scopes, members[0].id, m.id));
     if (excluded.length > 0) {
       members = members.filter((m) => !excluded.includes(m));
-      pushFeed({
-        from: "system",
-        kind: "status",
-        text: `🔇 소통 범위 설정에 따라 ${excluded.map((m) => m.name).join("·")}은(는) 이번 협업에서 제외됩니다.`,
-      });
+      const feedOnes = excluded.filter((m) => scopes[m.id]?.mode === "feed");
+      const silenced = excluded.filter((m) => !feedOnes.includes(m));
+      if (feedOnes.length > 0) {
+        pushFeed({
+          from: "system",
+          kind: "status",
+          text: `📮 피드 위탁 — ${feedOnes.map((m) => m.name).join("·")}은(는) 회의에 직접 참여하지 않고 결론을 이 피드로 전달받습니다.`,
+        });
+      }
+      if (silenced.length > 0) {
+        pushFeed({
+          from: "system",
+          kind: "status",
+          text: `🔇 소통 범위 설정에 따라 ${silenced.map((m) => m.name).join("·")}은(는) 이번 협업에서 제외됩니다.`,
+        });
+      }
     }
     const lead = members[0];
     set({ meetingMembers: members.map((m) => m.id) });
@@ -764,6 +784,7 @@ export const useVE = create<VEState>()((set, get) => {
     docViewer: null,
     artStudioOpen: false,
     commScope: loadCommScopes(),
+    rosterVersion: 0,
     janitorBusy: false,
     briefingBusy: false,
     knowledge: [],
@@ -807,6 +828,18 @@ export const useVE = create<VEState>()((set, get) => {
       initialized = true;
       gateway.onStatus((s, detail) => set({ conn: s, connDetail: detail }));
       gateway.onEvent(handleEvent);
+      // 채용된 직원 복원 — AGENTS 로스터에 등록하고 회의 투입 목록에 포함
+      void listHires().then((hires) => {
+        const sel: Record<string, boolean> = {};
+        let added = 0;
+        for (const h of hires) {
+          if (registerCustomAgent(h)) {
+            sel[h.id] = true;
+            added++;
+          }
+        }
+        if (added > 0) set((s) => ({ rosterVersion: s.rosterVersion + 1, selected: { ...sel, ...s.selected } }));
+      });
       void get().loadBraveStatus();
       await get().loadProjects();
       void get().loadGdd();
@@ -1290,10 +1323,14 @@ export const useVE = create<VEState>()((set, get) => {
             const reviewerId = REVIEWERS[agent.id];
             // 소통 범위 — 작성자↔검토자가 서로 허용 범위 밖이면 검토를 건너뛴다
             if (get().crossReview && reviewerId && !scopeMutual(get().commScope, agent.id, reviewerId)) {
+              const scopes = get().commScope;
+              const viaFeed = scopes[agent.id]?.mode === "feed" || scopes[reviewerId]?.mode === "feed";
               pushFeed({
                 from: "system",
                 kind: "status",
-                text: `🔇 소통 범위 설정에 따라 ${AGENT_MAP[reviewerId].name}의 ${agent.name} 초안 검토를 건너뜁니다.`,
+                text: viaFeed
+                  ? `📮 피드 위탁 — ${AGENT_MAP[reviewerId].name}의 동료 검토 없이 ${agent.name}의 초안이 피드로 공유됩니다.`
+                  : `🔇 소통 범위 설정에 따라 ${AGENT_MAP[reviewerId].name}의 ${agent.name} 초안 검토를 건너뜁니다.`,
               });
             } else if (get().crossReview && reviewerId && !get().stopRequested) {
               const reviewer = AGENT_MAP[reviewerId];
@@ -1935,6 +1972,37 @@ export const useVE = create<VEState>()((set, get) => {
       const next = { ...get().commScope, [id]: scope };
       saveCommScopes(next);
       set({ commScope: next });
+    },
+
+    /* ── 직원 채용/퇴사 (동적 로스터) ──────────────────── */
+
+    hireAgentAction: async (req) => {
+      const hire = await hireAgentApi(req);
+      if (registerCustomAgent(hire)) {
+        set((s) => ({ rosterVersion: s.rosterVersion + 1, selected: { ...s.selected, [hire.id]: true } }));
+        pushFeed({
+          from: "system",
+          kind: "status",
+          text: `👋 신규 입사 — ${hire.emoji} ${hire.name}(${hire.role})이(가) ${zoneOf(hire.zone).label}에 합류했습니다. 게이트웨이 재시작(~10초) 후 대화·회의에 참여할 수 있고, GDD "${hire.section}. " 섹션을 담당합니다.`,
+        });
+      }
+    },
+
+    fireAgentAction: async (id) => {
+      const name = AGENT_MAP[id]?.name ?? id;
+      await fireAgentApi(id);
+      unregisterCustomAgent(id);
+      set((s) => {
+        const selected = { ...s.selected };
+        delete selected[id];
+        return {
+          rosterVersion: s.rosterVersion + 1,
+          selected,
+          profileAgent: s.profileAgent === id ? null : s.profileAgent,
+          activeAgent: s.activeAgent === id ? "pm" : s.activeAgent,
+        };
+      });
+      pushFeed({ from: "system", kind: "status", text: `🚪 퇴사 — ${name} 님이 스튜디오를 떠났습니다.` });
     },
 
     /* ── 사무실 관리인 — 자동 정리(compact) ───────────── */

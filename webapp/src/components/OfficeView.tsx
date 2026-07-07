@@ -5,6 +5,7 @@ import { uiPrompt } from "../lib/dialog";
 import { AgentSprite } from "./AgentSprite";
 import { Office3D, ZONES, zoneOfAgent, type CamApi } from "./Office3D";
 import { DevTaskPanel } from "./DevTaskPanel";
+import { HireModal } from "./HireModal";
 import { PrototypeStudio } from "./PrototypeStudio";
 import { WorkstreamBoard } from "./WorkstreamBoard";
 import { useVE, type FeedMsg } from "../store";
@@ -412,6 +413,8 @@ export function OfficeView() {
     selected,
     toggleSelected,
   } = useVE();
+  useVE((s) => s.rosterVersion); // 채용/퇴사 시 로스터 다시 그리기
+  const [hireOpen, setHireOpen] = useState(false);
   const projectName = projects.find((p) => p.id === activeProject)?.name ?? "";
   // 말풍선 TTL 갱신용 틱
   const [, tick] = useState(0);
@@ -568,8 +571,12 @@ export function OfficeView() {
             <button className="os-abtn" onClick={() => setArtStudioOpen(true)} title="아트 인턴 — 컨셉 아트 생성">
               🖌️
             </button>
-            <button className="os-abtn" onClick={() => setProtoStudioOpen(true)} title="개발 인턴 — HTML 프로토타입">
-              🧑‍💻
+            <button
+              className="os-abtn"
+              onClick={() => setProtoStudioOpen(true)}
+              title="시뮬레이터 — 개발 인턴의 플레이 가능한 그레이박스·와이어프레임 프로토타입"
+            >
+              🕹️
             </button>
             <button
               className="os-abtn"
@@ -652,6 +659,9 @@ export function OfficeView() {
                   </div>
                 );
               })}
+              <button className="os-hire" onClick={() => setHireOpen(true)} title="새 전문가를 채용해 팀에 합류시킵니다">
+                ➕ 직원 채용
+              </button>
             </div>
           )}
         </div>
@@ -701,6 +711,7 @@ export function OfficeView() {
         </div>
 
         <DecisionOverlay />
+        {hireOpen && <HireModal onClose={() => setHireOpen(false)} />}
         {boardOpen && <WorkstreamBoard onClose={() => setBoardOpen(false)} />}
         {protoStudioOpen && <PrototypeStudio onClose={() => setProtoStudioOpen(false)} />}
         {devTaskAgent && (

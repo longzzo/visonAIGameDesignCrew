@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AGENTS, AGENT_MAP, REVIEWERS } from "../lib/agents";
 import { uiAlert, uiConfirm, uiPrompt } from "../lib/dialog";
 import { getModelsInfo, registerModelKey, setAgentModels, type ModelsInfo } from "../lib/models";
+import { saveTemp, tempOf, TEMP_DEFAULT } from "../lib/tuning";
 import { zoneOfAgent } from "../lib/zones";
 import { AgentSprite } from "./AgentSprite";
 import { useVE } from "../store";
@@ -12,7 +13,7 @@ import { useVE } from "../store";
  * 팀 안에서의 관계(담당 섹션·검토자)와 활동(작업·보고서·학습 지식)을 한눈에 본다.
  */
 export function AgentProfile() {
-  const { profileAgent, closeProfile, selectAgent, feed, reports, knowledge, agentHealth, commScope, setCommScope } = useVE();
+  const { profileAgent, closeProfile, selectAgent, feed, reports, knowledge, agentHealth, commScope, setCommScope, fireAgentAction } = useVE();
   const id = profileAgent ?? "";
   const a = AGENT_MAP[id];
   const scope = commScope[id] ?? { mode: "all" as const, allow: [] };
@@ -20,6 +21,9 @@ export function AgentProfile() {
   const [models, setModels] = useState<ModelsInfo | null>(null);
   const [draft, setDraft] = useState("");
   const [applying, setApplying] = useState(false);
+  // 창의성(온도) — 슬라이더 값은 localStorage 영속, 프롬프트 지시문으로 반영
+  const [temp, setTemp] = useState(TEMP_DEFAULT);
+  useEffect(() => setTemp(tempOf(id)), [id]);
   // 페르소나(AGENTS.md) 편집기
   const [personaOpen, setPersonaOpen] = useState(false);
   const [personaText, setPersonaText] = useState("");
@@ -158,6 +162,22 @@ export function AgentProfile() {
           <button className="btn small" onClick={openPersona} title="이 에이전트의 페르소나(AGENTS.md)를 직접 편집합니다 — 말투·전문성·규칙">
             📝 페르소나 편집
           </button>
+          {a.custom && (
+            <button
+              className="btn small danger"
+              onClick={() => {
+                void uiConfirm(`${a.name} 퇴사 처리`, {
+                  message: "로스터와 OpenClaw 설정에서 제거됩니다 (게이트웨이 재시작 ~10초). 페르소나 파일과 GDD 섹션 내용은 보존됩니다.",
+                  confirmLabel: "🚪 퇴사",
+                }).then((ok) => {
+                  if (ok) void fireAgentAction(id).catch((e) => void uiAlert("퇴사 처리 실패", String(e?.message ?? e)));
+                });
+              }}
+              title="채용된 직원을 퇴사시킵니다"
+            >
+              🚪 퇴사
+            </button>
+          )}
           <button className="btn small" onClick={closeProfile} title="닫기 (Esc)">
             ✕ 닫기
           </button>
@@ -209,6 +229,26 @@ export function AgentProfile() {
                     {applying ? "적용 중…" : dirty ? "✅ 이 에이전트만 적용" : "변경 없음"}
                   </button>
                 </div>
+                <div className="temp-slider">
+                  <span title="창의성(온도) — 게이트웨이가 모델 temperature를 노출하지 않아 작업 스타일 지시문으로 반영됩니다">
+                    🎚 창의성 <b>{temp}</b>/10
+                    {temp === TEMP_DEFAULT ? <span className="dim"> (기본)</span> : temp < TEMP_DEFAULT ? " — 보수적" : " — 대담"}
+                  </span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={10}
+                    value={temp}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      setTemp(v);
+                      saveTemp(id, v);
+                    }}
+                  />
+                  <span className="dim temp-note">
+                    낮음 = 확정 사실만·정확성 우선 / 높음 = 과감한 제안 우선. 다음 작업부터 적용.
+                  </span>
+                </div>
                 <div className="profile-keys">
                   {!models.providers.nvidia && (
                     <button className="btn tiny" onClick={() => void onRegisterKey("nvidia")}>
@@ -259,6 +299,7 @@ export function AgentProfile() {
                   ["all", "전체", "모든 동료와 검토·협업 (기본)"],
                   ["dept", "부서 내", `같은 부서(${zoneOfAgent(id).label})끼리만`],
                   ["custom", "커스텀", "아래에서 고른 동료와만"],
+                  ["feed", "📮 피드 위탁", "회의·교차검토에 직접 참여하지 않고 결론만 피드로 받아봅니다 (개인 작업·1:1 대화는 그대로)"],
                 ] as const
               ).map(([m, label, tip]) => (
                 <button
@@ -294,7 +335,9 @@ export function AgentProfile() {
               </div>
             )}
             <div className="dim scope-note">
-              범위 밖 동료와는 교차 검토·협업 세션이 자동으로 생략됩니다. PM·QA(게이트 역할)는 항상 소통 가능합니다.
+              {scope.mode === "feed"
+                ? "📮 피드 위탁 — 이 직원은 회의에 불려가지 않고, 회의 결론·검토 결과를 피드로만 전달받습니다. 개인 배정 작업과 1:1 대화는 평소대로 합니다."
+                : "범위 밖 동료와는 교차 검토·협업 세션이 자동으로 생략됩니다. PM·QA(게이트 역할)는 항상 소통 가능합니다."}
             </div>
           </div>
 

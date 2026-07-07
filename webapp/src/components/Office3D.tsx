@@ -17,7 +17,7 @@ import { useVE, type FeedMsg } from "../store";
 type V3 = [number, number, number];
 
 /* ── 존 정의 — lib/zones 공유 (store의 소통 범위 판정과 동일 소스) ── */
-import { ZONES, zoneOfAgent, type ZoneDef } from "../lib/zones";
+import { ZONES, zoneOfAgent, AGENT_ZONE, type ZoneDef } from "../lib/zones";
 export { ZONES, zoneOfAgent, type ZoneDef };
 
 /* ── 좌석 배치 (x, z) — 단층 플레이트 ────────────────── */
@@ -50,9 +50,28 @@ const DESK_POS: Record<string, V3> = {
 };
 const MEETING_CENTER: V3 = [3.5, 0, -8.5];
 
+/** 채용 직원(게스트) 책상 슬롯 — 부서 러그의 빈 자리 */
+const GUEST_SLOTS: Record<string, [number, number][]> = {
+  plan: [[-5, 2.2], [-14.2, 2.2]],
+  dev: [[12.9, 2.2], [0.9, 2.2]],
+  biz: [[-11.2, 9.6], [-8, 9.6]],
+  art: [[-3.9, 9.6], [-1.3, 9.6]],
+  qa: [[10.4, 9.6], [13.1, 9.6]],
+};
+
+/** 책상 위치 — 기본 로스터는 고정 좌석, 채용 직원은 부서의 게스트 슬롯 */
+const deskFor = (id: string): V3 => {
+  if (DESK_POS[id]) return DESK_POS[id];
+  const zone = AGENT_ZONE[id] ?? "plan";
+  const peers = AGENTS.filter((a) => a.custom && (AGENT_ZONE[a.id] ?? "plan") === zone).map((a) => a.id);
+  const slots = GUEST_SLOTS[zone] ?? GUEST_SLOTS.plan;
+  const [x, z] = slots[Math.max(0, peers.indexOf(id)) % slots.length];
+  return [x, 0, z];
+};
+
 /** 캐릭터 기본 위치 = 책상 뒤(카메라 반대편) */
 const homeOf = (id: string): V3 => {
-  const d = DESK_POS[id] ?? [0, 0, 0];
+  const d = deskFor(id);
   return [d[0], 0, d[2] - 0.9];
 };
 /** 회의 좌석 — 긴 테이블 양쪽 + 양 끝 */
@@ -73,6 +92,33 @@ const pmFront = (id: string): V3 => {
 
 const REPORT_TTL = 7000;
 const VISIT_TTL = 7000;
+
+/* ── 휴게실 — 좌석·서있는 자리·2인 잡담 대본 (연출용, LLM 호출 없음) ── */
+const LOUNGE_TABLE: V3 = [12.5, 0, -8.6];
+const LOUNGE_SEATS: [number, number][] = [
+  [11.6, -10.15], [12.5, -10.15], [13.4, -10.15], // 북쪽 소파
+  [11.6, -7.05], [12.5, -7.05], [13.4, -7.05], // 남쪽 소파 (마주 보기)
+];
+/** 마주 보는 좌석 짝 (북i ↔ 남i) */
+const LOUNGE_PAIRS: [number, number][] = [[0, 3], [1, 4], [2, 5]];
+/** 커피머신 · 자판기 · 정수기 앞 */
+const LOUNGE_STANDS: [number, number][] = [[16, -10.1], [16.2, -6.7], [10, -10.4]];
+const seatV3 = (i: number): V3 => [LOUNGE_SEATS[i][0], 0, LOUNGE_SEATS[i][1]];
+/** 번갈아 말하는 2인 대본 — 짝수 줄 = 먼저 자리 잡은 쪽 */
+const CONVOS: string[][] = [
+  ["어제 그 인디 게임 해보셨어요?", "네! 코어 루프가 진짜 탄탄하던데요", "우리 것도 그 정도는 가야죠 💪"],
+  ["커피 내렸어요, 한 잔 하실래요? ☕", "감사합니다~ 오늘 유난히 길었네요", "그래도 기획이 착착 붙는 느낌이에요"],
+  ["밸런스 표 숫자 보셨어요?", "성장 곡선이 좀 가파르긴 해요", "다음 회의 때 얘기해봐요"],
+  ["아트 무드보드 나온 거 봤어요? 🎨", "색감 진짜 좋던데요", "그 톤이면 마케팅도 잘 풀릴 듯"],
+  ["점심 뭐 드실 거예요?", "국밥이요. 고민할 힘도 아껴야죠 😄", "저도 따라갈래요"],
+  ["QA에서 또 반려 받았어요 😅", "구체성 점수가 원래 짜요", "덕분에 문서가 좋아지긴 하죠"],
+  ["신작 트레일러 보셨어요?", "연출은 좋은데 루프가 안 보이더라고요", "우리는 루프부터 보여줘요"],
+  ["스트레칭 좀 하고 가요 🙆", "허리가 남아나질 않네요", "의자 탓이라고 해두죠"],
+];
+const BREAK_LINE_MS = 4200;
+/** 걷는 시간 감안 — 도착 후쯤부터 대사 시작 */
+const BREAK_WALK_GRACE = 6000;
+type BreakInfo = { spot: V3; until: number; startedAt: number; partner?: string; convo?: number; role?: 0 | 1 };
 
 /** 대기 중 잡담 (샘플의 캐주얼 말풍선 — 연출용 고정 문구, LLM 호출 없음) */
 const CHATTER: string[] = [
@@ -125,6 +171,7 @@ const FOCUS: Record<string, { pos: V3; tgt: V3 }> = {
   art: { pos: [-1.5, 7, 14.5], tgt: [-1.5, 0.4, 8] },
   qa: { pos: [11.75, 7, 14.5], tgt: [11.75, 0.4, 8] },
   meet: { pos: [3.5, 8, -0.5], tgt: [3.5, 0.6, -8.5] },
+  lounge: { pos: [13.4, 7.5, -1.4], tgt: [13.4, 0.5, -8.5] },
 };
 
 export type CamApi = {
@@ -174,7 +221,8 @@ function Person({
     return () => clearInterval(t);
   }, []);
   const idleChat = st === "idle" && !inMeeting && !walking ? chatter : "";
-  const bubbleText = st === "running" && peek ? peek : inMeeting ? say ?? "" : idleChat;
+  // say = 회의 발언 또는 휴게실 잡담 대사 (짧은 문장 — 앞에서부터 표시)
+  const bubbleText = st === "running" && peek ? peek : say ? say : idleChat;
 
   useFrame((state, dt) => {
     const g = ref.current;
@@ -194,9 +242,12 @@ function Person({
     } else {
       g.position.y = st === "running" ? Math.abs(Math.sin(t * 7 + phase)) * 0.05 : Math.sin(t * 1.6 + phase) * 0.02;
       const atMeeting = Math.hypot(g.position.x - MEETING_CENTER[0], g.position.z - MEETING_CENTER[2]) < 3.6;
+      const atLounge = Math.hypot(g.position.x - LOUNGE_TABLE[0], g.position.z - LOUNGE_TABLE[2]) < 3.2;
       const face = atMeeting
         ? Math.atan2(MEETING_CENTER[0] - g.position.x, MEETING_CENTER[2] - g.position.z)
-        : 0;
+        : atLounge
+          ? Math.atan2(LOUNGE_TABLE[0] - g.position.x, LOUNGE_TABLE[2] - g.position.z)
+          : 0;
       g.rotation.y += (face - g.rotation.y) * Math.min(dt * 6, 1);
       if (walking) setWalking(false);
     }
@@ -286,7 +337,7 @@ function Person({
       {bubbleText && !walking && (
         <Html center position={[0, 2.15, 0]} distanceFactor={11} zIndexRange={[20, 0]}>
           <div className={`o3d-bubble ${speaking ? "speaking" : ""}`}>
-            {bubbleText.replace(/[#*>`]/g, "").replace(/\s+/g, " ").slice(inMeeting && !peek ? 0 : -46).slice(0, 64)}
+            {bubbleText.replace(/[#*>`]/g, "").replace(/\s+/g, " ").slice(say && !peek ? 0 : -46).slice(0, 64)}
           </div>
         </Html>
       )}
@@ -624,6 +675,131 @@ function MeetingRoom({ P, active }: { P: Pal; active: boolean }) {
   );
 }
 
+/* ── 휴게실 (소파·커피머신·자판기·정수기 — 대기 직원들의 잡담 공간) ── */
+function Sofa({ pos, facing, color }: { pos: V3; facing: 1 | -1; color: string }) {
+  // facing 1 = +z(테이블) 방향으로 앉는다 → 등받이는 -z 쪽
+  return (
+    <group position={pos}>
+      <mesh castShadow position={[0, 0.26, 0]}>
+        <boxGeometry args={[3.3, 0.34, 0.95]} />
+        <meshStandardMaterial color={color} />
+      </mesh>
+      <mesh castShadow position={[0, 0.62, -0.4 * facing]}>
+        <boxGeometry args={[3.3, 0.55, 0.2]} />
+        <meshStandardMaterial color={color} />
+      </mesh>
+      {[-1.68, 1.68].map((x) => (
+        <mesh key={x} position={[x, 0.42, 0]}>
+          <boxGeometry args={[0.18, 0.5, 0.95]} />
+          <meshStandardMaterial color={color} />
+        </mesh>
+      ))}
+      {/* 쿠션 */}
+      {[-0.9, 0.9].map((x) => (
+        <mesh key={`c${x}`} position={[x, 0.48, -0.3 * facing]} rotation={[0.25 * facing, 0, 0]}>
+          <boxGeometry args={[0.45, 0.4, 0.14]} />
+          <meshStandardMaterial color="#f2e2c4" />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function Lounge({ P, night }: { P: Pal; night: boolean }) {
+  const [cx, cz] = [LOUNGE_TABLE[0], LOUNGE_TABLE[2]];
+  return (
+    <group>
+      {/* 원형 러그 + 마주 보는 소파 2 + 커피 테이블 */}
+      <mesh position={[cx, 0.016, cz]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[2.7, 28]} />
+        <meshStandardMaterial color={night ? "#5a4a36" : "#eddcc2"} />
+      </mesh>
+      <Sofa pos={[cx, 0, cz - 2.15]} facing={1} color="#e0955a" />
+      <Sofa pos={[cx, 0, cz + 2.15]} facing={-1} color="#e0955a" />
+      <group position={[cx, 0, cz]}>
+        <mesh castShadow position={[0, 0.34, 0]}>
+          <boxGeometry args={[1.5, 0.07, 0.8]} />
+          <meshStandardMaterial color={P.wood} />
+        </mesh>
+        {[[-0.6, -0.28], [0.6, -0.28], [-0.6, 0.28], [0.6, 0.28]].map(([x, z], i) => (
+          <mesh key={i} position={[x, 0.17, z]}>
+            <cylinderGeometry args={[0.03, 0.03, 0.34, 6]} />
+            <meshStandardMaterial color="#8a6a44" />
+          </mesh>
+        ))}
+        {/* 머그 2개 */}
+        <mesh position={[-0.3, 0.42, 0.1]}>
+          <cylinderGeometry args={[0.05, 0.04, 0.09, 10]} />
+          <meshStandardMaterial color="#d9822b" />
+        </mesh>
+        <mesh position={[0.35, 0.42, -0.12]}>
+          <cylinderGeometry args={[0.05, 0.04, 0.09, 10]} />
+          <meshStandardMaterial color="#7c9cd6" />
+        </mesh>
+      </group>
+      {/* 커피 카운터 + 머신 (우하단) */}
+      <group position={[16.9, 0, -10.3]}>
+        <mesh castShadow position={[0, 0.45, 0]}>
+          <boxGeometry args={[1.5, 0.9, 0.95]} />
+          <meshStandardMaterial color="#3f4656" />
+        </mesh>
+        <mesh position={[-0.3, 1.13, 0]}>
+          <boxGeometry args={[0.45, 0.46, 0.45]} />
+          <meshStandardMaterial color="#22262f" emissive="#ff9c4a" emissiveIntensity={0.25} />
+        </mesh>
+        <mesh position={[0.4, 0.95, 0.1]}>
+          <cylinderGeometry args={[0.05, 0.04, 0.1, 10]} />
+          <meshStandardMaterial color="#e8e2d6" />
+        </mesh>
+        <pointLight position={[0, 1.6, 0.4]} intensity={night ? 4 : 1} color="#ffd9a8" distance={4} />
+      </group>
+      {/* 자판기 (우상단) — 밤에 발광 */}
+      <group position={[17.15, 0, -6.5]}>
+        <mesh castShadow position={[0, 1, 0]}>
+          <boxGeometry args={[0.95, 2, 0.8]} />
+          <meshStandardMaterial color="#c8455a" />
+        </mesh>
+        <mesh position={[-0.1, 1.25, -0.41]} rotation={[0, Math.PI, 0]}>
+          <planeGeometry args={[0.55, 1.15]} />
+          <meshStandardMaterial color="#eaf2ff" emissive="#bcd6ff" emissiveIntensity={night ? 0.9 : 0.25} />
+        </mesh>
+        <mesh position={[0.32, 0.65, -0.41]} rotation={[0, Math.PI, 0]}>
+          <planeGeometry args={[0.18, 0.3]} />
+          <meshStandardMaterial color="#20242c" />
+        </mesh>
+      </group>
+      {/* 정수기 (좌하단) */}
+      <group position={[9.5, 0, -10.9]}>
+        <mesh position={[0, 0.5, 0]}>
+          <boxGeometry args={[0.42, 1, 0.42]} />
+          <meshStandardMaterial color="#e8ecf2" />
+        </mesh>
+        <mesh position={[0, 1.22, 0]}>
+          <cylinderGeometry args={[0.16, 0.19, 0.42, 12]} />
+          <meshStandardMaterial color="#7cb8e8" transparent opacity={0.75} />
+        </mesh>
+      </group>
+      {/* 책꽂이 + 화분 + 스탠딩 사인 */}
+      <group position={[17.3, 0, -8.4]}>
+        <mesh castShadow position={[0, 0.8, 0]}>
+          <boxGeometry args={[0.35, 1.6, 1.5]} />
+          <meshStandardMaterial color="#8a6a44" />
+        </mesh>
+        {[0.45, 0.95, 1.35].map((y, r) =>
+          [-0.45, -0.1, 0.28].map((z, i) => (
+            <mesh key={`${r}-${i}`} position={[-0.05, y, z]}>
+              <boxGeometry args={[0.22, 0.3, 0.22]} />
+              <meshStandardMaterial color={["#d9822b", "#7c9cd6", "#5aa06a", "#c8455a"][(r + i) % 4]} />
+            </mesh>
+          ))
+        )}
+      </group>
+      <Plant pos={[9.4, 0, -6.1]} s={1.15} P={P} />
+      <pointLight position={[cx, 2.6, cz]} intensity={night ? 10 : 3} color="#ffdfb0" distance={8} />
+    </group>
+  );
+}
+
 /* ── 도시 (플레이트 밖) ─────────────────────────────── */
 const BUILDINGS: [number, number, number, number, number][] = [
   // x, z, w(d), h, variant
@@ -893,12 +1069,64 @@ function OfficeScene({
   // selector 구독 — 무관한 store 변경(헬스 폴링 등)으로 씬 전체가 리렌더되지 않게
   const feed = useVE((s) => s.feed);
   const meetingMembers = useVE((s) => s.meetingMembers);
+  useVE((s) => s.rosterVersion); // 채용/퇴사 시 로스터 다시 그리기
   const P = useMemo(() => paletteFor(mode), [mode]);
   const night = mode === "night";
   const targetsRef = useRef<Targets>({});
+  const breaksRef = useRef<Record<string, BreakInfo>>({});
   const [, tick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => tick((n) => n + 1), 1500);
+    return () => clearInterval(t);
+  }, []);
+
+  // 휴게실 스케줄러 — 한가한 직원을 가끔 소파(2인 잡담)나 커피머신 앞으로 보낸다
+  useEffect(() => {
+    const t = setInterval(() => {
+      const s = useVE.getState();
+      const br = breaksRef.current;
+      const nowMs = Date.now();
+      // 만료·업무 복귀 정리 (한쪽이 일하러 가면 파트너도 함께 복귀)
+      for (const id of Object.keys(br)) {
+        const busy = (s.agentStatus[id] ?? "idle") === "running" || s.meetingMembers.includes(id);
+        if (br[id].until < nowMs || busy) {
+          const p = br[id].partner;
+          delete br[id];
+          if (p && br[p]) delete br[p];
+        }
+      }
+      if (s.orchRunning) return; // 회의 진행 중엔 놀러 가지 않는다
+      const onBreak = Object.keys(br);
+      if (onBreak.length >= 5 || Math.random() > 0.55) return;
+      const idle = AGENTS.map((a) => a.id).filter(
+        (id) => (s.agentStatus[id] ?? "idle") === "idle" && !s.meetingMembers.includes(id) && !br[id]
+      );
+      if (idle.length === 0) return;
+      const pick = () => idle.splice(Math.floor(Math.random() * idle.length), 1)[0];
+      const usedSpots = new Set(onBreak.map((id) => br[id].spot.join(",")));
+      if (idle.length >= 2 && Math.random() < 0.62) {
+        // 둘이 소파에 마주 앉아 잡담
+        const pair = LOUNGE_PAIRS.find(
+          ([a, b]) => !usedSpots.has(seatV3(a).join(",")) && !usedSpots.has(seatV3(b).join(","))
+        );
+        if (!pair) return;
+        const a = pick();
+        const b = pick();
+        const convo = Math.floor(Math.random() * CONVOS.length);
+        const until = nowMs + BREAK_WALK_GRACE + CONVOS[convo].length * BREAK_LINE_MS + 5000;
+        br[a] = { spot: seatV3(pair[0]), until, startedAt: nowMs, partner: b, convo, role: 0 };
+        br[b] = { spot: seatV3(pair[1]), until, startedAt: nowMs, partner: a, convo, role: 1 };
+      } else {
+        // 혼자 커피·자판기·정수기
+        const free = LOUNGE_STANDS.map(([x, z]) => [x, 0, z] as V3).filter((v) => !usedSpots.has(v.join(",")));
+        if (free.length === 0) return;
+        br[pick()] = {
+          spot: free[Math.floor(Math.random() * free.length)],
+          until: nowMs + 13000 + Math.random() * 10000,
+          startedAt: nowMs,
+        };
+      }
+    }, 5000);
     return () => clearInterval(t);
   }, []);
 
@@ -917,16 +1145,28 @@ function OfficeScene({
         meetingSay[m.from] = m.text;
     }
   }
+  // 휴게실 잡담 대사 — 마주 앉은 둘이 번갈아 말한다 (걷는 시간만큼 지연 후 시작)
+  const breakSay: Record<string, string> = {};
+  for (const [id, b] of Object.entries(breaksRef.current)) {
+    if (b.partner && b.convo !== undefined) {
+      const li = Math.floor((now - b.startedAt - BREAK_WALK_GRACE) / BREAK_LINE_MS);
+      const lines = CONVOS[b.convo];
+      if (li >= 0 && li < lines.length && li % 2 === (b.role ?? 0)) breakSay[id] = lines[li];
+    }
+  }
   const targets: Targets = {};
   for (const a of AGENTS) {
     const mi = meetingMembers.indexOf(a.id);
+    const br = breaksRef.current[a.id];
     if (mi >= 0) {
       targets[a.id] = meetingSeat(mi);
     } else if (a.id !== "pm" && lastReport[a.id] && now - lastReport[a.id].ts < REPORT_TTL) {
       targets[a.id] = pmFront(a.id);
-    } else if (a.id === "pm" && lastPmVisit && now - lastPmVisit.ts < VISIT_TTL && DESK_POS[lastPmVisit.to!]) {
-      const d = DESK_POS[lastPmVisit.to!];
+    } else if (a.id === "pm" && lastPmVisit && now - lastPmVisit.ts < VISIT_TTL && AGENT_MAP[lastPmVisit.to!]) {
+      const d = deskFor(lastPmVisit.to!);
       targets[a.id] = [d[0] - 1.1, 0, d[2] + 1.2];
+    } else if (br && now < br.until) {
+      targets[a.id] = br.spot;
     } else {
       targets[a.id] = homeOf(a.id);
     }
@@ -944,9 +1184,10 @@ function OfficeScene({
       <Plate P={P} night={night} />
       <CeoRoom P={P} />
       <MeetingRoom P={P} active={meetingMembers.length > 0} />
+      <Lounge P={P} night={night} />
 
       {AGENTS.map((a) => (
-        <Desk key={`d-${a.id}`} pos={DESK_POS[a.id]} P={P} seed={[...a.id].reduce((s, ch) => s + ch.charCodeAt(0), 0)} />
+        <Desk key={`d-${a.id}`} pos={deskFor(a.id)} P={P} seed={[...a.id].reduce((s, ch) => s + ch.charCodeAt(0), 0)} />
       ))}
       {/* 인턴 빈자리 — 아트 인턴(SD)·개발 인턴(프로토타입) */}
       <Desk pos={[0.2, 0, 8]} P={P} seed={3} />
@@ -962,7 +1203,7 @@ function OfficeScene({
           onSelect={onSelect}
           selected={selId === a.id}
           inMeeting={meetingMembers.includes(a.id)}
-          say={meetingSay[a.id]}
+          say={meetingMembers.includes(a.id) ? meetingSay[a.id] : breakSay[a.id]}
         />
       ))}
 

@@ -13,6 +13,8 @@ export interface AgentDef {
   staff?: boolean;
   /** 작업 단계: plan(기획, 기본) | dev(개발). 개발팀은 GDD 섹션 대신 코드/산출물을 다룬다. */
   phase?: "plan" | "dev";
+  /** 오너가 직접 채용한 직원 (동적 등록 — 퇴사 가능) */
+  custom?: boolean;
 }
 
 export const AGENTS: AgentDef[] = [
@@ -48,6 +50,44 @@ export const AGENT_MAP: Record<string, AgentDef> = Object.fromEntries(
 
 /** PM·지원 역할을 제외한 전문 에이전트 목록 (오케스트레이션 팬아웃 대상) */
 export const SPECIALISTS = AGENTS.filter((a) => a.id !== "pm" && !a.staff);
+
+/* ── 오너 채용 직원 (동적 등록) ─────────────────────────
+ * AGENTS/SPECIALISTS/AGENT_MAP을 제자리(in-place)에서 확장한다 —
+ * 기존 import들이 같은 배열 참조를 쓰므로 재할당 없이 전체에 반영된다.
+ * UI 갱신은 store의 rosterVersion 카운터가 담당한다.
+ */
+import { AGENT_ZONE } from "./zones";
+import type { HireInfo } from "./hire";
+
+export function registerCustomAgent(h: HireInfo): AgentDef | null {
+  if (AGENT_MAP[h.id]) return null;
+  const def: AgentDef = {
+    id: h.id,
+    name: h.name,
+    emoji: h.emoji || "🙋",
+    role: h.role,
+    section: `## ${h.section}.`,
+    sectionTitle: (h.role.split(/[·,(/—-]/)[0].trim() || h.name).slice(0, 14),
+    color: h.color || "#7dd3fc",
+    custom: true,
+  };
+  AGENTS.push(def);
+  SPECIALISTS.push(def);
+  AGENT_MAP[def.id] = def;
+  AGENT_ZONE[def.id] = h.zone;
+  return def;
+}
+
+export function unregisterCustomAgent(id: string): void {
+  const def = AGENT_MAP[id];
+  if (!def?.custom) return;
+  const ai = AGENTS.indexOf(def);
+  if (ai >= 0) AGENTS.splice(ai, 1);
+  const si = SPECIALISTS.indexOf(def);
+  if (si >= 0) SPECIALISTS.splice(si, 1);
+  delete AGENT_MAP[id];
+  delete AGENT_ZONE[id];
+}
 
 /**
  * 교차 검토 배정 — 각 산출물을 가장 이해관계가 얽힌 동료가 검토한다.

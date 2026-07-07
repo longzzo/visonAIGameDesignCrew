@@ -18,6 +18,8 @@ export const ZONES: ZoneDef[] = [
   { id: "art", label: "아트 스튜디오", dot: "#e879f9", rug: [-1.5, 8, 6, 4.8], rugDay: "#f7dcee", rugNight: "#523a52" },
   { id: "qa", label: "품질 검수", dot: "#f87171", rug: [11.75, 8, 8.6, 4.8], rugDay: "#f9dcdc", rugNight: "#573a3c" },
   { id: "meet", label: "회의실", dot: "#a78bfa", rug: [3.5, -8.5, 9.4, 6.4], rugDay: "#e7e2f6", rugNight: "#413a5c" },
+  // 휴게실 — 소속 에이전트 없음. 대기 중인 직원들이 놀러 와 잡담하는 연출 공간.
+  { id: "lounge", label: "휴게실", dot: "#fb923c", rug: [13.4, -8.5, 9, 6.4], rugDay: "#f5e6d3", rugNight: "#4d4234" },
 ];
 
 export const zoneOf = (id: string): ZoneDef => ZONES.find((z) => z.id === id) ?? ZONES[1];
@@ -37,7 +39,8 @@ export const zoneOfAgent = (id: string): ZoneDef => zoneOf(AGENT_ZONE[id] ?? "pl
 export const sameDept = (a: string, b: string): boolean => (AGENT_ZONE[a] ?? "?") === (AGENT_ZONE[b] ?? "!");
 
 /* ── 소통 범위 (에이전트 간 협업·검토 허용 범위) ────────── */
-export type CommScopeMode = "all" | "dept" | "custom";
+/** feed = 피드 위탁: 회의·교차검토에 직접 참여하지 않고 결론을 피드로만 받아본다 (개인 작업·1:1 대화는 그대로) */
+export type CommScopeMode = "all" | "dept" | "custom" | "feed";
 export interface CommScope {
   mode: CommScopeMode;
   /** custom일 때 허용된 상대 에이전트 id 목록 */
@@ -67,6 +70,7 @@ export function scopeAllows(scopes: Record<string, CommScope>, a: string, b: str
   if (a === "pm" || b === "pm" || a === "qa" || b === "qa") return true;
   const s = scopes[a];
   if (!s || s.mode === "all") return true;
+  if (s.mode === "feed") return false;
   if (s.mode === "dept") return sameDept(a, b);
   return (s.allow ?? []).includes(b);
 }

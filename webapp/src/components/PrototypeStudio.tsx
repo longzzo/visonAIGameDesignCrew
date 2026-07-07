@@ -27,8 +27,8 @@ export function PrototypeStudio({ onClose }: { onClose: () => void }) {
       <div className="doc-window art-studio">
         <div className="doc-head">
           <div className="head-meta">
-            <div className="head-name">🧑‍💻 프로토타입 스튜디오 — 개발 인턴</div>
-            <div className="head-role dim">선임 개발자가 확정한 개발 명세 중 기능 하나를 골라 HTML 페이퍼 프로토타입을 뽑습니다</div>
+            <div className="head-name">🕹️ 시뮬레이터 — 개발 인턴 프로토타입</div>
+            <div className="head-role dim">개발 명세의 기능 하나를 골라 즉시 만져볼 수 있는 HTML 프로토타입·그레이박스로 시뮬레이션합니다</div>
           </div>
           <button className="btn small" onClick={onClose} title="닫기 (Esc)">
             ✕ 닫기

@@ -1699,3 +1699,40 @@ button { font-family: inherit; }
 .scope-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
 .scope-chips .chip.on { background: var(--accent-soft); }
 .scope-note { font-size: 11px; line-height: 1.5; }
+
+/* ── v3.3: 직원 채용 모달 ── */
+.hire-modal { width: min(560px, 94vw); max-height: 88vh; }
+.hire-body { padding: 14px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 11px; }
+.hire-row { display: flex; flex-direction: column; gap: 5px; }
+.hire-row > label { font-size: 12px; font-weight: 700; color: var(--text-dim); }
+.hire-row input, .hire-row textarea {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; font-size: 13px; font-family: inherit; resize: vertical;
+}
+.hire-row input:focus, .hire-row textarea:focus { border-color: var(--accent); outline: none; }
+.hire-emojis { display: flex; flex-wrap: wrap; gap: 5px; }
+.hire-emoji {
+  width: 34px; height: 34px; font-size: 17px; background: var(--panel-2);
+  border: 1px solid var(--border); border-radius: 8px; cursor: pointer;
+}
+.hire-emoji.on { border-color: var(--accent); background: var(--accent-soft); }
+.hire-depts { display: flex; flex-wrap: wrap; gap: 5px; }
+.hire-depts .scope-mode { display: inline-flex; align-items: center; gap: 5px; }
+.hire-note { font-size: 11px; line-height: 1.55; }
+.hire-actions { display: flex; gap: 8px; }
+.os-hire {
+  margin: 6px 8px 8px; padding: 7px 10px; width: calc(100% - 16px);
+  background: var(--panel-2); border: 1px dashed var(--border); border-radius: 9px;
+  color: var(--text-dim); cursor: pointer; font-size: 12.5px; font-weight: 600;
+}
+.os-hire:hover { color: var(--accent-2); border-color: var(--accent); }
+
+/* ── v3.3: 창의성(온도) 슬라이더 (프로필 창) ── */
+.temp-slider { display: flex; flex-direction: column; gap: 4px; margin: 9px 0 7px; font-size: 12.5px; }
+.temp-slider input[type="range"] { width: 100%; accent-color: var(--accent); }
+.temp-note { font-size: 11px; }
+
+/* ── v3.3: 결정 모달 자동 승인 (옵트인) ── */
+.decision-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.decision-auto { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-size: 12px; color: var(--text); }
+.decision-auto input { accent-color: var(--accent); }
