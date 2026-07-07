@@ -1379,6 +1379,19 @@ export function Office3D({
     const t = setInterval(() => retick((n) => n + 1), 60_000);
     return () => clearInterval(t);
   }, []);
+  // 창이 백그라운드(가려짐)면 브라우저가 ResizeObserver 콜백을 스로틀해
+  // Canvas가 크기(기본 300×150)를 못 재고 씬이 검게 남는다 — resize를 쏴서 측정을 강제
+  useEffect(() => {
+    const kick = () => window.dispatchEvent(new Event("resize"));
+    const t1 = setTimeout(kick, 400);
+    const t2 = setTimeout(kick, 2000);
+    document.addEventListener("visibilitychange", kick);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      document.removeEventListener("visibilitychange", kick);
+    };
+  }, []);
   const hour = new Date().getHours();
   const mode: "day" | "night" =
     officeTheme === "day" ? "day" : officeTheme === "night" ? "night" : hour >= 7 && hour < 18 ? "day" : "night";
