@@ -41,6 +41,8 @@ import {
   balanceDataPrompt,
   assetManifestPrompt,
   unityKitPrompt,
+  janitorFeedPrompt,
+  janitorChatPrompt,
   DEFAULT_REPORT_TOPIC,
   type AgentDef,
   type WebMode,
@@ -114,6 +116,7 @@ import {
   type ProjectInfo,
   type GddVersion,
 } from "./lib/gdd";
+import { loadCommScopes, saveCommScopes, scopeMutual, type CommScope } from "./lib/zones";
 
 export type View = "studio" | "orch" | "chat" | "office" | "data";
 export type MobilePanel = "agents" | "work" | "gdd";
@@ -256,6 +259,11 @@ interface VEState {
   /** 아트 스튜디오(아트 인턴 SD 작업실) 모달 열림 */
   artStudioOpen: boolean;
 
+  /** 에이전트별 소통 범위 (전체/부서 내/커스텀) — 교차 검토·협업 세션에 적용, localStorage 영속 */
+  commScope: Record<string, CommScope>;
+  /** 사무실 관리인 — 피드·채팅이 커지면 자동 요약 정리(compact) 중 */
+  janitorBusy: boolean;
+
   /** PM 오늘의 브리핑 진행 중 */
   briefingBusy: boolean;
 
@@ -391,6 +399,13 @@ interface VEState {
   closeDocViewer: () => void;
   setArtStudioOpen: (b: boolean) => void;
 
+  /** 소통 범위 설정 (에이전트별) */
+  setCommScope: (id: string, scope: CommScope) => void;
+  /** 관리인 — 오케스트레이션 피드가 임계치를 넘으면 오래된 대화를 PM 요약으로 접는다 */
+  compactFeed: () => Promise<void>;
+  /** 관리인 — 1:1 채팅이 길어지면 오래된 메시지를 요약으로 접는다 */
+  compactChat: (agentId: string) => Promise<void>;
+
   /** PM 오늘의 브리핑 — 현황·오늘 추천 작업·리스크를 PM 대화방으로 받는다 */
   dailyBriefing: () => Promise<void>;
 
@@ -455,6 +470,12 @@ let persistQueue: Promise<void> = Promise.resolve();
 let feedSeq = 0;
 /** 진행 중 오케스트레이션의 중단 컨트롤러 — ⏹ 클릭 시 실행 중 호출까지 즉시 끊는다 */
 let orchAbort: AbortController | null = null;
+
+/* 사무실 관리인 임계치 — 피드/채팅이 이 길이를 넘으면 오래된 부분을 요약으로 접는다 */
+const JANITOR_FEED_MAX = 240;
+const JANITOR_FEED_KEEP = 120;
+const JANITOR_CHAT_MAX = 80;
+const JANITOR_CHAT_KEEP = 36;
 
 const readKey = (project: string) => `ve-reports-read:${project}`;
 function loadReadSet(project: string): number[] {
@@ -577,6 +598,17 @@ export const useVE = create<VEState>()((set, get) => {
     overview: string
   ) => {
     let transcript = "";
+    // 소통 범위 — 리드와 서로 대화할 수 없는 멤버는 회의에서 제외
+    const scopes = get().commScope;
+    const excluded = members.slice(1).filter((m) => !scopeMutual(scopes, members[0].id, m.id));
+    if (excluded.length > 0) {
+      members = members.filter((m) => !excluded.includes(m));
+      pushFeed({
+        from: "system",
+        kind: "status",
+        text: `🔇 소통 범위 설정에 따라 ${excluded.map((m) => m.name).join("·")}은(는) 이번 협업에서 제외됩니다.`,
+      });
+    }
     const lead = members[0];
     set({ meetingMembers: members.map((m) => m.id) });
     try {
@@ -728,6 +760,8 @@ export const useVE = create<VEState>()((set, get) => {
     profileAgent: null,
     docViewer: null,
     artStudioOpen: false,
+    commScope: loadCommScopes(),
+    janitorBusy: false,
     briefingBusy: false,
     knowledge: [],
     pendingKnowledge: null,
@@ -800,6 +834,16 @@ export const useVE = create<VEState>()((set, get) => {
       }, 4000);
       // 시스템 헬스 신호등 갱신
       setInterval(() => void get().loadHealth(), 20000);
+      // 사무실 관리인 — 대화가 임계치를 넘으면 (회의 중이 아닐 때) 자동 정리
+      setInterval(() => {
+        const s = get();
+        if (s.orchRunning || s.janitorBusy) return;
+        if (s.feed.length >= JANITOR_FEED_MAX) void s.compactFeed();
+        else {
+          const long = Object.keys(s.chats).find((id) => (s.chats[id]?.length ?? 0) >= JANITOR_CHAT_MAX && !s.chatBusy[id]);
+          if (long) void s.compactChat(long);
+        }
+      }, 45000);
       // 게이트웨이 자동 재연결 — 재시작(10초)보다 긴 주기로 계속 시도해
       // "한 번 실패하면 영영 끊김" 문제를 없앤다 (성공하면 no-op)
       setInterval(() => {
@@ -1234,7 +1278,14 @@ export const useVE = create<VEState>()((set, get) => {
 
             let final = draft;
             const reviewerId = REVIEWERS[agent.id];
-            if (get().crossReview && reviewerId && !get().stopRequested) {
+            // 소통 범위 — 작성자↔검토자가 서로 허용 범위 밖이면 검토를 건너뛴다
+            if (get().crossReview && reviewerId && !scopeMutual(get().commScope, agent.id, reviewerId)) {
+              pushFeed({
+                from: "system",
+                kind: "status",
+                text: `🔇 소통 범위 설정에 따라 ${AGENT_MAP[reviewerId].name}의 ${agent.name} 초안 검토를 건너뜁니다.`,
+              });
+            } else if (get().crossReview && reviewerId && !get().stopRequested) {
               const reviewer = AGENT_MAP[reviewerId];
               try {
                 updateCard(agent.id, { phase: `${reviewer.name} 검토 중` });
@@ -1868,6 +1919,78 @@ export const useVE = create<VEState>()((set, get) => {
     setArtStudioOpen: (b) => {
       set({ artStudioOpen: b });
       if (b) void get().checkArtStatus();
+    },
+
+    setCommScope: (id, scope) => {
+      const next = { ...get().commScope, [id]: scope };
+      saveCommScopes(next);
+      set({ commScope: next });
+    },
+
+    /* ── 사무실 관리인 — 자동 정리(compact) ───────────── */
+
+    compactFeed: async () => {
+      const st = get();
+      // 진행 중 회의를 건드리지 않고, 접을 분량이 실제로 있을 때만
+      if (st.janitorBusy || st.orchRunning || st.feed.length < JANITOR_FEED_MAX) return;
+      const project = st.activeProject;
+      if (!project) return;
+      set({ janitorBusy: true });
+      const cut = st.feed.length - JANITOR_FEED_KEEP;
+      const old = st.feed.slice(0, cut);
+      const keep = st.feed.slice(cut);
+      const finish = (noteText: string) => {
+        const note: FeedMsg = { id: `jan-${Date.now()}`, from: "system", kind: "status", text: noteText, ts: Date.now() };
+        const feed = [note, ...keep];
+        set({ feed });
+        persistQueue = persistQueue.then(() => saveFeedHistory(project, feed));
+      };
+      try {
+        const src = old
+          .map((m) => `[${m.from}${m.to ? "→" + m.to : ""}·${m.kind}] ${m.text.replace(/\s+/g, " ").slice(0, 220)}`)
+          .join("\n")
+          .slice(-11000);
+        const r = await gateway.runAgent("pm", janitorFeedPrompt(src), `janitor-${project}-${Date.now().toString(36)}`);
+        const digest = sanitizeAgentOutput(r.text).slice(0, 2200);
+        addUsage(r.usage, digest);
+        finish(`🧹 관리인 정리 — 이전 대화 ${old.length}건을 요약해 접었습니다.\n\n${digest}`);
+      } catch {
+        // 요약 실패해도 무한 재시도하지 않도록 접기만 한다 (원문은 이미 프로젝트 히스토리에 있음)
+        finish(`🧹 관리인 정리 — 오래된 대화 ${old.length}건을 접었습니다 (요약 모델 호출 실패, 원문은 히스토리 보존).`);
+      } finally {
+        set({ janitorBusy: false });
+      }
+    },
+
+    compactChat: async (agentId) => {
+      const st = get();
+      const msgs = st.chats[agentId] ?? [];
+      if (st.janitorBusy || st.chatBusy[agentId] || msgs.length < JANITOR_CHAT_MAX) return;
+      set({ janitorBusy: true });
+      const cut = msgs.length - JANITOR_CHAT_KEEP;
+      const old = msgs.slice(0, cut);
+      const keep = msgs.slice(cut);
+      try {
+        const src = old
+          .map((m) => `[${m.role === "user" ? "오너" : "에이전트"}] ${m.text.replace(/\s+/g, " ").slice(0, 240)}`)
+          .join("\n")
+          .slice(-9000);
+        const r = await gateway.runAgent("pm", janitorChatPrompt(AGENT_MAP[agentId]?.name ?? agentId, src), `janitor-chat-${Date.now().toString(36)}`);
+        const digest = sanitizeAgentOutput(r.text).slice(0, 1800);
+        addUsage(r.usage, digest);
+        const note: ChatMessage = {
+          id: `jan-${Date.now()}`,
+          role: "assistant",
+          text: `🧹 [관리인 요약] 이전 대화 ${old.length}건 정리\n\n${digest}`,
+          ts: Date.now(),
+        };
+        set((s) => ({ chats: { ...s.chats, [agentId]: [note, ...keep] } }));
+        persistChat(agentId);
+      } catch {
+        /* 채팅 압축 실패는 조용히 넘어간다 — 다음 임계치에서 재시도 */
+      } finally {
+        set({ janitorBusy: false });
+      }
     },
 
     /* ── PM 오늘의 브리핑 (데일리 스탠드업) ─────────── */

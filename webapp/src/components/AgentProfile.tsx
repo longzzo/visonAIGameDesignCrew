@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { AGENT_MAP, REVIEWERS } from "../lib/agents";
+import { AGENTS, AGENT_MAP, REVIEWERS } from "../lib/agents";
 import { uiAlert, uiConfirm, uiPrompt } from "../lib/dialog";
 import { getModelsInfo, registerModelKey, setAgentModels, type ModelsInfo } from "../lib/models";
+import { zoneOfAgent } from "../lib/zones";
 import { AgentSprite } from "./AgentSprite";
 import { useVE } from "../store";
 
@@ -11,9 +12,10 @@ import { useVE } from "../store";
  * 팀 안에서의 관계(담당 섹션·검토자)와 활동(작업·보고서·학습 지식)을 한눈에 본다.
  */
 export function AgentProfile() {
-  const { profileAgent, closeProfile, selectAgent, feed, reports, knowledge, agentHealth } = useVE();
+  const { profileAgent, closeProfile, selectAgent, feed, reports, knowledge, agentHealth, commScope, setCommScope } = useVE();
   const id = profileAgent ?? "";
   const a = AGENT_MAP[id];
+  const scope = commScope[id] ?? { mode: "all" as const, allow: [] };
 
   const [models, setModels] = useState<ModelsInfo | null>(null);
   const [draft, setDraft] = useState("");
@@ -197,6 +199,54 @@ export function AgentProfile() {
                 </li>
               )}
             </ul>
+          </div>
+
+          {/* 소통 범위 — 이 에이전트가 누구와 검토·협업할 수 있는가 */}
+          <div className="profile-card">
+            <div className="profile-card-title">📡 소통 범위</div>
+            <div className="scope-modes">
+              {(
+                [
+                  ["all", "전체", "모든 동료와 검토·협업 (기본)"],
+                  ["dept", "부서 내", `같은 부서(${zoneOfAgent(id).label})끼리만`],
+                  ["custom", "커스텀", "아래에서 고른 동료와만"],
+                ] as const
+              ).map(([m, label, tip]) => (
+                <button
+                  key={m}
+                  className={`scope-mode ${scope.mode === m ? "on" : ""}`}
+                  onClick={() => setCommScope(id, { mode: m, allow: scope.allow ?? [] })}
+                  title={tip}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {scope.mode === "custom" && (
+              <div className="scope-chips">
+                {AGENTS.filter((x) => x.id !== id && x.id !== "pm" && x.id !== "qa").map((x) => {
+                  const on = (scope.allow ?? []).includes(x.id);
+                  return (
+                    <button
+                      key={x.id}
+                      className={`chip mini ${on ? "on" : ""}`}
+                      style={on ? { borderColor: x.color, color: x.color } : undefined}
+                      onClick={() =>
+                        setCommScope(id, {
+                          mode: "custom",
+                          allow: on ? (scope.allow ?? []).filter((v) => v !== x.id) : [...(scope.allow ?? []), x.id],
+                        })
+                      }
+                    >
+                      {x.emoji} {x.name.split(" ")[0]}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div className="dim scope-note">
+              범위 밖 동료와는 교차 검토·협업 세션이 자동으로 생략됩니다. PM·QA(게이트 역할)는 항상 소통 가능합니다.
+            </div>
           </div>
 
           {/* 활동 요약 */}

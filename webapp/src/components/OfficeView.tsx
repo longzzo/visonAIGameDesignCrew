@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { AGENTS, AGENT_MAP } from "../lib/agents";
+import { AGENTS, AGENT_MAP, SPECIALISTS } from "../lib/agents";
+import { DecisionOverlay } from "./DecisionOverlay";
 import { uiPrompt } from "../lib/dialog";
 import { AgentSprite } from "./AgentSprite";
 import { Office3D, ZONES, zoneOfAgent, type CamApi } from "./Office3D";
@@ -408,6 +409,8 @@ export function OfficeView() {
     startOrch,
     stopOrch,
     cards,
+    selected,
+    toggleSelected,
   } = useVE();
   const projectName = projects.find((p) => p.id === activeProject)?.name ?? "";
   // 말풍선 TTL 갱신용 틱
@@ -523,7 +526,12 @@ export function OfficeView() {
     const doneCount = cardVals.filter((c) => c.state === "done").length;
     return (
       <section className="office-studio">
-        <Office3D camRef={camRef} onDevTask={openDevTask} />
+        <Office3D
+          camRef={camRef}
+          onDevTask={openDevTask}
+          onArtIntern={() => setArtStudioOpen(true)}
+          onProtoIntern={() => setProtoStudioOpen(true)}
+        />
 
         {/* 상단 — 존 탭 + 액션 */}
         <div className="os-top">
@@ -598,7 +606,10 @@ export function OfficeView() {
         {/* 좌측 — 인력 현황 로스터 */}
         <div className={`os-left glass ${rosterOpen ? "" : "closed"}`}>
           <button className="os-roster-head" onClick={() => setRosterOpen((v) => !v)}>
-            👥 인력 현황 <span className="dim">{AGENTS.length}</span>
+            👥 인력 배치{" "}
+            <span className="dim">
+              투입 {SPECIALISTS.filter((s) => selected[s.id]).length}/{SPECIALISTS.length}
+            </span>
             <i className="os-fold">{rosterOpen ? "▾" : "▸"}</i>
           </button>
           {rosterOpen && (
@@ -606,8 +617,22 @@ export function OfficeView() {
               {AGENTS.map((a) => {
                 const st = agentStatus[a.id] ?? "idle";
                 const meeting = meetingMembers.includes(a.id);
+                const deployable = SPECIALISTS.some((s) => s.id === a.id);
                 return (
                   <div key={a.id} className="os-agent" onClick={() => selectAgent(a.id)} title={`${a.role} — 클릭하면 1:1 대화`}>
+                    {deployable ? (
+                      <input
+                        type="checkbox"
+                        className="os-agent-chk"
+                        checked={selected[a.id] ?? false}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={() => toggleSelected(a.id)}
+                        title="인력 배치 — 회의(오케스트레이션) 투입 여부"
+                        disabled={orchRunning}
+                      />
+                    ) : (
+                      <span className="os-agent-chk ph" />
+                    )}
                     <span className="o3d-dot" style={{ background: a.color }} />
                     <span className="os-agent-name">{a.name}</span>
                     <span className={`os-agent-st s-${meeting ? "running" : st}`}>
@@ -675,6 +700,7 @@ export function OfficeView() {
           )}
         </div>
 
+        <DecisionOverlay />
         {boardOpen && <WorkstreamBoard onClose={() => setBoardOpen(false)} />}
         {protoStudioOpen && <PrototypeStudio onClose={() => setProtoStudioOpen(false)} />}
         {devTaskAgent && (

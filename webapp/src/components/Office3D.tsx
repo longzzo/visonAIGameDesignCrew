@@ -16,25 +16,9 @@ import { useVE, type FeedMsg } from "../store";
 
 type V3 = [number, number, number];
 
-/* ── 존 정의 (게임회사 부서) ─────────────────────────── */
-export interface ZoneDef {
-  id: string;
-  label: string;
-  dot: string;
-  rug: [number, number, number, number]; // cx, cz, w, d
-  rugDay: string;
-  rugNight: string;
-}
-export const ZONES: ZoneDef[] = [
-  { id: "ceo", label: "대표실", dot: "#8b7cf6", rug: [-12.5, -8.5, 8, 6.4], rugDay: "#3a3f55", rugNight: "#262b3d" },
-  { id: "plan", label: "기획 데스크", dot: "#60a5fa", rug: [-8.5, 0.5, 12.4, 7.2], rugDay: "#dbe7f8", rugNight: "#232c3e" },
-  { id: "dev", label: "개발 데스크", dot: "#34d399", rug: [7, 0.5, 13.4, 7.2], rugDay: "#d8f1e3", rugNight: "#20332c" },
-  { id: "biz", label: "사업 데스크", dot: "#fbbf24", rug: [-9.5, 8, 9.4, 4.8], rugDay: "#f8ecd2", rugNight: "#332e20" },
-  { id: "art", label: "아트 스튜디오", dot: "#e879f9", rug: [-1.5, 8, 6, 4.8], rugDay: "#f7dcee", rugNight: "#332433" },
-  { id: "qa", label: "품질 검수", dot: "#f87171", rug: [11.75, 8, 8.6, 4.8], rugDay: "#f9dcdc", rugNight: "#362325" },
-  { id: "meet", label: "회의실", dot: "#a78bfa", rug: [3.5, -8.5, 9.4, 6.4], rugDay: "#e7e2f6", rugNight: "#282438" },
-];
-const zoneOf = (id: string): ZoneDef => ZONES.find((z) => z.id === id) ?? ZONES[1];
+/* ── 존 정의 — lib/zones 공유 (store의 소통 범위 판정과 동일 소스) ── */
+import { ZONES, zoneOfAgent, type ZoneDef } from "../lib/zones";
+export { ZONES, zoneOfAgent, type ZoneDef };
 
 /* ── 좌석 배치 (x, z) — 단층 플레이트 ────────────────── */
 const DESK_POS: Record<string, V3> = {
@@ -64,16 +48,6 @@ const DESK_POS: Record<string, V3> = {
   review: [11.9, 0, 8],
   testeng: [14.6, 0, 8],
 };
-const AGENT_ZONE: Record<string, string> = {
-  pm: "ceo",
-  scenario: "plan", gameplay: "plan", systems: "plan", uiux: "plan", balance: "plan",
-  bm: "biz", scheduler: "biz", marketing: "biz",
-  visual: "art",
-  td: "dev", uarch: "dev", ugp: "dev", netcode: "dev", techart: "dev", edtool: "dev",
-  qa: "qa", review: "qa", testeng: "qa",
-};
-export const zoneOfAgent = (id: string) => zoneOf(AGENT_ZONE[id] ?? "plan");
-
 const MEETING_CENTER: V3 = [3.5, 0, -8.5];
 
 /** 캐릭터 기본 위치 = 책상 뒤(카메라 반대편) */
@@ -267,6 +241,20 @@ function Person({
           {stLabel && <span className="o3d-pill-st">· {stLabel}</span>}
         </div>
       </Html>
+      {/* 라이브 세션 창 (선택된 작업 중 에이전트 — 샘플의 맥 스타일 창) */}
+      {selected && st === "running" && (
+        <Html center position={[0, 2.9, 0]} distanceFactor={9} zIndexRange={[40, 0]}>
+          <div className="o3d-session">
+            <div className="o3d-session-head">
+              <i className="tl r" />
+              <i className="tl y" />
+              <i className="tl g" />
+              <span>{a?.name} — 라이브 세션</span>
+            </div>
+            <div className="o3d-session-body">{peek ? `…${peek.replace(/[#*>`]/g, "").slice(-220)}` : "작업을 시작하는 중…"}</div>
+          </div>
+        </Html>
+      )}
       {/* 말풍선 (흰색) */}
       {bubbleText && !walking && (
         <Html center position={[0, 2.15, 0]} distanceFactor={11} zIndexRange={[20, 0]}>
@@ -275,6 +263,94 @@ function Person({
           </div>
         </Html>
       )}
+    </group>
+  );
+}
+
+/* ── 사무실 관리인 — 플레이트를 순찰하다 대화가 쌓이면 정리한다 ── */
+const JANITOR_PATH: [number, number][] = [
+  [-1.5, 1.2], [5.5, 5.5], [13, 5], [8, -4.2], [-1.5, -4.6], [-9, -4.4], [-15, 4], [-6, 5.5],
+];
+function Janitor() {
+  const ref = useRef<Group>(null);
+  const wp = useRef(0);
+  const busy = useVE((s) => s.janitorBusy);
+  useFrame((state, dt) => {
+    const g = ref.current;
+    if (!g) return;
+    const t = state.clock.elapsedTime;
+    const [tx, tz] = JANITOR_PATH[wp.current];
+    const dx = tx - g.position.x;
+    const dz = tz - g.position.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 0.15) {
+      wp.current = (wp.current + 1) % JANITOR_PATH.length;
+    } else {
+      const speed = Math.min((busy ? 2.4 : 0.85) * dt, dist);
+      g.position.x += (dx / dist) * speed;
+      g.position.z += (dz / dist) * speed;
+      g.rotation.y = Math.atan2(dx, dz);
+    }
+    g.position.y = Math.abs(Math.sin(t * (busy ? 9 : 5))) * 0.05;
+  });
+  const grey = "#c9ced8";
+  return (
+    <group ref={ref} position={[JANITOR_PATH[0][0], 0, JANITOR_PATH[0][1]]}>
+      <mesh position={[0, 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[0.26, 12]} />
+        <meshBasicMaterial color="#000" transparent opacity={0.18} />
+      </mesh>
+      <mesh position={[0, 0.42, 0]}>
+        <capsuleGeometry args={[0.18, 0.36, 6, 12]} />
+        <meshStandardMaterial color={grey} />
+      </mesh>
+      <mesh position={[0, 0.94, 0]}>
+        <sphereGeometry args={[0.165, 18, 14]} />
+        <meshStandardMaterial color={grey} />
+      </mesh>
+      {/* 빗자루 */}
+      <group position={[0.26, 0, 0.12]} rotation={[0.18, 0, -0.2]}>
+        <mesh position={[0, 0.55, 0]}>
+          <cylinderGeometry args={[0.02, 0.02, 1.05, 6]} />
+          <meshStandardMaterial color="#8a6a44" />
+        </mesh>
+        <mesh position={[0, 0.06, 0]}>
+          <coneGeometry args={[0.09, 0.2, 8]} />
+          <meshStandardMaterial color="#d9b06a" />
+        </mesh>
+      </group>
+      <Html center position={[0, 1.42, 0]} distanceFactor={12} zIndexRange={[8, 0]}>
+        <div className="o3d-pill">
+          <span className="o3d-dot" style={{ background: "#9aa5b5" }} />
+          🧹 관리인{busy && <span className="o3d-pill-st">· 정리 중</span>}
+        </div>
+      </Html>
+      {busy && (
+        <Html center position={[0, 2, 0]} distanceFactor={11} zIndexRange={[20, 0]}>
+          <div className="o3d-bubble">대화가 길어져서 요약해 정리하고 있어요 🧹</div>
+        </Html>
+      )}
+    </group>
+  );
+}
+
+/* ── 인턴 빈자리 — 클릭하면 해당 인턴 스튜디오가 열린다 ── */
+function InternSeat({ pos, label, emoji, dot, onOpen }: { pos: V3; label: string; emoji: string; dot: string; onOpen?: () => void }) {
+  return (
+    <group position={pos}>
+      <Html center position={[0, 1.25, 0]} distanceFactor={13} zIndexRange={[9, 0]}>
+        <div
+          className="o3d-pill intern"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen?.();
+          }}
+          title="빈 자리 — 클릭하면 인턴에게 작업을 맡깁니다"
+        >
+          <span className="o3d-dot" style={{ background: dot }} />
+          {emoji} {label} · 빈 자리
+        </div>
+      </Html>
     </group>
   );
 }
@@ -777,11 +853,15 @@ function OfficeScene({
   selId,
   camApi,
   mode,
+  onArtIntern,
+  onProtoIntern,
 }: {
   onSelect: (id: string) => void;
   selId: string | null;
   camApi: React.MutableRefObject<CamApi>;
   mode: "day" | "night";
+  onArtIntern?: () => void;
+  onProtoIntern?: () => void;
 }) {
   // selector 구독 — 무관한 store 변경(헬스 폴링 등)으로 씬 전체가 리렌더되지 않게
   const feed = useVE((s) => s.feed);
@@ -841,6 +921,12 @@ function OfficeScene({
       {AGENTS.map((a) => (
         <Desk key={`d-${a.id}`} pos={DESK_POS[a.id]} P={P} seed={[...a.id].reduce((s, ch) => s + ch.charCodeAt(0), 0)} />
       ))}
+      {/* 인턴 빈자리 — 아트 인턴(SD)·개발 인턴(프로토타입) */}
+      <Desk pos={[0.2, 0, 8]} P={P} seed={3} />
+      <InternSeat pos={[0.2, 0, 8]} label="아트 인턴" emoji="🖌️" dot="#e879f9" onOpen={onArtIntern} />
+      <Desk pos={[12.9, 0, -1]} P={P} seed={5} />
+      <InternSeat pos={[12.9, 0, -1]} label="개발 인턴" emoji="🧑‍💻" dot="#34d399" onOpen={onProtoIntern} />
+      <Janitor />
       {AGENTS.map((a) => (
         <Person
           key={a.id}
@@ -937,9 +1023,13 @@ function ControlsOverlay({ camApi }: { camApi: React.MutableRefObject<CamApi> })
 export function Office3D({
   camRef,
   onDevTask,
+  onArtIntern,
+  onProtoIntern,
 }: {
   camRef?: React.MutableRefObject<CamApi>;
   onDevTask?: (id: string) => void;
+  onArtIntern?: () => void;
+  onProtoIntern?: () => void;
 }) {
   const [selId, setSelId] = useState<string | null>(null);
   const innerRef = useRef<CamApi>({});
@@ -958,7 +1048,14 @@ export function Office3D({
   return (
     <div className="office3d-wrap studio">
       <Canvas dpr={[1, 1.5]} camera={{ position: DEFAULT_CAM.pos, fov: 46 }}>
-        <OfficeScene onSelect={setSelId} selId={selId} camApi={camApi} mode={mode} />
+        <OfficeScene
+          onSelect={setSelId}
+          selId={selId}
+          camApi={camApi}
+          mode={mode}
+          onArtIntern={onArtIntern}
+          onProtoIntern={onProtoIntern}
+        />
       </Canvas>
       <ControlsOverlay camApi={camApi} />
       {selId && <AgentPopup id={selId} onClose={() => setSelId(null)} onDevTask={onDevTask} />}
