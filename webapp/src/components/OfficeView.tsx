@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { AGENT_MAP } from "../lib/agents";
+import { AGENTS, AGENT_MAP } from "../lib/agents";
 import { uiPrompt } from "../lib/dialog";
 import { AgentSprite } from "./AgentSprite";
-import { Office3D } from "./Office3D";
+import { Office3D, ZONES, zoneOfAgent, type CamApi } from "./Office3D";
 import { DevTaskPanel } from "./DevTaskPanel";
 import { PrototypeStudio } from "./PrototypeStudio";
+import { WorkstreamBoard } from "./WorkstreamBoard";
 import { useVE, type FeedMsg } from "../store";
 
 /**
@@ -400,6 +401,13 @@ export function OfficeView() {
     meetingMembers,
     openDocViewer,
     setArtStudioOpen,
+    agentStatus,
+    selectAgent,
+    openProfile,
+    setOrchRequest,
+    startOrch,
+    stopOrch,
+    cards,
   } = useVE();
   const projectName = projects.find((p) => p.id === activeProject)?.name ?? "";
   // 말풍선 TTL 갱신용 틱
@@ -447,20 +455,40 @@ export function OfficeView() {
     setDevTaskAgent(id);
   }; // 인턴 검증 회의 = 개발 작업 패널(회의 모드)
 
-  // 회의가 시작되면(참가자 모임) 자동으로 회의실 층으로 이동 — 모이는 모습을 보여준다
+  /* ── 3D 스튜디오 상태 (존 탭 · 로스터 · 커맨드바 · 보드) ── */
+  const camRef = useRef<CamApi>({});
+  const [zone, setZone] = useState("all");
+  const [rosterOpen, setRosterOpen] = useState(true);
+  const [boardOpen, setBoardOpen] = useState(false);
+  const [cmd, setCmd] = useState("");
+  const focusZone = (id: string) => {
+    setZone(id);
+    camRef.current.focus?.(id);
+  };
+  const submitCmd = () => {
+    const t = cmd.trim();
+    if (!t || orchRunning) return;
+    setOrchRequest(t);
+    setCmd("");
+    void startOrch();
+  };
+
+  // 회의가 시작되면(참가자 모임) 자동으로 회의실로 시선 이동 — 모이는 모습을 보여준다
   const prevMeetingCount = useRef(0);
   useEffect(() => {
-    if (meetingMembers.length > 0 && prevMeetingCount.current === 0 && !mode3d) {
-      goFloor("meeting");
+    if (meetingMembers.length > 0 && prevMeetingCount.current === 0) {
+      if (mode3d) focusZone("meet");
+      else goFloor("meeting");
     }
     prevMeetingCount.current = meetingMembers.length;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meetingMembers.length]);
   const [mode3d, setMode3d] = useState<boolean>(() => {
     try {
-      return localStorage.getItem("ve-office-mode") === "3d";
+      // 기본 = 3D 스튜디오 (명시적으로 2D를 고른 적 있을 때만 2D)
+      return localStorage.getItem("ve-office-mode") !== "2d";
     } catch {
-      return false;
+      return true;
     }
   });
   const toggleMode3d = () => {
@@ -488,6 +516,181 @@ export function OfficeView() {
       if (req?.trim()) void generateOfficeBg(req.trim());
     });
   };
+
+  /* ── 3D 풀스크린 스튜디오 (Sample 추구미 — 도시 오피스 위 유리 패널) ── */
+  if (mode3d) {
+    const cardVals = Object.values(cards);
+    const doneCount = cardVals.filter((c) => c.state === "done").length;
+    return (
+      <section className="office-studio">
+        <Office3D camRef={camRef} onDevTask={openDevTask} />
+
+        {/* 상단 — 존 탭 + 액션 */}
+        <div className="os-top">
+          <div className="os-zones glass">
+            <button className={`os-zone ${zone === "all" ? "on" : ""}`} onClick={() => focusZone("all")}>
+              <span className="o3d-dot" style={{ background: "#9aa5b5" }} />
+              전체
+            </button>
+            {ZONES.map((z) => (
+              <button key={z.id} className={`os-zone ${zone === z.id ? "on" : ""}`} onClick={() => focusZone(z.id)}>
+                <span className="o3d-dot" style={{ background: z.dot }} />
+                {z.label}
+                {z.id === "meet" && meetingMembers.length > 0 && <i className="os-badge">{meetingMembers.length}</i>}
+              </button>
+            ))}
+          </div>
+          <div className="os-actions glass">
+            <span className="os-clock dim">
+              {new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false })}
+            </span>
+            {orchRunning && <span className="office-live">● 진행 중</span>}
+            <button className="os-abtn" onClick={() => setBoardOpen(true)} title="라이브 프로세스 — 전사 워크스트림 현황">
+              📋 보드
+            </button>
+            <button className="os-abtn" onClick={() => openDocViewer("gdd")} title="마스터 GDD를 큰 화면으로">
+              📄 GDD
+            </button>
+            <button className="os-abtn" onClick={() => openDocViewer("reports")} title="보고서함">
+              📑{reports.length > 0 ? ` ${reports.length}` : ""}
+            </button>
+            <button className="os-abtn" onClick={() => openDocViewer("art")} title="아트 보관함">
+              🖼️
+            </button>
+            <button className="os-abtn" onClick={() => setArtStudioOpen(true)} title="아트 인턴 — 컨셉 아트 생성">
+              🖌️
+            </button>
+            <button className="os-abtn" onClick={() => setProtoStudioOpen(true)} title="개발 인턴 — HTML 프로토타입">
+              🧑‍💻
+            </button>
+            <button
+              className="os-abtn"
+              onClick={() => void dailyBriefing()}
+              disabled={briefingBusy || orchRunning}
+              title="PM 오늘의 브리핑 — 현황·추천 작업·리스크"
+            >
+              {briefingBusy ? "…" : "☀️"}
+            </button>
+            <button
+              className="os-abtn"
+              onClick={() => void reviewExistingPlan()}
+              disabled={planReviewBusy || orchRunning}
+              title="기존 기획 팀 리뷰 — PM 분배로 전원 학습·평가"
+            >
+              {planReviewBusy ? "…" : "📥"}
+            </button>
+            <button className="os-abtn" onClick={startUnityReview} title="유니티 프로젝트 리뷰 (개발 회의)">
+              🎮
+            </button>
+            <button
+              className="os-abtn"
+              onClick={() => setOfficeTheme(officeTheme === "day" ? "night" : officeTheme === "night" ? "auto" : "day")}
+              title={`테마: ${officeTheme === "day" ? "낮" : officeTheme === "night" ? "밤" : "자동(시간)"} — 클릭해 전환`}
+            >
+              {officeTheme === "day" ? "☀" : officeTheme === "night" ? "🌙" : "🌗"}
+            </button>
+            <button className="os-abtn" onClick={toggleMode3d} title="2D 사무실로 전환">
+              🟦 2D
+            </button>
+          </div>
+        </div>
+
+        {/* 좌측 — 인력 현황 로스터 */}
+        <div className={`os-left glass ${rosterOpen ? "" : "closed"}`}>
+          <button className="os-roster-head" onClick={() => setRosterOpen((v) => !v)}>
+            👥 인력 현황 <span className="dim">{AGENTS.length}</span>
+            <i className="os-fold">{rosterOpen ? "▾" : "▸"}</i>
+          </button>
+          {rosterOpen && (
+            <div className="os-roster">
+              {AGENTS.map((a) => {
+                const st = agentStatus[a.id] ?? "idle";
+                const meeting = meetingMembers.includes(a.id);
+                return (
+                  <div key={a.id} className="os-agent" onClick={() => selectAgent(a.id)} title={`${a.role} — 클릭하면 1:1 대화`}>
+                    <span className="o3d-dot" style={{ background: a.color }} />
+                    <span className="os-agent-name">{a.name}</span>
+                    <span className={`os-agent-st s-${meeting ? "running" : st}`}>
+                      {meeting ? "회의" : st === "running" ? "작업" : st === "done" ? "완료" : st === "error" ? "오류" : "대기"}
+                    </span>
+                    <span className="os-agent-zone dim">{zoneOfAgent(a.id).label.replace(" 데스크", "").replace(" 스튜디오", "")}</span>
+                    <button
+                      className="os-agent-cfg"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openProfile(a.id);
+                      }}
+                      title="프로필·모델 설정"
+                    >
+                      ⚙
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* 하단 — 지시 커맨드바 */}
+        <div className="os-bottom">
+          {(officeBgPhase || planReviewPhase) && <div className="os-phase glass dim">{officeBgPhase || planReviewPhase}</div>}
+          <div className="os-cmd glass">
+            <span className="os-cmd-ctx dim">{projectName || "프로젝트"} → 🎯 PM</span>
+            <input
+              value={cmd}
+              onChange={(e) => setCmd(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submitCmd();
+              }}
+              placeholder="임무를 입력하세요 — PM이 분석해 담당자에게 배정합니다"
+              disabled={orchRunning}
+            />
+            {orchRunning ? (
+              <>
+                <span className="os-cmd-prog dim">
+                  {doneCount}/{cardVals.length || "…"} 완료
+                </span>
+                <button className="btn small danger" onClick={stopOrch}>
+                  ⏹ 중단
+                </button>
+              </>
+            ) : (
+              <button className="btn small primary" onClick={submitCmd} disabled={!cmd.trim()}>
+                지시
+              </button>
+            )}
+          </div>
+          {!orchRunning && (
+            <div className="os-chips">
+              {[
+                "핵심 루프를 3단계로 정리하고 GDD에 반영해줘",
+                "겨울 시즌 이벤트 기획 — 시스템·밸런스·아트까지",
+                "경쟁작 리서치해서 차별점 한 장으로 정리해줘",
+              ].map((c) => (
+                <button key={c} className="os-chip glass" onClick={() => setCmd(c)}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {boardOpen && <WorkstreamBoard onClose={() => setBoardOpen(false)} />}
+        {protoStudioOpen && <PrototypeStudio onClose={() => setProtoStudioOpen(false)} />}
+        {devTaskAgent && (
+          <DevTaskPanel
+            agentId={devTaskAgent}
+            initialTask={devTaskInit.task}
+            autoMeeting={devTaskInit.meeting}
+            onClose={() => {
+              setDevTaskAgent(null);
+              setDevTaskInit({});
+            }}
+          />
+        )}
+      </section>
+    );
+  }
 
   return (
     <section className="office-view">

@@ -117,7 +117,7 @@ export function TopBar() {
         <button className={view === "chat" ? "active" : ""} onClick={() => switchView("chat")}>
           💬 에이전트 채팅
         </button>
-        <button className={view === "office" ? "active" : ""} onClick={() => switchView("office")}>
+        <button className={view === "office" || view === "studio" ? "active" : ""} onClick={() => switchView("office")}>
           🏢 사무실
         </button>
         <button className={view === "data" ? "active" : ""} onClick={() => switchView("data")} title="게임 데이터 파일(JSON/CSV) — 방치형 등 데이터 주도 게임의 밸런스·경제 테이블을 모아 편집">

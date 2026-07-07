@@ -24,3 +24,5 @@ desktop/dist-installer/
 config/unity.local.json
 # 로컬 OCR 언어 데이터 캐시 (첫 사용 시 자동 다운로드)
 config/ocr-cache/
+# 오너의 디자인 레퍼런스 이미지 (비공개)
+Sample/

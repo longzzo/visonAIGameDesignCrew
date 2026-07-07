@@ -57,12 +57,13 @@ export default function App() {
           </button>
         </div>
       )}
-      <div className={`app-body panel-${mobilePanel}`}>
+      <div className={`app-body panel-${mobilePanel} ${view === "office" || view === "studio" ? "office-full" : ""}`}>
         <Sidebar />
         <main className="main-panel">
           {view === "orch" ? (
             <OrchestrationView />
-          ) : view === "office" ? (
+          ) : view === "office" || view === "studio" ? (
+            // "studio" = 사무실 스튜디오의 별칭 — 첫 방문 기본 화면이 3D 스튜디오가 되도록
             <OfficeView />
           ) : view === "data" ? (
             <DataPanel />

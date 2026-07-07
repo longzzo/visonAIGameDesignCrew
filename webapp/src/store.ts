@@ -115,7 +115,7 @@ import {
   type GddVersion,
 } from "./lib/gdd";
 
-export type View = "orch" | "chat" | "office" | "data";
+export type View = "studio" | "orch" | "chat" | "office" | "data";
 export type MobilePanel = "agents" | "work" | "gdd";
 export type AgentStatus = "idle" | "running" | "done" | "error";
 
@@ -655,11 +655,11 @@ export const useVE = create<VEState>()((set, get) => {
     view: ((): View => {
       try {
         const v = localStorage.getItem("ve-last-view");
-        if (v === "orch" || v === "chat" || v === "office" || v === "data") return v;
+        if (v === "studio" || v === "orch" || v === "chat" || v === "office" || v === "data") return v;
       } catch {
         /* noop */
       }
-      return "orch";
+      return "studio";
     })(),
     mobilePanel: "work",
     conn: "idle",
