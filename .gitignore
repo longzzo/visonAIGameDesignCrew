@@ -22,3 +22,5 @@ agents/*/USER.md
 agents/*/openclaw-workspace-state.json
 desktop/dist-installer/
 config/unity.local.json
+# 로컬 OCR 언어 데이터 캐시 (첫 사용 시 자동 다운로드)
+config/ocr-cache/

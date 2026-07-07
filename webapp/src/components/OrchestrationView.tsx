@@ -139,13 +139,13 @@ export function OrchestrationView() {
   const selectedCount = SPECIALISTS.filter((a) => selected[a.id]).length;
 
   const [importing, setImporting] = useState(false);
-  const confirmImport = (name: string, text: string) => {
+  const confirmImport = (name: string, text: string, note?: string) => {
     if (!text.trim()) {
-      void uiAlert("문서에서 텍스트를 찾지 못했습니다 (스캔 이미지 PDF는 지원하지 않습니다)");
+      void uiAlert("문서에서 텍스트를 찾지 못했습니다 — 스캔 상태가 나쁘거나 빈 문서일 수 있습니다");
       return;
     }
     void uiConfirm(`"${name}" (${(text.length / 1000).toFixed(1)}천자) 가져오기`, {
-      message: "원문은 보고서함에 보관됩니다.\n\n[통합까지 진행] = PM 분배로 GDD에 통합 (기존 기획 유지·증분 반영)\n[보관만] = 보고서함에 저장만",
+      message: `${note ? `📷 ${note}\n\n` : ""}원문은 보고서함에 보관됩니다.\n\n[통합까지 진행] = PM 분배로 GDD에 통합 (기존 기획 유지·증분 반영)\n[보관만] = 보고서함에 저장만`,
       confirmLabel: "통합까지 진행",
       cancelLabel: "보관만",
     }).then((integrate) => void importDocument(name.replace(/\.(md|txt|markdown|pdf)$/i, ""), text, integrate));
@@ -153,7 +153,7 @@ export function OrchestrationView() {
   const onImportFile = (f: File | undefined) => {
     if (!f) return;
     if (/\.pdf$/i.test(f.name)) {
-      // PDF → 서버에서 텍스트 추출 후 동일한 가져오기 흐름
+      // PDF → 서버에서 텍스트 추출(스캔본이면 로컬 OCR — 수 분 걸릴 수 있음) 후 동일한 가져오기 흐름
       setImporting(true);
       void f
         .arrayBuffer()
@@ -163,7 +163,7 @@ export function OrchestrationView() {
         .then(async (r) => {
           const j = await r.json();
           if (!r.ok || !j.ok) throw new Error(j.error || "PDF 추출 실패");
-          confirmImport(f.name, String(j.text ?? ""));
+          confirmImport(f.name, String(j.text ?? ""), j.note);
         })
         .catch((e) => void uiAlert(`PDF를 읽지 못했습니다: ${String(e?.message ?? e).slice(0, 120)}`))
         .finally(() => setImporting(false));

@@ -137,7 +137,48 @@ function readRawBody(req: any, maxBytes = 40 * 1024 * 1024): Promise<Buffer> {
   });
 }
 
-/* ── 플러그인: PDF 텍스트 추출 (기존 기획 PDF 가져오기) ── */
+/* ── 플러그인: PDF 텍스트 추출 (기존 기획 PDF 가져오기) ──
+ * 1) 텍스트 레이어 추출 (일반 PDF)
+ * 2) 텍스트가 거의 없으면 = 스캔 PDF → 로컬 OCR (tesseract.js, 한국어+영어)
+ *    · 첫 사용 시 언어 데이터(~15MB)를 config/ocr-cache/에 내려받아 이후 오프라인 동작
+ *    · 페이지를 이미지로 렌더(@napi-rs/canvas) 후 인식 — 페이지당 수~수십 초
+ */
+const OCR_CACHE = path.resolve(__dirname, "..", "config", "ocr-cache");
+const OCR_MAX_PAGES = 15;
+
+async function ocrPdfPages(doc: any): Promise<{ text: string; done: number; truncated: boolean }> {
+  const { createWorker }: any = await import("tesseract.js");
+  const napi: any = await import("@napi-rs/canvas");
+  fs.mkdirSync(OCR_CACHE, { recursive: true });
+  const worker = await createWorker(["kor", "eng"], 1, { cachePath: OCR_CACHE });
+  const out: string[] = [];
+  const total = Math.min(doc.numPages, OCR_MAX_PAGES);
+  try {
+    for (let i = 1; i <= total; i++) {
+      const page = await doc.getPage(i);
+      const viewport = page.getViewport({ scale: 2.2 }); // OCR 정확도용 고해상 렌더
+      let canvas: any;
+      let ctx: any;
+      if (doc.canvasFactory?.create) {
+        const cc = doc.canvasFactory.create(viewport.width, viewport.height);
+        canvas = cc.canvas;
+        ctx = cc.context;
+      } else {
+        canvas = napi.createCanvas(viewport.width, viewport.height);
+        ctx = canvas.getContext("2d");
+      }
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const png: Buffer = canvas.toBuffer("image/png");
+      const { data } = await worker.recognize(png);
+      out.push(String(data?.text ?? "").trim());
+      console.log(`[ocr] ${i}/${total} 페이지 인식 (${(data?.text ?? "").length}자)`);
+    }
+  } finally {
+    await worker.terminate().catch(() => undefined);
+  }
+  return { text: out.join("\n\n").trim(), done: total, truncated: doc.numPages > OCR_MAX_PAGES };
+}
+
 function pdfTextApiPlugin(): Plugin {
   return {
     name: "vision-engine-pdf-text",
@@ -179,8 +220,29 @@ function pdfTextApiPlugin(): Plugin {
               if (line.trim()) lines.push(line.trimEnd());
               pages.push(lines.join("\n"));
             }
-            const text = pages.join("\n\n").replace(/[ \t]+\n/g, "\n").trim();
-            res.end(JSON.stringify({ ok: true, text, pages: doc.numPages }));
+            let text = pages.join("\n\n").replace(/[ \t]+\n/g, "\n").trim();
+
+            // 텍스트 레이어가 사실상 없으면 스캔본 — 로컬 OCR로 전환
+            const dense = text.replace(/\s/g, "").length;
+            if (dense < doc.numPages * 20) {
+              console.log(`[ocr] 텍스트 레이어 빈약(${dense}자/${doc.numPages}p) → 로컬 OCR 시작`);
+              const ocr = await ocrPdfPages(doc);
+              if (ocr.text.replace(/\s/g, "").length > dense) {
+                res.end(
+                  JSON.stringify({
+                    ok: true,
+                    text: ocr.text,
+                    pages: doc.numPages,
+                    method: "ocr",
+                    note: ocr.truncated
+                      ? `스캔 PDF — 로컬 OCR로 앞 ${ocr.done}/${doc.numPages}페이지만 인식했습니다`
+                      : `스캔 PDF — 로컬 OCR로 ${ocr.done}페이지를 인식했습니다`,
+                  })
+                );
+                return;
+              }
+            }
+            res.end(JSON.stringify({ ok: true, text, pages: doc.numPages, method: "text" }));
           } catch (e: any) {
             res.statusCode = 500;
             res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 200) }));
