@@ -20,6 +20,34 @@ export function AgentProfile() {
   const [models, setModels] = useState<ModelsInfo | null>(null);
   const [draft, setDraft] = useState("");
   const [applying, setApplying] = useState(false);
+  // 페르소나(AGENTS.md) 편집기
+  const [personaOpen, setPersonaOpen] = useState(false);
+  const [personaText, setPersonaText] = useState("");
+  const [personaSaving, setPersonaSaving] = useState(false);
+  const openPersona = () => {
+    setPersonaOpen(true);
+    setPersonaText("(불러오는 중…)");
+    void fetch(`/api/persona?id=${encodeURIComponent(id)}`)
+      .then((r) => r.json())
+      .then((j) => setPersonaText(j.ok ? j.text || "# 페르소나\n\n(비어 있음 — 이 에이전트의 말투·전문성·규칙을 마크다운으로 적으세요)" : `불러오기 실패: ${j.error}`))
+      .catch((e) => setPersonaText(`불러오기 실패: ${e.message}`));
+  };
+  const savePersona = () => {
+    setPersonaSaving(true);
+    void fetch("/api/persona", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, text: personaText }),
+    })
+      .then((r) => r.json())
+      .then((j) => {
+        if (!j.ok) throw new Error(j.error);
+        setPersonaOpen(false);
+        void uiAlert("저장 완료", "페르소나가 저장됐습니다 (직전 버전은 AGENTS.md.bak). 다음 대화·작업부터 반영됩니다.");
+      })
+      .catch((e) => void uiAlert("저장 실패", String(e?.message ?? e)))
+      .finally(() => setPersonaSaving(false));
+  };
 
   const refresh = () => {
     void getModelsInfo()
@@ -127,10 +155,31 @@ export function AgentProfile() {
           >
             💬 대화하기
           </button>
+          <button className="btn small" onClick={openPersona} title="이 에이전트의 페르소나(AGENTS.md)를 직접 편집합니다 — 말투·전문성·규칙">
+            📝 페르소나 편집
+          </button>
           <button className="btn small" onClick={closeProfile} title="닫기 (Esc)">
             ✕ 닫기
           </button>
         </div>
+
+        {personaOpen && (
+          <div className="persona-editor">
+            <div className="persona-head">
+              <b>📝 {a.name} — AGENTS.md</b>
+              <span className="dim">이 파일이 곧 이 직원의 인격입니다. 저장하면 다음 작업부터 반영됩니다.</span>
+            </div>
+            <textarea value={personaText} onChange={(e) => setPersonaText(e.target.value)} spellCheck={false} rows={14} />
+            <div className="persona-actions">
+              <button className="btn small primary" onClick={savePersona} disabled={personaSaving}>
+                {personaSaving ? "저장 중…" : "💾 저장"}
+              </button>
+              <button className="btn small" onClick={() => setPersonaOpen(false)}>
+                취소
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="profile-body">
           {/* 두뇌(모델/API) — 이 창의 주인공 */}

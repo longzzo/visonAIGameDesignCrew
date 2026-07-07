@@ -137,6 +137,61 @@ function readRawBody(req: any, maxBytes = 40 * 1024 * 1024): Promise<Buffer> {
   });
 }
 
+/* ── 플러그인: 에이전트 페르소나(AGENTS.md) 읽기/편집 ── */
+const AGENTS_DIR = path.resolve(__dirname, "..", "agents");
+function personaApiPlugin(): Plugin {
+  return {
+    name: "vision-engine-persona-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/persona", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            const url = new URL(req.url ?? "/", "http://local");
+            let id = url.searchParams.get("id") ?? "";
+            let body: any = {};
+            if (req.method === "POST") {
+              body = JSON.parse((await readBody(req)) || "{}");
+              if (!id) id = String(body.id ?? "");
+            }
+            if (!isSafeId(id)) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: "잘못된 에이전트 id" }));
+              return;
+            }
+            const file = path.join(AGENTS_DIR, id, "AGENTS.md");
+            if (req.method === "GET") {
+              const text = fs.existsSync(file) ? fs.readFileSync(file, "utf-8") : "";
+              res.end(JSON.stringify({ ok: true, text, exists: fs.existsSync(file) }));
+              return;
+            }
+            if (req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
+              const text = String(body.text ?? "");
+              if (!text.trim()) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: "빈 페르소나는 저장할 수 없습니다" }));
+                return;
+              }
+              fs.mkdirSync(path.dirname(file), { recursive: true });
+              // 직전 버전 백업 — 실수해도 되돌릴 수 있게
+              if (fs.existsSync(file)) fs.copyFileSync(file, `${file}.bak`);
+              fs.writeFileSync(file, text, "utf-8");
+              res.end(JSON.stringify({ ok: true }));
+              return;
+            }
+            res.statusCode = 405;
+            res.end(JSON.stringify({ ok: false, error: "GET/POST only" }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 200) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
 /* ── 플러그인: PDF 텍스트 추출 (기존 기획 PDF 가져오기) ──
  * 1) 텍스트 레이어 추출 (일반 PDF)
  * 2) 텍스트가 거의 없으면 = 스캔 PDF → 로컬 OCR (tesseract.js, 한국어+영어)
@@ -2434,6 +2489,7 @@ export default defineConfig({
     chatsApiPlugin(),
     reportsApiPlugin(),
     artApiPlugin(),
+    personaApiPlugin(),
     pdfTextApiPlugin(),
     protoApiPlugin(),
     decisionsApiPlugin(),

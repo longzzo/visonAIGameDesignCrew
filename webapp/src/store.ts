@@ -292,6 +292,9 @@ interface VEState {
   health: SystemHealth | null;
   /** 클라우드 모델 크레딧 소진 의심 — 배너로 로컬 전환을 제안 */
   quotaSuspect: string | null;
+  /** 비용 가드 발동 — 10분 호출 한도 초과로 차단됨 (배너 표시) */
+  costGuardTrip: string | null;
+  dismissCostGuard: () => void;
   /** 이번 회의 시작 시점의 GDD (diff·되돌리기 기준) */
   orchBaseline: string | null;
   meetingDiffOpen: boolean;
@@ -769,6 +772,8 @@ export const useVE = create<VEState>()((set, get) => {
     obsidianNotes: [],
     health: null,
     quotaSuspect: null,
+    costGuardTrip: null,
+    dismissCostGuard: () => set({ costGuardTrip: null }),
     orchBaseline: null,
     meetingDiffOpen: false,
     meetingMembers: [],
@@ -827,6 +832,11 @@ export const useVE = create<VEState>()((set, get) => {
         if (/quota|credit|402|429|payment|insufficient|exceed|rate.?limit|한도|잔액/i.test(msg)) {
           set({ quotaSuspect: msg.slice(0, 160) });
         }
+      });
+      // 비용 가드 발동 — 배너 + 진행 중 회의 자동 중단 (무한 반복 폭주로부터 지갑 보호)
+      gateway.onCostGuard((msg) => {
+        set({ costGuardTrip: msg });
+        if (get().orchRunning) get().stopOrch();
       });
       setInterval(() => {
         const st = get();

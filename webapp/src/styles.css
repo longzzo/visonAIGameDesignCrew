@@ -48,10 +48,18 @@ button { font-family: inherit; }
   color: var(--text); font-size: 14px; font-weight: 600; padding: 5px 9px; width: 220px;
 }
 .project-name:hover, .project-name:focus { border-color: var(--border); background: var(--panel); outline: none; }
-.view-tabs { display: flex; gap: 4px; margin-left: 6px; }
+.view-tabs { display: flex; gap: 4px; margin-left: 6px; flex-shrink: 0; }
 .view-tabs button {
   background: transparent; border: 1px solid transparent; border-radius: 8px;
   color: var(--text-dim); padding: 7px 13px; cursor: pointer; font-size: 13px;
+  white-space: nowrap; /* 좁아져도 글자가 세로로 꺾이지 않게 */
+}
+/* 좁은 창에서는 모델 배지부터 줄이고 탭은 지킨다 */
+.topbar-right { min-width: 0; overflow: hidden; }
+.model-badge { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 1240px) {
+  .model-badge { max-width: 120px; }
+  .usage-badge { display: none; }
 }
 .view-tabs button:hover { color: var(--text); background: var(--panel); }
 .view-tabs button.active { background: var(--accent-soft); color: var(--accent-2); border-color: rgba(139, 124, 246, 0.4); font-weight: 600; }
@@ -1639,6 +1647,47 @@ button { font-family: inherit; }
 .decision-opt:hover { border-color: var(--accent); }
 .decision-opt.primary { background: rgba(139, 124, 246, 0.14); border-color: rgba(139, 124, 246, 0.45); }
 .decision-foot { font-size: 10.5px; margin-top: 10px; }
+
+/* ── v3.2: 사용량·비용 패널 ── */
+.usage-badge { cursor: pointer; }
+.usage-badge:hover { border-color: var(--accent); color: var(--text); }
+.usage-window { width: min(640px, 96vw); height: auto; max-height: 82vh; }
+.usage-body { padding: 16px 18px; overflow-y: auto; }
+.usage-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.usage-stat {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 11px;
+  padding: 11px 13px; display: flex; flex-direction: column; gap: 4px;
+}
+.usage-stat span { font-size: 11px; }
+.usage-stat b { font-size: 17px; font-variant-numeric: tabular-nums; }
+.usage-price { font-size: 12px; margin: 12px 2px 0; line-height: 1.55; }
+.usage-guard {
+  margin-top: 16px; border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 14px; background: rgba(248, 113, 113, 0.04);
+}
+.usage-guard-head { display: flex; flex-direction: column; gap: 3px; margin-bottom: 10px; }
+.usage-guard-head span { font-size: 11.5px; }
+.usage-guard-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 12.5px; }
+.usage-guard-row label { display: flex; align-items: center; gap: 6px; }
+.usage-guard-row input[type="number"] {
+  background: var(--bg-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 7px; padding: 4px 7px; font-size: 12.5px;
+}
+.usage-win { font-size: 12px; color: var(--text-dim); }
+.usage-win.warn { color: #fbbf24; font-weight: 700; }
+.usage-guard-note { font-size: 11px; margin-top: 9px; line-height: 1.5; }
+
+/* ── v3.2: 페르소나 편집기 ── */
+.persona-editor { padding: 10px 16px 14px; border-bottom: 1px solid var(--border); }
+.persona-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.persona-head span { font-size: 11.5px; }
+.persona-editor textarea {
+  width: 100%; background: var(--bg-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 12px; font-size: 12.5px; line-height: 1.6;
+  font-family: ui-monospace, Consolas, monospace; resize: vertical;
+}
+.persona-editor textarea:focus { outline: none; border-color: var(--accent); }
+.persona-actions { display: flex; gap: 7px; margin-top: 8px; }
 
 /* ── v3.1: 소통 범위 (프로필 창) ── */
 .scope-modes { display: flex; gap: 5px; margin-bottom: 8px; }

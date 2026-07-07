@@ -11,13 +11,13 @@ export interface ZoneDef {
 }
 
 export const ZONES: ZoneDef[] = [
-  { id: "ceo", label: "대표실", dot: "#8b7cf6", rug: [-12.5, -8.5, 8, 6.4], rugDay: "#3a3f55", rugNight: "#262b3d" },
-  { id: "plan", label: "기획 데스크", dot: "#60a5fa", rug: [-8.5, 0.5, 12.4, 7.2], rugDay: "#dbe7f8", rugNight: "#232c3e" },
-  { id: "dev", label: "개발 데스크", dot: "#34d399", rug: [7, 0.5, 13.4, 7.2], rugDay: "#d8f1e3", rugNight: "#20332c" },
-  { id: "biz", label: "사업 데스크", dot: "#fbbf24", rug: [-9.5, 8, 9.4, 4.8], rugDay: "#f8ecd2", rugNight: "#332e20" },
-  { id: "art", label: "아트 스튜디오", dot: "#e879f9", rug: [-1.5, 8, 6, 4.8], rugDay: "#f7dcee", rugNight: "#332433" },
-  { id: "qa", label: "품질 검수", dot: "#f87171", rug: [11.75, 8, 8.6, 4.8], rugDay: "#f9dcdc", rugNight: "#362325" },
-  { id: "meet", label: "회의실", dot: "#a78bfa", rug: [3.5, -8.5, 9.4, 6.4], rugDay: "#e7e2f6", rugNight: "#282438" },
+  { id: "ceo", label: "대표실", dot: "#8b7cf6", rug: [-12.5, -8.5, 8, 6.4], rugDay: "#3a3f55", rugNight: "#3d4360" },
+  { id: "plan", label: "기획 데스크", dot: "#60a5fa", rug: [-8.5, 0.5, 12.4, 7.2], rugDay: "#dbe7f8", rugNight: "#39485f" },
+  { id: "dev", label: "개발 데스크", dot: "#34d399", rug: [7, 0.5, 13.4, 7.2], rugDay: "#d8f1e3", rugNight: "#345247" },
+  { id: "biz", label: "사업 데스크", dot: "#fbbf24", rug: [-9.5, 8, 9.4, 4.8], rugDay: "#f8ecd2", rugNight: "#544a33" },
+  { id: "art", label: "아트 스튜디오", dot: "#e879f9", rug: [-1.5, 8, 6, 4.8], rugDay: "#f7dcee", rugNight: "#523a52" },
+  { id: "qa", label: "품질 검수", dot: "#f87171", rug: [11.75, 8, 8.6, 4.8], rugDay: "#f9dcdc", rugNight: "#573a3c" },
+  { id: "meet", label: "회의실", dot: "#a78bfa", rug: [3.5, -8.5, 9.4, 6.4], rugDay: "#e7e2f6", rugNight: "#413a5c" },
 ];
 
 export const zoneOf = (id: string): ZoneDef => ZONES.find((z) => z.id === id) ?? ZONES[1];

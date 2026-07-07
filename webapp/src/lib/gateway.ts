@@ -6,6 +6,8 @@
 //  - 이후 { type:"req"|"res"|"event" } JSON 프레임을 주고받는다.
 //  - 메시지 전송: method "chat.send" (스트리밍 이벤트 "chat") 또는 method "agent" (완료 시 res)
 
+import { loadGuard } from "./cost";
+
 export type EventFrame = { type: "event"; event: string; payload?: any; seq?: number };
 export type ConnStatus = "idle" | "connecting" | "connected" | "error" | "closed";
 
@@ -274,7 +276,32 @@ export class GatewayClient {
    * 디바이스 신원을 자동 처리하는 공식 CLI를 실행해 결과를 돌려준다.
    * (WS 연결은 상태 표시·이벤트 수신용으로 계속 사용)
    */
+  /* ── 비용 가드 — 10분 윈도 호출 수 상한 (무한 반복 폭주 차단) ── */
+  private callTimes: number[] = [];
+  private costGuardListeners = new Set<(msg: string) => void>();
+  onCostGuard(fn: (msg: string) => void): () => void {
+    this.costGuardListeners.add(fn);
+    return () => this.costGuardListeners.delete(fn);
+  }
+  /** 최근 10분간 LLM 호출 수 (사용량 패널 표시용) */
+  callsIn10Min(): number {
+    const cut = Date.now() - 600_000;
+    this.callTimes = this.callTimes.filter((t) => t > cut);
+    return this.callTimes.length;
+  }
+  private checkCostGuard() {
+    const g = loadGuard();
+    if (!g.enabled) return;
+    if (this.callsIn10Min() >= g.maxPer10Min) {
+      const msg = `🛑 비용 가드 — 10분당 LLM 호출 한도(${g.maxPer10Min}회)를 넘었습니다. 에이전트가 같은 작업을 반복하고 있을 수 있어 호출을 차단했습니다. 상단 🪙 배지에서 한도를 조절하거나 잠시 후 다시 시도하세요.`;
+      this.costGuardListeners.forEach((f) => f(msg));
+      throw new Error(msg);
+    }
+  }
+
   async runAgent(agentId: string, input: string, sessionSuffix: string, signal?: AbortSignal): Promise<RunResult> {
+    this.checkCostGuard();
+    this.callTimes.push(Date.now());
     const r = await fetch("/api/agent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

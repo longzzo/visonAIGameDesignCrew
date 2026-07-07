@@ -1,7 +1,119 @@
+import { useEffect, useState } from "react";
 import { uiAlert, uiConfirm, uiPrompt } from "../lib/dialog";
+import { estimateCost, fmtUsd, loadGuard, priceFor, saveGuard, type CostGuard } from "../lib/cost";
+import { gateway } from "../lib/gateway";
 import { useVE } from "../store";
 
+/** 사용량·비용 패널 — 토큰/호출/추정 비용 + 비용 가드(10분 호출 한도) 설정 */
+function UsagePanel({ onClose }: { onClose: () => void }) {
+  const { usage, modelName } = useVE();
+  const [guard, setGuard] = useState<CostGuard>(loadGuard());
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 2000);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  const price = priceFor(modelName);
+  const cost = estimateCost(modelName, usage.input, usage.output);
+  const win = gateway.callsIn10Min();
+  const applyGuard = (g: CostGuard) => {
+    setGuard(g);
+    saveGuard(g);
+  };
+
+  return (
+    <div className="doc-viewer" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="doc-window usage-window">
+        <div className="doc-head">
+          <b>🪙 사용량 · 비용</b>
+          <span className="dim" style={{ flex: 1, fontSize: 11.5 }}>
+            이번 세션 기준 · 단가는 추정치 — 실제 청구는 제공자 대시보드가 정답입니다
+          </span>
+          <button className="btn small" onClick={onClose} title="닫기 (Esc)">
+            ✕
+          </button>
+        </div>
+        <div className="usage-body">
+          <div className="usage-grid">
+            <div className="usage-stat">
+              <span className="dim">호출</span>
+              <b>{usage.calls.toLocaleString()}회</b>
+            </div>
+            <div className="usage-stat">
+              <span className="dim">입력 토큰</span>
+              <b>
+                {usage.input.toLocaleString()}
+                {usage.estimated ? "≈" : ""}
+              </b>
+            </div>
+            <div className="usage-stat">
+              <span className="dim">출력 토큰</span>
+              <b>
+                {usage.output.toLocaleString()}
+                {usage.estimated ? "≈" : ""}
+              </b>
+            </div>
+            <div className="usage-stat">
+              <span className="dim">추정 비용</span>
+              <b>{fmtUsd(cost)}</b>
+            </div>
+          </div>
+          <div className="usage-price dim">
+            현재 모델 <b>{modelName}</b> → {price.label} (입력 ${price.inPrice}/1M · 출력 ${price.outPrice}/1M)
+            {price.note ? ` — ${price.note}` : ""}
+          </div>
+
+          <div className="usage-guard">
+            <div className="usage-guard-head">
+              <b>🛑 비용 가드</b>
+              <span className="dim">에이전트가 같은 작업을 무한 반복해도 지갑이 터지지 않게, 10분당 호출 수를 제한합니다</span>
+            </div>
+            <div className="usage-guard-row">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={guard.enabled}
+                  onChange={(e) => applyGuard({ ...guard, enabled: e.target.checked })}
+                />
+                가드 켜기
+              </label>
+              <label>
+                10분당 최대{" "}
+                <input
+                  type="number"
+                  min={10}
+                  max={500}
+                  value={guard.maxPer10Min}
+                  onChange={(e) => applyGuard({ ...guard, maxPer10Min: Math.max(10, Number(e.target.value) || 60) })}
+                  style={{ width: 64 }}
+                />{" "}
+                회
+              </label>
+              <span className={`usage-win ${win >= guard.maxPer10Min * 0.8 ? "warn" : ""}`}>
+                최근 10분: <b>{win}</b>/{guard.maxPer10Min}회
+              </span>
+            </div>
+            <div className="dim usage-guard-note">
+              한도를 넘으면 새 호출을 차단하고 진행 중 회의를 자동 중단합니다. 참고: 개발팀 직접 작업(dev-task)은 단계
+              상한(8스텝)으로 별도 보호됩니다.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function TopBar() {
+  const [usageOpen, setUsageOpen] = useState(false);
   const {
     projects,
     activeProject,
@@ -19,6 +131,13 @@ export function TopBar() {
     health,
     restartGatewayAction,
   } = useVE();
+  const price = priceFor(modelName);
+  const costLabel =
+    price.inPrice === 0 && price.outPrice === 0
+      ? /NVIDIA/i.test(price.label)
+        ? "크레딧"
+        : "$0"
+      : fmtUsd(estimateCost(modelName, usage.input, usage.output));
   const connColor = conn === "connected" ? "var(--ok)" : conn === "connecting" ? "var(--warn)" : "var(--err)";
   const connLabel =
     conn === "connected" ? "게이트웨이 연결됨" : conn === "connecting" ? "연결 중…" : "연결 안 됨";
@@ -111,14 +230,14 @@ export function TopBar() {
         </button>
       </div>
       <nav className="view-tabs">
+        <button className={view === "office" || view === "studio" ? "active" : ""} onClick={() => switchView("office")}>
+          🏢 사무실
+        </button>
         <button className={view === "orch" ? "active" : ""} onClick={() => switchView("orch")}>
           🗂️ 오케스트레이션
         </button>
         <button className={view === "chat" ? "active" : ""} onClick={() => switchView("chat")}>
-          💬 에이전트 채팅
-        </button>
-        <button className={view === "office" || view === "studio" ? "active" : ""} onClick={() => switchView("office")}>
-          🏢 사무실
+          💬 채팅
         </button>
         <button className={view === "data" ? "active" : ""} onClick={() => switchView("data")} title="게임 데이터 파일(JSON/CSV) — 방치형 등 데이터 주도 게임의 밸런스·경제 테이블을 모아 편집">
           🧮 데이터
@@ -128,10 +247,10 @@ export function TopBar() {
         <span className="badge model-badge" title="현재 모델">
           🧠 {modelName}
         </span>
-        <span className="badge usage-badge" title={`API 호출 ${usage.calls}회${usage.estimated ? " (일부 추정치)" : ""}`}>
-          🪙 입력 {usage.input.toLocaleString()} / 출력 {usage.output.toLocaleString()}
-          {usage.estimated ? "≈" : ""} · $0 (로컬)
-        </span>
+        <button className="badge usage-badge" onClick={() => setUsageOpen(true)} title="토큰 사용량·추정 비용·비용 가드 설정">
+          🪙 {usage.calls}회 · {(usage.input + usage.output).toLocaleString()}tk{usage.estimated ? "≈" : ""} ·{" "}
+          {costLabel}
+        </button>
         <button className="health-light" onClick={() => void onHealthClick()} title={hTitle}>
           {hLight}
         </button>
@@ -139,6 +258,7 @@ export function TopBar() {
           <i style={{ background: connColor }} /> <span className="conn-label">{connLabel}</span>
         </span>
       </div>
+      {usageOpen && <UsagePanel onClose={() => setUsageOpen(false)} />}
     </header>
   );
 }

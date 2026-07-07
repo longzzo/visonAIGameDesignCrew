@@ -74,17 +74,32 @@ const pmFront = (id: string): V3 => {
 const REPORT_TTL = 7000;
 const VISIT_TTL = 7000;
 
+/** 대기 중 잡담 (샘플의 캐주얼 말풍선 — 연출용 고정 문구, LLM 호출 없음) */
+const CHATTER: string[] = [
+  "오 안녕하세요 😊",
+  "커피 한 잔 하실래요? ☕",
+  "어제 그 게임 해보셨어요?",
+  "이번 기획 방향 좋던데요",
+  "점심 뭐 먹지…",
+  "밸런스 표 다시 봐야겠다",
+  "레퍼런스 하나 찾았어요 👀",
+  "오늘 날씨 좋네요",
+  "빌드 잘 돌아가나?",
+  "스트레칭 한 번 하고… 🙆",
+];
+
 /* ── 테마 팔레트 ─────────────────────────────────────── */
 function paletteFor(mode: "day" | "night") {
   if (mode === "night") {
+    // "밤이지만 사무실은 또렷하게" — 어두운 하늘/도시 + 충분한 실내광 (가독성 우선)
     return {
-      bg: "#10141d", fogNear: 40, fogFar: 78, ambient: 0.42, dir: 0.28, dirColor: "#9db4ff",
-      ground: "#1a221d", road: "#22262e", roadLine: "#3a4150", sidewalk: "#252b35",
-      plate: "#2b303c", plateEdge: "#1f242e",
-      building: "#252c3a", buildingB: "#1f2634", winColor: "#ffd98a", winE: 0.9,
-      deskTop: "#e8eaee", deskLeg: "#8a93a3", monitor: "#10151f", screenE: 0.9,
-      chair: "#6b6fe0", wood: "#8a6a44", glass: "#7d90b8", glassOp: 0.16,
-      tree: "#2e5e40", trunk: "#4a3a2d", zoneLight: 16,
+      bg: "#151a26", fogNear: 46, fogFar: 92, ambient: 0.68, dir: 0.5, dirColor: "#aabdf5",
+      ground: "#232d27", road: "#2b303c", roadLine: "#4a5468", sidewalk: "#313848",
+      plate: "#3a4150", plateEdge: "#2b303c",
+      building: "#323b4e", buildingB: "#2a3344", winColor: "#ffd98a", winE: 0.9,
+      deskTop: "#eef0f4", deskLeg: "#9aa3b5", monitor: "#131826", screenE: 1,
+      chair: "#7a7ef0", wood: "#a37f52", glass: "#8fa5cc", glassOp: 0.18,
+      tree: "#3a7350", trunk: "#5a4636", zoneLight: 26,
     };
   }
   return {
@@ -147,7 +162,19 @@ function Person({
   const peek = useVE((s) => s.livePeek[id] ?? "");
   const [walking, setWalking] = useState(false);
   const speaking = !!inMeeting && st === "running";
-  const bubbleText = st === "running" && peek ? peek : inMeeting ? say ?? "" : "";
+  // 대기 중 잡담 — 가끔 캐주얼 말풍선 (연출용, 6초 표시)
+  const [chatter, setChatter] = useState("");
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (Math.random() < 0.055) {
+        setChatter(CHATTER[Math.floor(Math.random() * CHATTER.length)]);
+        setTimeout(() => setChatter(""), 6000);
+      }
+    }, 12000);
+    return () => clearInterval(t);
+  }, []);
+  const idleChat = st === "idle" && !inMeeting && !walking ? chatter : "";
+  const bubbleText = st === "running" && peek ? peek : inMeeting ? say ?? "" : idleChat;
 
   useFrame((state, dt) => {
     const g = ref.current;

@@ -25,6 +25,8 @@ export default function App() {
     quotaSuspect,
     dismissQuota,
     switchToLocalModel,
+    costGuardTrip,
+    dismissCostGuard,
     meetingDiffOpen,
     docViewer,
     artStudioOpen,
@@ -44,6 +46,14 @@ export default function App() {
       {conn !== "connected" && conn !== "idle" && (
         <div className="app-banner warn">
           🔌 게이트웨이 이벤트 연결이 끊겼습니다 — 자동 재연결 중… <span className="dim">(작업 실행은 계속 가능합니다. 모델 교체 직후라면 ~10초 뒤 붙습니다)</span>
+        </div>
+      )}
+      {costGuardTrip && (
+        <div className="app-banner err">
+          {costGuardTrip}
+          <button className="btn tiny" onClick={dismissCostGuard}>
+            닫기
+          </button>
         </div>
       )}
       {quotaSuspect && (
