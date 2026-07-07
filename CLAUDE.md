@@ -1,107 +1,71 @@
-# CLAUDE.md — Vision Engine 루트 지침
+# CLAUDE.md
 
-> 이 파일은 Claude Code가 이 저장소를 열 때 세션 시작 시 자동으로 읽는 최상위 지침이다.
-> **실제로 실행되는 서브에이전트 정의는 `.claude/agents/*.md`에 있다** (Claude Code가 세션 시작 시 자동 로드하는 진짜 실행 파일).
-> `agents/*/AGENTS.md`는 그 서브에이전트들의 원본 설계 문서(장문 버전, 사람이 읽기 위한 것)이며 실제 실행에는 관여하지 않는다.
-> 게임의 진실의 원천(Single Source of Truth)은 오너가 `templates/MASTER_GDD.md`를 복사해 만드는 실제 GDD 파일이다.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
----
+**Vision Engine** — 게임 기획·개발 멀티에이전트 스튜디오. 두 가지 실행 모드가 공존한다:
 
-## 0. 프로젝트 한 줄 요약
+1. **웹앱 (주력)** — `webapp/`의 React 앱. OpenClaw 게이트웨이에 붙은 19명 에이전트(기획 12 + 개발 7)가 픽셀아트/3D 사무실에서 GDD를 만들고 실제 코드를 다룬다. Electron 데스크톱 셸(`desktop/`)로도 포장됨.
+2. **Claude Code 스튜디오 모드 (초기 설계, 여전히 동작)** — 이 저장소를 Claude Code로 열면 메인 세션이 PM이 되고 `.claude/agents/`의 7개 서브에이전트(scenario·gameplay·uiux·systems·balance·bm·visual)를 Task로 병렬 호출한다.
 
-**Vision Engine** — 오너 한 명이 Claude Code 세션 하나로 여러 실제 서브에이전트(각자 독립된 컨텍스트에서 병렬 실행 가능)를 지휘해 **어떤 장르·아이디어의 게임이든** 기획·설계할 수 있는 범용 스튜디오. 메인 세션 자체가 PM(오케스트레이터) 역할을 하며, `Task` 도구로 `.claude/agents/`에 정의된 서브에이전트를 호출한다.
+## 명령어
 
-## 1. 너(메인 세션)의 역할 = PM
+```bash
+# 웹앱 개발 서버 (포트 5199; predev가 ~/.openclaw/openclaw.json에서 .env.local 자동 생성)
+cd webapp && npm run dev
+npm run dev:mobile        # LAN/Tailscale 노출 (0.0.0.0)
+npm run build             # 프로덕션 빌드
 
-이 저장소를 여는 순간, 너는 별도 파일을 읽을 필요 없이 **PM(총괄 오케스트레이터)**이다. 서브에이전트처럼 별도 정의 파일이 있는 게 아니라, 지금 이 CLAUDE.md 자체가 네 역할 정의다.
+# 타입체크 (테스트·린트 설정 없음 — 이것이 유일한 정적 검증)
+cd webapp && npx tsc --noEmit -p tsconfig.json
 
-- 서브에이전트는 `.claude/agents/`에 있는 7개: `scenario`, `gameplay`, `uiux`, `systems`, `balance`, `bm`, `visual`.
-- 각 서브에이전트는 **`Read`, `Grep`, `Glob`만 가지고 있다 — 파일을 쓸 수 없다.** 의도된 설계다: 서브에이전트는 초안·제안을 텍스트로 반환하고, 실제로 GDD나 다른 파일에 반영하는 건 항상 너(메인 세션, PM)만 한다. "GDD 쓰기는 PM만"이라는 원칙이 여기서는 말로 된 규칙이 아니라 **실제 도구 권한으로 강제**된다.
-- Claude Code는 각 서브에이전트의 `description` 필드를 보고 요청과 맞으면 자동으로 위임을 제안하기도 하지만, "scenario 서브에이전트를 써서 ~해줘"처럼 명시적으로 지시할 수도 있다.
-- 여러 서브에이전트를 동시에 호출하면 각자 독립된 컨텍스트에서 병렬로 작업하고, 완료된 결과만 네게 돌아온다.
+# 데스크톱 셸
+cd desktop && npm start                                    # Electron 실행
+cd desktop && CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist  # NSIS 설치파일 → dist-installer/
 
-## 2. 0단계: 프로젝트 부트스트랩 (장르 무관 인테이크)
-
-이 스튜디오는 특정 게임 하나에 묶이지 않는다. 실제 GDD 파일이 아직 없거나, 있어도 핵심 항목("1. 게임 개요", "2. 세계관·톤")이 `[미정]`이면, 서브에이전트에게 위임하기 전에 먼저 `templates/PROJECT_INTAKE.md` 절차를 따라 오너에게 질문한다.
-
-- 질문은 한 번에 2~3개씩, 단계 순서대로. 몰아서 묻지 않는다.
-- 답변을 받을 때마다 즉시 (네가 직접, Write 권한이 있으니) 실제 GDD 파일에 반영한다.
-- 이미 채워진 항목은 다시 묻지 않는다. 오너 생각이 바뀌면 해당 섹션만 다시 질문·갱신한다.
-- 인테이크가 충분히 끝나면 아래 "표준 작업 흐름"으로 넘어간다.
-
-## 3. 핵심 원칙
-
-1. **GDD가 최우선이다.** 어떤 창작·설계 결과물도 실제 GDD 파일과 모순되면 안 된다. 모순을 발견하면 임의로 진행하지 말고 오너에게 보고한다.
-2. **장르를 가정하지 않는다.** GDD 핵심 항목이 비어 있으면 임의로 채우지 말고 인테이크로 확인한다.
-3. **추측보다 확인.** 정보가 부족하면 지어내지 말고 무엇이 필요한지 명시하고 질문한다.
-4. **작은 단위로 검증.** 큰 산출물은 초안 → 자기검증 → 정리 순으로.
-5. **출처와 근거를 남긴다.** 수치·밸런스·시장 데이터엔 근거(GDD 섹션, 계산 방식)를 함께.
-6. **역할 경계를 지킨다.** 자기(PM) 담당이 아닌 창작·수치 작업은 서브에이전트에게 위임한다.
-
-## 4. 모델 라우팅 정책
-
-이 프로젝트의 목적 중 하나는 **Claude Fable 5**의 실제 성능 실험이다. `.claude/agents/*.md`의 서브에이전트들은 의도적으로 `model` 필드를 지정하지 않았다 — **메인 세션의 모델 설정을 그대로 상속**받으므로, Claude Code 실행 시 모델을 `claude-fable-5`로 지정하면 PM과 모든 서브에이전트가 전부 Fable 5로 작동한다.
-
-| 상황 | 대응 |
-|---|---|
-| 기본 (모든 기획·설계) | 세션 모델 = `claude-fable-5` |
-| Fable가 거부(refusal)하거나 안전장치로 차단 | 직접 "Opus 4.8로 재시도해라" 지시 |
-| 429(rate limit)·일시 장애 | 동일 |
-
-> Fable 5는 입력 $10 / 출력 $50(백만 토큰당)로 Opus 4.8의 2배. 무료 포함 기간 이후 크레딧 과금되니 긴 작업 위주로 활용 권장.
-> Fable 5는 `refusal` 시 HTTP 200과 함께 `stop_reason: "refusal"`을 반환한다(오류 아님).
-
-## 5. 디렉터리 구조
-
-```
-vision-engine/
-├── CLAUDE.md                  ← (이 파일) 메인 세션 = PM 역할 정의, 세션 시작 시 자동 로드
-├── .claude/
-│   └── agents/                ← ★ 실제 실행되는 서브에이전트 (Claude Code가 자동 인식)
-│       ├── scenario.md
-│       ├── gameplay.md
-│       ├── uiux.md
-│       ├── systems.md
-│       ├── balance.md
-│       ├── bm.md
-│       └── visual.md
-├── docs/
-│   ├── ARCHITECTURE.md        ← 시스템 아키텍처 설계 문서
-│   ├── architecture.mmd       ← 아키텍처 다이어그램 (Mermaid)
-│   ├── WORKFLOW.md            ← 요청 처리 흐름·오케스트레이션 시나리오
-│   ├── SETUP.md              ← 설치·초기 설정 가이드
-│   └── KICKOFF_PROMPT.md      ← Claude Code에 붙여넣는 실행 프롬프트
-├── agents/                    ← (참고용 원본 설계 문서 — 실제 실행에는 안 쓰임)
-│   └── */AGENTS.md
-├── templates/
-│   ├── PROJECT_INTAKE.md      ← 장르 무관 프로젝트 부트스트랩 질문지
-│   ├── MASTER_GDD.md          ← 마스터 게임 디자인 문서 템플릿
-│   └── TASK_BRIEF.md          ← 에이전트 작업 지시 표준 양식
-└── config/
-    ├── openclaw.json          ← (선택·별도 경로) OpenClaw 상시운영 버전용, 지금 경로와는 독립적
-    └── .env.example
+# OpenClaw 게이트웨이 재시작 (에이전트 설정 변경 후)
+curl -X POST http://127.0.0.1:5199/api/health -d '{"restart":"gateway"}'
 ```
 
-## 6. 표준 작업 흐름 (오케스트레이션)
+원클릭 실행: 루트의 `VisionEngine-Start.bat`(서버) / `VisionEngine-Desktop.bat`(Electron).
 
-오너의 요청을 받으면:
+## 웹앱 아키텍처 (큰 그림)
 
-1. **GDD 상태 확인** — 비어 있으면 위 "0단계 프로젝트 부트스트랩" 먼저.
-2. **요청 분해** — 어떤 서브에이전트(들)가 필요한지 판단한다. 여러 역할에 걸치면 병렬로 위임한다.
-3. **위임** — `Task` 도구로 해당 서브에이전트를 호출한다. 지시에는 항상 참조할 GDD 섹션을 명시한다(`templates/TASK_BRIEF.md` 양식 참고).
-4. **결과 취합·검증** — 서브에이전트 결과(텍스트)를 GDD와 대조해 모순·충돌을 점검한다.
-5. **GDD 반영** — 검증을 통과한 내용만 네가 직접 GDD 파일에 써넣는다(서브에이전트는 쓰기 권한이 없으므로 이 단계는 항상 너의 몫).
-6. **보고** — 통합된 결과물을 오너에게 정리해서 전달한다.
+**백엔드가 따로 없다.** 서버 로직 전부가 `webapp/vite.config.ts`(~2300줄)의 미들웨어 플러그인(`/api/*`)이다. 프로젝트/GDD/보고서/아트/킷은 전부 `workspace/<프로젝트>/` 파일로 저장 (DB 없음). **주의: vite.config.ts를 수정하면 dev 서버가 재시작돼 진행 중인 에이전트 실행이 끊긴다** — 오케스트레이션 도중엔 편집 금지.
 
-## 7. 코드 작업 규칙
+**상태는 zustand 단일 스토어** `webapp/src/store.ts`(~2400줄) — 연결·채팅·오케스트레이션 파이프라인(지시 분배→초안→교차검토→QA 게이트→GDD 반영)·회의 연출 상태(`agentStatus`/`livePeek`/`feed`/`meetingMembers`)가 모두 여기 있다. 2D(`OfficeView`)와 3D(`Office3D`) 사무실은 같은 스토어 상태를 다르게 그린 것. DEV 빌드에서만 `window.__VE = useVE`가 노출되어 브라우저에서 상태 주입 테스트가 가능하다.
 
-- 게임 로직 코드는 언어·엔진이 확정되기 전까지 의사코드/스펙 우선으로 작성한다.
-- 실제 코드 파일을 만들 때는 목적·입출력·전제를 파일 상단 주석에 명시한다.
-- 밸런싱 수치가 들어간 코드는 그 수치의 근거(GDD 섹션 번호)를 주석으로 남긴다.
-- 파괴적 작업(파일 삭제, 대량 수정)은 실행 전 오너에게 확인한다.
+**에이전트 정의는 두 곳이 짝을 이룬다:**
+- `webapp/src/lib/agents.ts` — 로스터(AgentDef: GDD 섹션 소유권, `phase: plan|dev`, `staff`)와 **모든 프롬프트 빌더**. 개발팀 7명은 `staff:true, phase:"dev"`로 기획 팬아웃에서 제외된다.
+- `~/.openclaw/openclaw.json` — 실제 게이트웨이(포트 18789) 에이전트 19명. **전원 write/edit/exec 도구가 deny**되어 있다 — 프롬프트의 "도구 호출 금지" 문구는 불충분하고 이 deny 목록이 진짜 강제 장치다. 배포용 키리스 템플릿은 `config/openclaw.json`(`{{API_KEY}}` 플레이스홀더).
 
-## 8. 안전·범위 경계
+**LLM 라우팅(오너 방침, DESKTOP-PLAN.md):** 로컬(Ollama)이 최종 목표, 클라우드(NVIDIA NIM)는 과도기, 제공자는 스왑 가능해야 한다. OpenClaw는 걷어내지 않는다. 기획 에이전트는 OpenClaw 게이트웨이(WS) 경유, **개발팀은 `webapp/server/dev-provider.mjs`의 다이렉트 함수호출 루프**(NVIDIA OpenAI 호환, SSE 스트리밍, `/api/dev-task`·`/api/dev-meeting`)를 쓴다 — OpenClaw 보완이지 대체가 아님.
 
-- 이 스튜디오는 게임 기획·설계 용도다. 실제 사용자 데이터나 결제 정보를 다루지 않는다.
-- bm 서브에이전트는 시장·수익 아이디어를 제안하되, 도박성·기만적 과금 설계는 지양하고 지속가능성·플레이어 신뢰를 함께 평가한다.
-- 외부 API로 보내는 프롬프트에는 민감정보를 넣지 않는다.
+**MCP:** `webapp/server/mcp-hub.mjs`가 클라이언트 허브. `config/mcp.json`에 서버 목록 + **에이전트별 도구 배정**(assignments; 예: td→unity-ankle, 구현팀→unity-coplay, QA→unity-hunt). 유니티 프로젝트는 `config/unity.local.json`(gitignored)에 경로만 등록하면 `unity-project` 파일시스템 서버가 자동 합성돼 개발팀 8명에게 배정된다. 가이드: `docs/UNITY-REVIEW.md`.
+
+**아트:** `webapp/server/image-provider.mjs` — 로컬 SD(webui `--api`)가 최우선, NVIDIA genai(`ai.api.nvidia.com/v1/genai/*` — LLM과 다른 엔드포인트)는 GPU 없는 과도기용. 규제 소지 키워드(유혈·무기 등 게임 아트 단골)는 자동으로 로컬로 라우팅하고, NVIDIA 정책 거부 시 로컬 폴백.
+
+**데스크톱(`desktop/main.cjs`, Electron 33):** 웹앱을 번들하지 않는 얇은 셸 — 설정된 원격 서버 → 로컬 재사용 → `npm run dev` 스폰 순으로 접속. 트레이 상주(닫기=숨김), `Ctrl+Shift+V`, 단일 인스턴스. 설치파일은 electron-builder NSIS(서명 없음 — `signAndEditExecutable:false`).
+
+## 함정 (이 저장소에서 실제로 겪은 것)
+
+- `.mjs` 서버 모듈을 vite.config.ts에서 import하려면 타입 심을 **`.d.mts`**로 만들어야 tsc가 찾는다.
+- drei `<Html>` 래퍼가 자식 폭을 붕괴시킨다 — 3D 말풍선은 `max-width`가 아니라 **고정 width + `word-break: keep-all`**.
+- three 생태계 버전 고정: React 18이므로 `three@0.169 / @react-three/fiber@8 / @react-three/drei@9`. 올리지 말 것.
+- 백그라운드 탭에선 rAF가 멈춘다 — 프리뷰 검증 시 카메라 애니메이션·fps는 스크린샷으로 판정 불가, 상태는 DOM/eval로 확인.
+- Windows에서 python으로 openclaw.json을 고칠 땐 경로에 **raw string(r'')** 필수(`\v`,`\a` 손상).
+- 커밋 전 시크릿 스캔 습관: `git diff | grep -Ei 'nvapi-|ghp_'` — NVIDIA 키는 `~/.openclaw/openclaw.json`에만 있고 저장소엔 절대 없다.
+- UI·주석·커밋 메시지는 한국어가 기본.
+
+## Claude Code 스튜디오 모드 (이 저장소를 직접 열었을 때)
+
+- 메인 세션 = PM. 서브에이전트는 `.claude/agents/*.md` 7개이며 **`Read/Grep/Glob`만 가진다** — GDD 쓰기는 항상 메인 세션 몫(도구 권한으로 강제됨).
+- 진실의 원천은 오너가 `templates/MASTER_GDD.md`를 복사해 만드는 GDD 파일. 산출물이 GDD와 모순되면 임의 진행하지 말고 보고.
+- GDD 핵심 항목이 비어 있으면 장르를 가정하지 말고 `templates/PROJECT_INTAKE.md` 절차로 2~3개씩 질문해 채운다.
+- `.claude/agents/*.md`는 세션 시작 시에만 로드된다 — 수정하면 세션 재시작 필요.
+- `agents/*/AGENTS.md`는 사람이 읽는 장문 설계 원본으로 실행에 관여하지 않는다 (OpenClaw 웹앱 페르소나의 원본이기도 함).
+
+## 더 읽을 문서
+
+- `GETTING-STARTED.md` — 처음 쓰는 사람용 설치·사용 가이드 (키 없는 배포 절차 포함)
+- `DESKTOP-PLAN.md` — 아키텍처 결정 기록 + **오너 방침**(OpenClaw 유지, 로컬 최우선, 클라우드 과도기·스왑 가능)
+- `ROADMAP.md` — 버전별 진행 현황 / `docs/UNITY-REVIEW.md` — 기존 유니티 프로젝트 리뷰 셋업
