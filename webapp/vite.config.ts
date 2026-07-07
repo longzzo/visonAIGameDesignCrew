@@ -192,6 +192,128 @@ function personaApiPlugin(): Plugin {
   };
 }
 
+/* ── 플러그인: 노션 발행 (GDD·보고서 자동 아카이브) ──────
+ * 오너의 레퍼런스 디자인(허브+개요표+콜아웃+섹션 자식 페이지)으로 발행한다.
+ *   GET  /api/notion            → 연동 상태 + 프로젝트별 마지막 발행
+ *   POST /api/notion            → { token, parentUrl } 등록(로컬 전용) 또는 { auto } 토글
+ *   POST /api/notion/publish    → { project } 즉시 전체 발행
+ * GDD/보고서 저장 시 90초 디바운스로 자동 발행(설정 시).
+ */
+function notionPayload(projectId: string) {
+  return async () => {
+    const gddFile = gddPathOf(projectId);
+    const gddMd = fs.existsSync(gddFile) ? fs.readFileSync(gddFile, "utf-8") : "";
+    const projectName = listProjects().find((p) => p.id === projectId)?.name ?? projectId;
+    const repDir = path.join(projectDir(projectId), "reports");
+    const reports: { ts: number; title: string; markdown: string }[] = [];
+    if (fs.existsSync(repDir)) {
+      const files = fs.readdirSync(repDir).filter((f) => /^\d+\.json$/.test(f)).sort().reverse().slice(0, 20);
+      for (const f of files) {
+        try {
+          const r = JSON.parse(fs.readFileSync(path.join(repDir, f), "utf-8"));
+          reports.push({ ts: Number(r.ts) || 0, title: String(r.title ?? "보고서"), markdown: String(r.markdown ?? "") });
+        } catch {
+          /* 손상 보고서 생략 */
+        }
+      }
+    }
+    return { projectId, projectName, gddMd, reports };
+  };
+}
+
+/** GDD·보고서 저장 훅에서 호출 — 노션 미설정이면 no-op (best-effort) */
+function notionAutoPublish(projectId: string): void {
+  if (!projectId) return;
+  void import("./server/notion-publish.mjs")
+    .then((m: any) => m.queueAutoPublish(projectId, notionPayload(projectId)))
+    .catch(() => undefined);
+}
+
+function notionApiPlugin(): Plugin {
+  let mod: any = null;
+  const load = async () => {
+    if (mod) return mod;
+    mod = await import("./server/notion-publish.mjs");
+    return mod;
+  };
+  return {
+    name: "vision-engine-notion-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/notion", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            const m = await load();
+            const url = new URL(req.url ?? "/", "http://local");
+            const sub = url.pathname.replace(/\/+$/, "");
+
+            if (req.method === "GET") {
+              const cfg = m.loadCfg();
+              const last: Record<string, any> = {};
+              for (const p of listProjects()) last[p.id] = m.lastPublishInfo(p.id);
+              res.end(JSON.stringify({ configured: !!(cfg.token && cfg.parentPageId), auto: cfg.auto, last }));
+              return;
+            }
+
+            if (sub === "/publish" && req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
+              const j = JSON.parse((await readBody(req)) || "{}");
+              const project = String(j.project ?? "");
+              if (!isSafeId(project) || !fs.existsSync(projectDir(project))) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: "project 확인 필요" }));
+                return;
+              }
+              const payload = await notionPayload(project)();
+              const out = await m.publishProject(payload);
+              res.end(JSON.stringify(out));
+              return;
+            }
+
+            if (req.method === "POST") {
+              if (!isLocalReq(req)) {
+                res.statusCode = 403;
+                res.end(JSON.stringify({ ok: false, error: "보안: 노션 토큰 등록은 PC(로컬)에서만 가능합니다" }));
+                return;
+              }
+              const j = JSON.parse((await readBody(req)) || "{}");
+              const cfg = m.loadCfg();
+              // 자동 발행 토글만
+              if (typeof j.auto === "boolean" && !j.token) {
+                m.saveCfg({ ...cfg, auto: j.auto });
+                res.end(JSON.stringify({ ok: true, auto: j.auto }));
+                return;
+              }
+              const token = String(j.token ?? "").trim();
+              const parentPageId = m.parsePageId(String(j.parentUrl ?? ""));
+              if (!token.startsWith("ntn_") && !token.startsWith("secret_")) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: "노션 내부 통합 토큰(ntn_… 또는 secret_…)을 입력하세요" }));
+                return;
+              }
+              if (!parentPageId) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: "부모 페이지 URL에서 페이지 id를 찾지 못했습니다" }));
+                return;
+              }
+              const info = await m.verifySetup(token, parentPageId);
+              m.saveCfg({ token, parentPageId, auto: cfg.auto !== false });
+              res.end(JSON.stringify({ ok: true, pageTitle: info.pageTitle }));
+              return;
+            }
+
+            res.statusCode = 405;
+            res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 300) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
 /* ── 플러그인: 직원 채용/퇴사 (동적 에이전트) ────────────
  * POST { id, name, emoji, role, zone, persona? } → agents/<id>/AGENTS.md 생성
  *   + openclaw.json agents.list에 추가 + config/custom-agents.json 기록 + 게이트웨이 재시작.
@@ -851,6 +973,7 @@ function gddApiPlugin(): Plugin {
               snapshotGdd(project, old);
               fs.writeFileSync(GDD_PATH, old, "utf-8");
               if (project) exportToVault(project, "gdd", { markdown: old });
+              if (project) notionAutoPublish(project);
               res.end(JSON.stringify({ ok: true, markdown: old, mtime: fs.statSync(GDD_PATH).mtimeMs }));
               return;
             }
@@ -875,6 +998,7 @@ function gddApiPlugin(): Plugin {
               fs.mkdirSync(path.dirname(GDD_PATH), { recursive: true });
               fs.writeFileSync(GDD_PATH, markdown, "utf-8");
               if (project) exportToVault(project, "gdd", { markdown });
+              if (project) notionAutoPublish(project);
               res.end(JSON.stringify({ ok: true, mtime: fs.statSync(GDD_PATH).mtimeMs }));
               return;
             }
@@ -1127,6 +1251,7 @@ function reportsApiPlugin(): Plugin {
                 "utf-8"
               );
               exportToVault(project, "report", { agent, title, markdown });
+              notionAutoPublish(project);
               res.end(JSON.stringify({ ok: true, ts }));
               return;
             }
@@ -2750,6 +2875,7 @@ export default defineConfig({
     artApiPlugin(),
     personaApiPlugin(),
     hireApiPlugin(),
+    notionApiPlugin(),
     pdfTextApiPlugin(),
     protoApiPlugin(),
     decisionsApiPlugin(),

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { AGENT_MAP } from "../lib/agents";
 import { downloadReport } from "../lib/reports";
 import { artFileUrl } from "../lib/art";
-import { uiConfirm } from "../lib/dialog";
+import { uiAlert, uiConfirm, uiPrompt } from "../lib/dialog";
+import { getNotionStatus, publishNotion, setupNotion, type NotionStatus } from "../lib/notionSync";
 import { useVE } from "../store";
 import { Markdown } from "./Markdown";
 import { ReportVerifyFlow } from "./ReportVerifyFlow";
@@ -30,6 +31,51 @@ export function DocViewer() {
     attachArtToGdd,
   } = useVE();
   const [attached, setAttached] = useState<number[]>([]);
+  // 노션 발행 — 아키비스트(📚)가 GDD·보고서를 오너 노션에 레퍼런스 디자인으로 발행
+  const [notion, setNotion] = useState<NotionStatus | null>(null);
+  const [publishing, setPublishing] = useState(false);
+  useEffect(() => {
+    if (tab) void getNotionStatus().then(setNotion).catch(() => setNotion(null));
+  }, [tab]);
+
+  const onNotionSetup = async () => {
+    const token = await uiPrompt("노션 연동 ① 통합 토큰", {
+      message:
+        "notion.so/my-integrations 에서 내부 통합(Internal Integration)을 만들고 토큰(ntn_…)을 붙여넣으세요.\n토큰은 이 PC의 config/notion.json에만 저장됩니다 (커밋 제외).",
+      placeholder: "ntn_…",
+    });
+    if (!token?.trim()) return;
+    const parentUrl = await uiPrompt("노션 연동 ② 부모 페이지", {
+      message: "발행 위치가 될 노션 페이지의 링크를 붙여넣으세요.\n⚠️ 그 페이지의 ⋯ 메뉴 → 연결(Connections)에서 방금 만든 통합을 추가해야 접근할 수 있습니다.",
+      placeholder: "https://www.notion.so/…",
+    });
+    if (!parentUrl?.trim()) return;
+    try {
+      const pageTitle = await setupNotion(token.trim(), parentUrl.trim());
+      setNotion(await getNotionStatus());
+      void uiAlert("📚 노션 연동 완료", `부모 페이지: "${pageTitle}"\n이제 회의·보고서가 끝날 때마다 90초 뒤 자동 발행됩니다. 지금 바로 발행하려면 📚 버튼을 다시 누르세요.`);
+    } catch (e: any) {
+      void uiAlert("연동 실패", String(e?.message ?? e));
+    }
+  };
+
+  const onNotionPublish = async () => {
+    if (!activeProject || publishing) return;
+    setPublishing(true);
+    try {
+      const url = await publishNotion(activeProject);
+      setNotion(await getNotionStatus());
+      const open = await uiConfirm("📚 노션 발행 완료", {
+        message: "허브 페이지(개요 표 + 섹션별 기획서 + 보고서함)로 발행했습니다. 노션에서 열어볼까요?",
+        confirmLabel: "🔗 노션에서 열기",
+      });
+      if (open) window.open(url, "_blank", "noopener");
+    } catch (e: any) {
+      void uiAlert("발행 실패", String(e?.message ?? e));
+    } finally {
+      setPublishing(false);
+    }
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -76,6 +122,20 @@ export function DocViewer() {
               🖼️ 아트 보관함 {artImages.length > 0 ? `(${artImages.length})` : ""}
             </button>
           </div>
+          {(tab === "gdd" || tab === "reports") && (
+            <button
+              className="btn small"
+              disabled={publishing}
+              onClick={() => void (notion?.configured ? onNotionPublish() : onNotionSetup())}
+              title={
+                notion?.configured
+                  ? `노션 아키비스트가 GDD·보고서를 발행합니다 (자동 발행 ${notion.auto ? "켜짐" : "꺼짐"}${notion.last[activeProject]?.ts ? ` · 마지막 ${new Date(notion.last[activeProject]!.ts).toLocaleTimeString("ko-KR", { hour12: false })}` : ""})`
+                  : "노션 워크스페이스와 연동합니다 (통합 토큰 + 부모 페이지)"
+              }
+            >
+              {publishing ? "📚 발행 중…" : notion?.configured ? "📚 노션 발행" : "📚 노션 연동"}
+            </button>
+          )}
           {tab === "reports" && reportPreview && (
             <button className="btn small" onClick={() => downloadReport(reportPreview)}>
               ⬇️ .md 다운로드
