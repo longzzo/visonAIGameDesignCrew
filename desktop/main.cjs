@@ -7,6 +7,7 @@ const { app, BrowserWindow, shell, Menu, ipcMain, Tray, globalShortcut, nativeIm
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
+const os = require("node:os");
 const http = require("node:http");
 const https = require("node:https");
 
@@ -14,7 +15,29 @@ let tray = null;
 let quitting = false;
 
 const LOCAL_URL = "http://127.0.0.1:5199";
-const WEBAPP_DIR = path.resolve(__dirname, "..", "webapp");
+
+/**
+ * webapp 폴더 탐색 — 설치된 앱은 __dirname이 resources/app이라 ../webapp이 없다.
+ * 후보: 설정(repoDir) → 환경변수 → 개발 체크아웃(../webapp) → 알려진 설치 경로.
+ */
+function findWebappDir() {
+  const cfg = loadConfig();
+  const candidates = [
+    cfg.repoDir && path.join(cfg.repoDir, "webapp"),
+    process.env.VE_REPO && path.join(process.env.VE_REPO, "webapp"),
+    path.resolve(__dirname, "..", "webapp"),
+    "D:\\Claude\\vision-engine\\vision-engine\\webapp",
+    path.join(os.homedir(), "vision-engine", "webapp"),
+  ].filter(Boolean);
+  for (const dir of candidates) {
+    try {
+      if (fs.existsSync(path.join(dir, "package.json"))) return dir;
+    } catch {
+      /* noop */
+    }
+  }
+  return null;
+}
 
 let serverChild = null; // 우리가 띄운 경우에만 종료 시 정리
 let win = null;
@@ -57,10 +80,11 @@ function ping(base) {
 
 /** 로컬 서버가 없고 이 PC에 저장소(webapp)가 있으면 직접 띄운다 */
 async function trySpawnLocalServer() {
-  if (!fs.existsSync(path.join(WEBAPP_DIR, "package.json"))) return false;
-  console.log("⏳ 로컬 서버 기동 중…");
+  const webappDir = findWebappDir();
+  if (!webappDir) return false;
+  console.log("⏳ 로컬 서버 기동 중…", webappDir);
   serverChild = spawn("npm.cmd", ["run", "dev"], {
-    cwd: WEBAPP_DIR,
+    cwd: webappDir,
     windowsHide: true,
     stdio: "ignore",
     shell: false,
@@ -105,7 +129,17 @@ async function connect() {
   }
   currentTarget = target;
   console.log("✅ 접속:", target);
-  await win.loadURL(target);
+  // 일시 오류(캐시 손상·서버 재시작 직후 등)로 빈 창이 뜨지 않게 — 재시도 후 실패 시 설정 화면 안내
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await win.loadURL(target);
+      return;
+    } catch (e) {
+      console.warn(`⚠️ 로드 실패 (${attempt}/3):`, String(e?.message ?? e).slice(0, 80));
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 1500 * attempt));
+    }
+  }
+  openSettings(`서버(${target})는 살아있지만 화면을 불러오지 못했습니다 — 잠시 후 저장을 다시 누르거나 앱을 재시작해 보세요.`);
 }
 
 function createWindow() {
@@ -172,12 +206,20 @@ ipcMain.handle("ve:save", async (_e, url) => {
   return true;
 });
 
+// 로컬 개발 서버 콘텐츠 — HTTP 캐시가 손상되면 ERR_FAILED로 빈 창이 뜨므로 캐시를 끈다
+app.commandLine.appendSwitch("disable-http-cache");
+
 // 단일 인스턴스 — 두 번째 실행 시 기존 창을 띄운다
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", showWindow);
 }
+
+// 트레이 상주 — 모든 창이 닫혀도 앱은 살아있는다 (기본 동작은 종료라서 명시)
+app.on("window-all-closed", () => {
+  /* noop — 트레이 메뉴의 "종료"로만 끝낸다 */
+});
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);

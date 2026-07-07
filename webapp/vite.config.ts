@@ -118,6 +118,79 @@ function readBody(req: any): Promise<string> {
   });
 }
 
+/** 바이너리 본문(PDF 업로드 등) — 문자열 결합은 데이터를 깨뜨리므로 Buffer로 수집 */
+function readRawBody(req: any, maxBytes = 40 * 1024 * 1024): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on("data", (c: Buffer) => {
+      size += c.length;
+      if (size > maxBytes) {
+        reject(new Error("파일이 너무 큽니다 (40MB 제한)"));
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
+}
+
+/* ── 플러그인: PDF 텍스트 추출 (기존 기획 PDF 가져오기) ── */
+function pdfTextApiPlugin(): Plugin {
+  return {
+    name: "vision-engine-pdf-text",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/pdf-text", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          if (req.method !== "POST") {
+            res.statusCode = 405;
+            res.end(JSON.stringify({ ok: false, error: "POST only" }));
+            return;
+          }
+          try {
+            const buf = await readRawBody(req);
+            if (buf.length < 5 || buf.subarray(0, 5).toString("latin1") !== "%PDF-") {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: "PDF 파일이 아닙니다" }));
+              return;
+            }
+            const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
+            const doc = await pdfjs.getDocument({ data: new Uint8Array(buf), useSystemFonts: true }).promise;
+            const pages: string[] = [];
+            for (let i = 1; i <= doc.numPages; i++) {
+              const page = await doc.getPage(i);
+              const tc = await page.getTextContent();
+              // 줄 복원: y좌표(transform[5])가 바뀌면 줄바꿈
+              let lastY: number | null = null;
+              let line = "";
+              const lines: string[] = [];
+              for (const item of tc.items as any[]) {
+                const y = Math.round(item.transform?.[5] ?? 0);
+                if (lastY !== null && Math.abs(y - lastY) > 2) {
+                  if (line.trim()) lines.push(line.trimEnd());
+                  line = "";
+                }
+                line += item.str + (item.hasEOL ? "" : " ");
+                lastY = y;
+              }
+              if (line.trim()) lines.push(line.trimEnd());
+              pages.push(lines.join("\n"));
+            }
+            const text = pages.join("\n\n").replace(/[ \t]+\n/g, "\n").trim();
+            res.end(JSON.stringify({ ok: true, text, pages: doc.numPages }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 200) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
 /**
  * 원격 읽기전용 모드 — VE_REMOTE_MODE=readonly 로 실행하면 tailnet(폰) 기기는
  * 조회만 가능하고 실행·수정·삭제는 전부 403. 폰 분실 시 피해를 열람으로 제한한다.
@@ -2299,6 +2372,7 @@ export default defineConfig({
     chatsApiPlugin(),
     reportsApiPlugin(),
     artApiPlugin(),
+    pdfTextApiPlugin(),
     protoApiPlugin(),
     decisionsApiPlugin(),
     kitApiPlugin(),

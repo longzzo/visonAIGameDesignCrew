@@ -138,21 +138,39 @@ export function OrchestrationView() {
 
   const selectedCount = SPECIALISTS.filter((a) => selected[a.id]).length;
 
+  const [importing, setImporting] = useState(false);
+  const confirmImport = (name: string, text: string) => {
+    if (!text.trim()) {
+      void uiAlert("문서에서 텍스트를 찾지 못했습니다 (스캔 이미지 PDF는 지원하지 않습니다)");
+      return;
+    }
+    void uiConfirm(`"${name}" (${(text.length / 1000).toFixed(1)}천자) 가져오기`, {
+      message: "원문은 보고서함에 보관됩니다.\n\n[통합까지 진행] = PM 분배로 GDD에 통합 (기존 기획 유지·증분 반영)\n[보관만] = 보고서함에 저장만",
+      confirmLabel: "통합까지 진행",
+      cancelLabel: "보관만",
+    }).then((integrate) => void importDocument(name.replace(/\.(md|txt|markdown|pdf)$/i, ""), text, integrate));
+  };
   const onImportFile = (f: File | undefined) => {
     if (!f) return;
+    if (/\.pdf$/i.test(f.name)) {
+      // PDF → 서버에서 텍스트 추출 후 동일한 가져오기 흐름
+      setImporting(true);
+      void f
+        .arrayBuffer()
+        .then((buf) =>
+          fetch("/api/pdf-text", { method: "POST", headers: { "Content-Type": "application/pdf" }, body: buf })
+        )
+        .then(async (r) => {
+          const j = await r.json();
+          if (!r.ok || !j.ok) throw new Error(j.error || "PDF 추출 실패");
+          confirmImport(f.name, String(j.text ?? ""));
+        })
+        .catch((e) => void uiAlert(`PDF를 읽지 못했습니다: ${String(e?.message ?? e).slice(0, 120)}`))
+        .finally(() => setImporting(false));
+      return;
+    }
     const reader = new FileReader();
-    reader.onload = () => {
-      const text = String(reader.result ?? "");
-      if (!text.trim()) {
-        void uiAlert("빈 파일입니다");
-        return;
-      }
-      void uiConfirm(`"${f.name}" (${(text.length / 1000).toFixed(1)}천자) 가져오기`, {
-        message: "원문은 보고서함에 보관됩니다.\n\n[통합까지 진행] = PM 분배로 GDD에 통합 (기존 기획 유지·증분 반영)\n[보관만] = 보고서함에 저장만",
-        confirmLabel: "통합까지 진행",
-        cancelLabel: "보관만",
-      }).then((integrate) => void importDocument(f.name.replace(/\.(md|txt)$/i, ""), text, integrate));
-    };
+    reader.onload = () => confirmImport(f.name, String(reader.result ?? ""));
     reader.readAsText(f);
   };
 
@@ -187,6 +205,13 @@ export function OrchestrationView() {
             <button className="btn primary" onClick={() => void fullMeeting()} disabled={!orchRequest.trim()}>
               🎪 풀 기획 회의로 시작
             </button>
+          </div>
+          <div className="quickstart-alt dim">
+            이미 기획 문서가 있나요?{" "}
+            <button className="btn small" onClick={() => fileRef.current?.click()} disabled={importing}>
+              {importing ? "PDF 읽는 중…" : "📥 기존 기획(.pdf/.md/.txt)으로 시작"}
+            </button>{" "}
+            — 팀이 문서를 학습해 GDD로 정리합니다
           </div>
         </div>
       )}
@@ -272,7 +297,7 @@ export function OrchestrationView() {
               <input
                 ref={fileRef}
                 type="file"
-                accept=".md,.txt,.markdown"
+                accept=".md,.txt,.markdown,.pdf"
                 style={{ display: "none" }}
                 onChange={(e) => {
                   onImportFile(e.target.files?.[0]);
@@ -318,9 +343,16 @@ export function OrchestrationView() {
                 <button
                   className="btn"
                   onClick={() => fileRef.current?.click()}
-                  title="기존에 갖고 있던 기획 문서(.md/.txt)를 불러옵니다 — 원문은 보고서함에 보관되고, 원하면 PM 분배로 GDD에 통합됩니다"
+                  disabled={importing}
+                  title="기존에 갖고 있던 기획 문서(.pdf/.md/.txt)를 불러옵니다 — 원문은 보고서함에 보관되고, 원하면 PM 분배로 GDD에 통합됩니다"
                 >
-                  📥 문서
+                  {importing ? (
+                    <>
+                      <span className="spinner" /> PDF…
+                    </>
+                  ) : (
+                    "📥 기획 가져오기"
+                  )}
                 </button>
                 <button
                   className="btn"

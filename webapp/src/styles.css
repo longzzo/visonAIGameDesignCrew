@@ -877,6 +877,11 @@ button { font-family: inherit; }
   display: flex; flex-direction: column; min-height: 0; position: relative;
 }
 .gdd-panel.drag-over { outline: 2px dashed var(--accent); outline-offset: -6px; }
+/* 버튼이 많아 제목이 세로로 깨지던 문제 — 헤더를 줄바꿈 가능하게, 제목은 한 줄 유지 */
+.gdd-panel .panel-head { flex-wrap: wrap; row-gap: 6px; }
+.gdd-panel .head-meta { flex: 1 1 150px; min-width: 150px; }
+.gdd-panel .head-name { white-space: nowrap; }
+.gdd-panel .head-role { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gdd-tools { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 
 /* 작업 중 실시간 텍스트 창 — 지금 쓰고 있는 내용을 GDD 위에서 읽는다 */
@@ -1355,6 +1360,7 @@ button { font-family: inherit; }
 .quickstart-title { font-weight: 800; font-size: 14.5px; }
 .quickstart-sub { font-size: 12px; line-height: 1.5; }
 .quickstart-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.quickstart-alt { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 12px; margin-top: 8px; }
 .quickstart-row input {
   flex: 1; min-width: 220px; background: var(--bg-2); color: var(--text);
   border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; font-size: 13px; font-family: inherit;
