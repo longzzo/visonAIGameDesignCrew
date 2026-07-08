@@ -15,7 +15,23 @@ export interface AgentDef {
   phase?: "plan" | "dev";
   /** 오너가 직접 채용한 직원 (동적 등록 — 퇴사 가능) */
   custom?: boolean;
+  /** 직급 — 계층형 소통·오케스트레이션의 축. 기본 senior */
+  rank?: Rank;
+  /** 보고 라인(상급자 id) — 계층 흐름·상신 대상. exec는 없음 */
+  reportsTo?: string;
 }
+
+/** 직급 5단계 — 대표 > 팀장 > 시니어 > 주니어 > 인턴 */
+export type Rank = "exec" | "manager" | "senior" | "junior" | "intern";
+export const RANK_ORDER: Record<Rank, number> = { exec: 0, manager: 1, senior: 2, junior: 3, intern: 4 };
+export const RANK_LABEL: Record<Rank, string> = {
+  exec: "대표",
+  manager: "팀장",
+  senior: "시니어",
+  junior: "주니어",
+  intern: "인턴",
+};
+export const RANK_EMOJI: Record<Rank, string> = { exec: "👑", manager: "🎖️", senior: "", junior: "🌱", intern: "🐣" };
 
 export const AGENTS: AgentDef[] = [
   { id: "pm", name: "PM 디렉터", emoji: "🎯", role: "총괄·컨셉·GDD 통합", section: "## 1.", sectionTitle: "개요", color: "#8b7cf6" },
@@ -44,6 +60,34 @@ export const AGENTS: AgentDef[] = [
 /** 개발팀 (phase: dev) — 킷을 넘겨받아 실제 코드를 짜고·리뷰하고·검증한다 */
 export const DEV_TEAM = AGENTS.filter((a) => a.phase === "dev");
 
+/* ── 직급·보고 라인 (조직 계층) ─────────────────────────
+ * 배열 정의 후 일괄 주입 — 가독성.
+ * 팀장(manager): visual/td/qa 승격 + 신규 planlead/bizlead(채용 시 등록).
+ * 시니어는 각 본부 팀장에게 보고. 팀장·대표는 아래에서 기본값 처리.
+ */
+const BUILTIN_RANK: Record<string, Rank> = {
+  pm: "exec",
+  visual: "manager",
+  td: "manager",
+  qa: "manager",
+};
+const BUILTIN_REPORTS: Record<string, string> = {
+  // 기획 본부 시니어 → 기획 팀장(채용 전이면 아래 managerOf가 pm으로 폴백)
+  scenario: "planlead", gameplay: "planlead", systems: "planlead", uiux: "planlead", balance: "planlead",
+  // 사업 본부 시니어 → 사업 팀장
+  bm: "bizlead", scheduler: "bizlead", marketing: "bizlead",
+  // 아트/개발/품질 팀장은 대표에 직보
+  visual: "pm", td: "pm", qa: "pm",
+  // 개발 본부 시니어 → 개발 팀장(td)
+  uarch: "td", ugp: "td", netcode: "td", techart: "td", edtool: "td",
+  // 품질 본부 시니어 → QA 팀장(qa)
+  review: "qa", testeng: "qa",
+};
+for (const a of AGENTS) {
+  a.rank = BUILTIN_RANK[a.id] ?? "senior";
+  if (a.id !== "pm") a.reportsTo = BUILTIN_REPORTS[a.id] ?? "pm";
+}
+
 export const AGENT_MAP: Record<string, AgentDef> = Object.fromEntries(
   AGENTS.map((a) => [a.id, a])
 );
@@ -61,18 +105,27 @@ import type { HireInfo } from "./hire";
 
 export function registerCustomAgent(h: HireInfo): AgentDef | null {
   if (AGENT_MAP[h.id]) return null;
+  const rank: Rank = (h.rank as Rank) ?? "senior";
+  const isStaff = !!h.staff;
+  // 시니어만 GDD 섹션을 소유한다. 팀장(consolidator)·주니어·인턴·지원역(staff)은 섹션 없이
+  // 각각 부서 취합 / 시니어 파트 기여 / 툴링을 담당한다 — 문서 목차를 깔끔하게 유지.
+  const owns = rank === "senior" && !isStaff;
   const def: AgentDef = {
     id: h.id,
     name: h.name,
     emoji: h.emoji || "🙋",
     role: h.role,
-    section: `## ${h.section}.`,
+    section: owns ? `## ${h.section}.` : "## —",
     sectionTitle: (h.role.split(/[·,(/—-]/)[0].trim() || h.name).slice(0, 14),
     color: h.color || "#7dd3fc",
     custom: true,
+    staff: isStaff || undefined,
+    rank,
+    reportsTo: h.reportsTo || "pm",
   };
   AGENTS.push(def);
-  SPECIALISTS.push(def);
+  // 섹션을 소유하는 직급만 오케스트레이션 팬아웃 풀(SPECIALISTS)에 넣는다
+  if (owns) SPECIALISTS.push(def);
   AGENT_MAP[def.id] = def;
   AGENT_ZONE[def.id] = h.zone;
   return def;
@@ -87,6 +140,54 @@ export function unregisterCustomAgent(id: string): void {
   if (si >= 0) SPECIALISTS.splice(si, 1);
   delete AGENT_MAP[id];
   delete AGENT_ZONE[id];
+}
+
+/* ── 조직 계층 헬퍼 ─────────────────────────────────────
+ * reportsTo가 아직 존재하지 않는 상급자(예: 팀장 채용 전)를 가리키면 대표(pm)로 폴백한다.
+ */
+export const rankOf = (id: string): Rank => AGENT_MAP[id]?.rank ?? "senior";
+export const isSectionOwner = (a: AgentDef): boolean => a.section !== "## —";
+
+/** 부서(zone)의 팀장 id — 없으면 대표(pm). AGENT_ZONE은 zones.ts 소유 */
+export function deptManagerId(zone: string): string {
+  const mgr = AGENTS.find((a) => a.rank === "manager" && AGENT_ZONE[a.id] === zone);
+  return mgr?.id ?? "pm";
+}
+
+/** 이 직원이 상신하는 대상 — 팀장/대표는 대표(pm), 그 외는 부서 팀장 */
+export function escalationTarget(id: string): string {
+  const a = AGENT_MAP[id];
+  if (!a || a.rank === "exec" || a.rank === "manager") return "pm";
+  return deptManagerId(AGENT_ZONE[id] ?? "plan");
+}
+
+/** 직속 부하(reportsTo가 이 직원인 사람들) */
+export function directReports(id: string): AgentDef[] {
+  return AGENTS.filter((a) => a.reportsTo === id && a.id !== id);
+}
+
+/** 이 시니어에게 기여하는 주니어·인턴(멘티) — 섹션 완성 시 먼저 초안을 올린다 */
+export function contributorsOf(seniorId: string): AgentDef[] {
+  return directReports(seniorId).filter((a) => a.rank === "junior" || a.rank === "intern");
+}
+
+/** 부서(zone)에서 섹션을 소유한 시니어·팀장 — 팀장이 취합할 대상 */
+export function sectionOwnersInZone(zone: string): AgentDef[] {
+  return AGENTS.filter((a) => AGENT_ZONE[a.id] === zone && isSectionOwner(a) && a.id !== "pm");
+}
+
+/** 부서(zone) 전체 구성원(팀장 제외 옵션) — 직급 순 정렬 */
+export function membersOfZone(zone: string, includeManager = true): AgentDef[] {
+  return AGENTS.filter((a) => AGENT_ZONE[a.id] === zone && a.id !== "pm" && (includeManager || a.rank !== "manager")).sort(
+    (x, y) => RANK_ORDER[x.rank ?? "senior"] - RANK_ORDER[y.rank ?? "senior"]
+  );
+}
+
+/** 현재 존재하는 본부(zone) 목록 — 팀장이 있는 부서 우선 */
+export function activeZones(): string[] {
+  const zones = new Set<string>();
+  for (const a of AGENTS) if (a.id !== "pm") zones.add(AGENT_ZONE[a.id] ?? "plan");
+  return [...zones];
 }
 
 /**
@@ -596,6 +697,142 @@ export function collabPrompt(
     );
   }
   return parts.filter(Boolean).join("\n");
+}
+
+/* ═══════════ 계층형 오케스트레이션 (직급 흐름) ═══════════
+ * PM(대표) → 팀장(본부 하달) → 팀원 배분 → 주니어 기여→시니어 완성 → 팀장 취합 → PM 최종.
+ */
+
+/** PM이 지시를 관련 본부(팀장)에게 하달 — 실무자에게 직접 안 감 */
+export function pmDeptRoutePrompt(request: string, depts: { zone: string; label: string; manager: AgentDef }[]): string {
+  const list = depts.map((d) => `- ${d.zone} = ${d.label} (팀장: ${d.manager.name})`).join("\n");
+  return [
+    `너는 총괄 대표(PM)다. 오너의 지시를 읽고, 어느 **본부**에 일을 맡길지 정한다.`,
+    `실무자에게 직접 지시하지 않는다 — 관련 본부의 팀장에게 하달하면 팀장이 팀원에게 나눈다.`,
+    ``,
+    `[오너 지시]`,
+    request.trim(),
+    ``,
+    `[본부 목록]`,
+    list,
+    ``,
+    `규칙: 관련 본부만 골라라(보통 1~3개, 게임 전체 컨셉이면 여러 개 가능).`,
+    `본부마다 아래 형식으로 정확히 한 줄씩만. 다른 말·인사·도구 호출 금지.`,
+    ``,
+    `본부: <zone> | <그 본부 팀장에게 내리는 구체적 지시 한 줄>`,
+    ``,
+    `예시:`,
+    `본부: plan | 핵심 루프와 세계관을 잡고 시스템·밸런스로 뒷받침해라`,
+  ].join("\n");
+}
+
+/** pmDeptRoutePrompt 응답 파싱 — "본부: zone | 지시" */
+export function parseDeptPlan(text: string, validZones: string[]): { zone: string; directive: string }[] {
+  const out: { zone: string; directive: string }[] = [];
+  const seen = new Set<string>();
+  const re = /^[^\n]{0,12}?(?:본부|부서|dept)\s*[:：]\s*\**([a-z]+)\**\s*[|｜]\s*(.+)$/gim;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const zone = m[1].toLowerCase();
+    const directive = m[2].trim().replace(/\**$/, "");
+    if (validZones.includes(zone) && !seen.has(zone) && directive) {
+      seen.add(zone);
+      out.push({ zone, directive });
+    }
+  }
+  return out;
+}
+
+/** 팀장이 본부 지시를 팀원에게 배분 */
+export function managerAssignPrompt(request: string, deptDirective: string, manager: AgentDef, members: AgentDef[]): string {
+  const roster = members
+    .map((a) => `- ${a.id} = ${a.name} (${a.role}, ${RANK_LABEL[a.rank ?? "senior"]})`)
+    .join("\n");
+  return [
+    `너는 ${manager.name}(${manager.role})다. 대표가 우리 본부에 지시를 하달했다.`,
+    ``,
+    `[오너 원지시]`,
+    request.trim().slice(0, 400),
+    ``,
+    `[대표가 우리 본부에 내린 지시]`,
+    deptDirective.trim(),
+    ``,
+    `[내 팀원]`,
+    roster,
+    ``,
+    `이 일을 팀원에게 **잘게 나눠** 배정해라. 시니어에게 각자 파트를 주고, 필요하면 범위를 좁혀라.`,
+    `팀원마다 아래 형식으로 정확히 한 줄씩만. 다른 말·도구 호출 금지.`,
+    ``,
+    `배정: <팀원id> | <그 팀원이 맡을 구체적 한 줄 지시>`,
+  ].join("\n");
+}
+
+/** managerAssignPrompt 응답 파싱 — "배정: id | 지시" */
+export function parseAssignPlan(text: string, validIds: string[]): { id: string; directive: string }[] {
+  const out: { id: string; directive: string }[] = [];
+  const seen = new Set<string>();
+  const re = /^[^\n]{0,12}?(?:배정|할당|assign)\s*[:：]\s*\**([a-z]+)\**\s*[|｜]\s*(.+)$/gim;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const id = m[1].toLowerCase();
+    const directive = m[2].trim().replace(/\**$/, "");
+    if (validIds.includes(id) && !seen.has(id) && directive) {
+      seen.add(id);
+      out.push({ id, directive });
+    }
+  }
+  return out;
+}
+
+/** 주니어·인턴이 멘토 시니어의 파트에 쓸 세부 기여 초안 */
+export function contribPrompt(
+  request: string,
+  junior: AgentDef,
+  mentor: AgentDef,
+  mentorSection: string,
+  subDirective: string,
+  overview: string
+): string {
+  return [
+    `너는 ${junior.name}(${junior.role})다. 직급: ${RANK_LABEL[junior.rank ?? "junior"]}.`,
+    `멘토 ${mentor.name}의 "${mentor.sectionTitle}" 파트에 쓸 **세부 기여 초안**을 만든다.`,
+    overview.trim() ? `\n[프로젝트 개요]\n${overview.trim().slice(0, 300)}` : ``,
+    mentorSection.trim() ? `\n[멘토가 잡은 방향 — 이걸 벗어나지 마라]\n${mentorSection.slice(0, 900)}` : ``,
+    ``,
+    `[너에게 배정된 세부 작업]`,
+    (subDirective || request).trim(),
+    ``,
+    `너의 AGENTS.md 산출물 형식으로 이 세부 파트만 집중해서 작성해라. 12줄 이내.`,
+    `멘토가 검토·통합할 초안이다 — 범위를 넘지 말고, 구체적 수치·예시로. 순수 마크다운, 도구 호출 금지.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** 팀장이 부서 산출물을 취합·검수해 대표에 상신하는 보고 */
+export function managerConsolidatePrompt(
+  manager: AgentDef,
+  deptLabel: string,
+  request: string,
+  outputs: { agent: AgentDef; text: string }[]
+): string {
+  const digest = outputs.map(({ agent, text }) => `### ${agent.name}\n${text.slice(0, 500)}`).join("\n\n");
+  return [
+    `너는 ${manager.name}다. ${deptLabel} 팀원들의 산출물을 **취합·검수**해 대표(PM)에 상신할 보고를 만든다.`,
+    ``,
+    `[오너 원지시]`,
+    request.trim().slice(0, 300),
+    ``,
+    `[팀원 산출물]`,
+    digest,
+    ``,
+    `아래 형식으로 팀장 보고를 작성해라. 순수 마크다운, 15줄 이내, 도구 호출 금지.`,
+    `### ${deptLabel} 팀장 보고`,
+    `- **핵심 결론** 2~3줄 (이 본부가 결정한 방향)`,
+    `- **팀원별 요약**: 담당 → 결론 한 줄`,
+    `- **본부 내 충돌·조정** 1개 (없으면 "없음")`,
+    `- **대표 결정 요청** 1개 (대표가 정해줘야 할 것, 없으면 "없음")`,
+  ].join("\n");
 }
 
 /** PM 자동 분배 응답 파싱 — "할당: id | 지시" 줄만 추출, 유효한 전문가 id만 채택 */

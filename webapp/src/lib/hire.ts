@@ -11,6 +11,12 @@ export interface HireInfo {
   color: string;
   /** 이 직원이 담당하는 GDD 섹션 번호 (12부터 증가) */
   section: number;
+  /** 직급 — exec/manager/senior/junior/intern (기본 senior) */
+  rank?: string;
+  /** 보고 라인(상급자 id) */
+  reportsTo?: string;
+  /** 지원 역할(툴링 등) — GDD 섹션 없이 팬아웃 제외 (예: 노션 아키비스트) */
+  staff?: boolean;
 }
 
 export interface HireRequest {
@@ -20,6 +26,10 @@ export interface HireRequest {
   role: string;
   zone: string;
   persona?: string;
+  /** 직급 (기본 senior) */
+  rank?: string;
+  /** 보고 라인(상급자 id, 기본 pm) */
+  reportsTo?: string;
 }
 
 export async function listHires(): Promise<HireInfo[]> {

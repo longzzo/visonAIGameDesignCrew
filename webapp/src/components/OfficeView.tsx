@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { AGENTS, AGENT_MAP, SPECIALISTS } from "../lib/agents";
+import { AGENTS, AGENT_MAP, SPECIALISTS, RANK_LABEL, RANK_EMOJI, RANK_ORDER, membersOfZone, type AgentDef } from "../lib/agents";
 import { DecisionOverlay } from "./DecisionOverlay";
 import { uiPrompt } from "../lib/dialog";
 import { AgentSprite } from "./AgentSprite";
-import { Office3D, ZONES, zoneOfAgent, type CamApi } from "./Office3D";
+import { Office3D, ZONES, type CamApi } from "./Office3D";
 import { DevTaskPanel } from "./DevTaskPanel";
 import { HireModal } from "./HireModal";
 import { PrototypeStudio } from "./PrototypeStudio";
@@ -622,52 +622,99 @@ export function OfficeView() {
           </button>
           {rosterOpen && (
             <div className="os-roster">
-              {AGENTS.map((a) => {
-                const st = agentStatus[a.id] ?? "idle";
-                const meeting = meetingMembers.includes(a.id);
-                const deployable = SPECIALISTS.some((s) => s.id === a.id);
-                return (
-                  <div key={a.id} className="os-agent" onClick={() => selectAgent(a.id)} title={`${a.role} — 클릭하면 1:1 대화`}>
-                    {deployable ? (
-                      <input
-                        type="checkbox"
-                        className="os-agent-chk"
-                        checked={selected[a.id] ?? false}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={() => toggleSelected(a.id)}
-                        title="인력 배치 — 회의(오케스트레이션) 투입 여부"
-                        disabled={orchRunning}
-                      />
-                    ) : (
-                      <span className="os-agent-chk ph" />
-                    )}
-                    <span className="o3d-dot" style={{ background: a.color }} />
-                    <span className="os-agent-name">{a.name}</span>
-                    {(growth[a.id]?.level ?? 1) > 1 && (
-                      <span className="os-agent-lv" title={`${growth[a.id].xp} XP · 스킬 ${growth[a.id].skills?.length ?? 0}개`}>
-                        Lv.{growth[a.id].level}
-                      </span>
-                    )}
-                    <span className={`os-agent-st s-${meeting ? "running" : st}`}>
-                      {meeting ? "회의" : st === "running" ? "작업" : st === "done" ? "완료" : st === "error" ? "오류" : "대기"}
-                    </span>
-                    <span className="os-agent-zone dim">{zoneOfAgent(a.id).label.replace(" 데스크", "").replace(" 스튜디오", "")}</span>
-                    <button
-                      className="os-agent-cfg"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openProfile(a.id);
-                      }}
-                      title="프로필·모델 설정"
+              {(() => {
+                const row = (a: AgentDef) => {
+                  const st = agentStatus[a.id] ?? "idle";
+                  const meeting = meetingMembers.includes(a.id);
+                  const deployable = SPECIALISTS.some((s) => s.id === a.id);
+                  const rk = a.rank ?? "senior";
+                  return (
+                    <div
+                      key={a.id}
+                      className={`os-agent rk-${rk}`}
+                      onClick={() => selectAgent(a.id)}
+                      title={`${a.role} — 클릭하면 1:1 대화`}
                     >
-                      ⚙
+                      {deployable ? (
+                        <input
+                          type="checkbox"
+                          className="os-agent-chk"
+                          checked={selected[a.id] ?? false}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={() => toggleSelected(a.id)}
+                          title="인력 배치 — 회의(오케스트레이션) 투입 여부"
+                          disabled={orchRunning}
+                        />
+                      ) : (
+                        <span className="os-agent-chk ph" title="기여자(주니어·인턴) — 멘토 시니어를 통해 회의에 참여" />
+                      )}
+                      <span className="o3d-dot" style={{ background: a.color }} />
+                      <span className="os-agent-name">
+                        {RANK_EMOJI[rk] && <span className="os-rank-emoji">{RANK_EMOJI[rk]}</span>}
+                        {a.name}
+                      </span>
+                      {rk === "manager" && <span className="os-agent-tag mgr">팀장</span>}
+                      {(growth[a.id]?.level ?? 1) > 1 && (
+                        <span className="os-agent-lv" title={`${growth[a.id].xp} XP · 스킬 ${growth[a.id].skills?.length ?? 0}개`}>
+                          Lv.{growth[a.id].level}
+                        </span>
+                      )}
+                      <span className={`os-agent-st s-${meeting ? "running" : st}`}>
+                        {meeting ? "회의" : st === "running" ? "작업" : st === "done" ? "완료" : st === "error" ? "오류" : "대기"}
+                      </span>
+                      <button
+                        className="os-agent-cfg"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openProfile(a.id);
+                        }}
+                        title="프로필·모델 설정"
+                      >
+                        ⚙
+                      </button>
+                    </div>
+                  );
+                };
+                const pm = AGENT_MAP["pm"];
+                const zoneOrder: { id: string; label: string }[] = [
+                  { id: "plan", label: "🧩 기획 본부" },
+                  { id: "art", label: "🎨 아트 본부" },
+                  { id: "dev", label: "🛠️ 개발 본부" },
+                  { id: "biz", label: "📊 사업 본부" },
+                  { id: "qa", label: "🔍 품질 본부" },
+                ];
+                return (
+                  <>
+                    {pm && (
+                      <div className="os-dept">
+                        <div className="os-dept-head">👑 대표실</div>
+                        {row(pm)}
+                      </div>
+                    )}
+                    {zoneOrder.map((z) => {
+                      const members = membersOfZone(z.id).sort(
+                        (a, b) => RANK_ORDER[a.rank ?? "senior"] - RANK_ORDER[b.rank ?? "senior"]
+                      );
+                      if (members.length === 0) return null;
+                      const deployableMembers = members.filter((m) => SPECIALISTS.some((s) => s.id === m.id));
+                      const deployed = deployableMembers.filter((m) => selected[m.id]).length;
+                      const deployable = deployableMembers.length;
+                      return (
+                        <div key={z.id} className="os-dept">
+                          <div className="os-dept-head">
+                            {z.label}
+                            {deployable > 0 && <span className="dim"> · 투입 {deployed}/{deployable}</span>}
+                          </div>
+                          {members.map(row)}
+                        </div>
+                      );
+                    })}
+                    <button className="os-hire" onClick={() => setHireOpen(true)} title="팀장·시니어·주니어·인턴을 채용해 조직을 키웁니다">
+                      ➕ 직원 채용
                     </button>
-                  </div>
+                  </>
                 );
-              })}
-              <button className="os-hire" onClick={() => setHireOpen(true)} title="새 전문가를 채용해 팀에 합류시킵니다">
-                ➕ 직원 채용
-              </button>
+              })()}
             </div>
           )}
         </div>

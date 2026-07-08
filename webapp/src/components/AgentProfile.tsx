@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AGENTS, AGENT_MAP, REVIEWERS } from "../lib/agents";
+import { AGENTS, AGENT_MAP, REVIEWERS, RANK_LABEL, RANK_EMOJI, directReports, escalationTarget } from "../lib/agents";
 import { uiAlert, uiConfirm, uiPrompt } from "../lib/dialog";
 import { xpForLevel } from "../lib/growth";
 import { getModelsInfo, registerModelKey, setAgentModels, type ModelsInfo } from "../lib/models";
@@ -140,9 +140,18 @@ export function AgentProfile() {
               </div>
               <div className="head-role dim">{a.role}</div>
               <div className="profile-badges">
-                <span className="profile-badge" style={{ borderColor: a.color + "66", color: a.color }}>
-                  GDD {a.section.replace("## ", "")} {a.sectionTitle} 담당
+                <span className="profile-badge" style={{ borderColor: "#c4b5fd66", color: "#c4b5fd" }}>
+                  {RANK_EMOJI[a.rank ?? "senior"]} {RANK_LABEL[a.rank ?? "senior"]}
                 </span>
+                {a.section !== "## —" ? (
+                  <span className="profile-badge" style={{ borderColor: a.color + "66", color: a.color }}>
+                    GDD {a.section.replace("## ", "")} {a.sectionTitle} 담당
+                  </span>
+                ) : (
+                  <span className="profile-badge" style={{ borderColor: a.color + "66", color: a.color }}>
+                    기여자 — {AGENT_MAP[a.reportsTo ?? "pm"]?.name ?? "팀"} 지원
+                  </span>
+                )}
                 {health && (
                   <span className={`profile-badge ${health.ok ? "ok" : "bad"}`}>
                     {health.ok ? `🩺 정상 (${Math.round(health.ms / 1000)}초)` : "🩺 응답 없음"}
@@ -314,8 +323,28 @@ export function AgentProfile() {
             <div className="profile-card-title">🤝 팀 안에서</div>
             <ul className="profile-list">
               <li>
-                담당 문서: <b>GDD "{a.section.replace("## ", "")} {a.sectionTitle}"</b> 섹션
+                직급: <b>{RANK_EMOJI[a.rank ?? "senior"]} {RANK_LABEL[a.rank ?? "senior"]}</b>
+                {a.rank !== "exec" && (
+                  <span className="dim">
+                    {" "}— 상신 대상: {AGENT_MAP[escalationTarget(id)]?.emoji} <b>{AGENT_MAP[escalationTarget(id)]?.name ?? "대표"}</b>
+                  </span>
+                )}
               </li>
+              {directReports(id).length > 0 && (
+                <li>
+                  {a.rank === "manager" ? "관리하는 팀원" : "내 멘티(기여자)"}:{" "}
+                  {directReports(id).map((r) => `${r.emoji} ${r.name}`).join(", ")}
+                </li>
+              )}
+              {a.section !== "## —" ? (
+                <li>
+                  담당 문서: <b>GDD "{a.section.replace("## ", "")} {a.sectionTitle}"</b> 섹션
+                </li>
+              ) : (
+                <li>
+                  기여자 — 담당 섹션 없이 <b>{AGENT_MAP[a.reportsTo ?? "pm"]?.name}</b>의 파트를 돕습니다.
+                </li>
+              )}
               {reviewer && (
                 <li>
                   내 초안의 검토자: {reviewer.emoji} <b>{reviewer.name}</b>

@@ -50,23 +50,23 @@ const DESK_POS: Record<string, V3> = {
 };
 const MEETING_CENTER: V3 = [3.5, 0, -8.5];
 
-/** 채용 직원(게스트) 책상 슬롯 — 부서 러그의 빈 자리 */
-const GUEST_SLOTS: Record<string, [number, number][]> = {
-  plan: [[-5, 2.2], [-14.2, 2.2]],
-  dev: [[12.9, 2.2], [0.9, 2.2]],
-  biz: [[-11.2, 9.6], [-8, 9.6]],
-  art: [[-3.9, 9.6], [-1.3, 9.6]],
-  qa: [[10.4, 9.6], [13.1, 9.6]],
+/** 채용 직원(게스트) 책상 앞줄 기준선 — 부서별 [시작x, 간격x, z, 방향(+1 오른쪽)] */
+const GUEST_ROW: Record<string, [number, number, number]> = {
+  plan: [-15.5, 2.6, 4.6], //   기획 데스크 앞줄
+  dev: [1, 2.6, 4.6], //        개발 데스크 앞줄
+  biz: [-13.5, 2.6, 11], //     사업 데스크 앞줄
+  art: [-4.2, 2.6, 11], //      아트 스튜디오 앞줄
+  qa: [8.6, 2.6, 11], //        품질 검수 앞줄
 };
 
-/** 책상 위치 — 기본 로스터는 고정 좌석, 채용 직원은 부서의 게스트 슬롯 */
+/** 책상 위치 — 기본 로스터는 고정 좌석, 채용 직원은 부서 앞줄에 순서대로(자동 확장) */
 const deskFor = (id: string): V3 => {
   if (DESK_POS[id]) return DESK_POS[id];
   const zone = AGENT_ZONE[id] ?? "plan";
   const peers = AGENTS.filter((a) => a.custom && (AGENT_ZONE[a.id] ?? "plan") === zone).map((a) => a.id);
-  const slots = GUEST_SLOTS[zone] ?? GUEST_SLOTS.plan;
-  const [x, z] = slots[Math.max(0, peers.indexOf(id)) % slots.length];
-  return [x, 0, z];
+  const [x0, dx, z] = GUEST_ROW[zone] ?? GUEST_ROW.plan;
+  const i = Math.max(0, peers.indexOf(id));
+  return [x0 + i * dx, 0, z];
 };
 
 /** 캐릭터 기본 위치 = 책상 뒤(카메라 반대편) */
@@ -364,6 +364,9 @@ function Person({
       <Html center position={[0, 1.55, 0]} distanceFactor={12} zIndexRange={[10, 0]}>
         <div className="o3d-pill" onClick={() => onSelect(id)}>
           <span className="o3d-dot" style={{ background: c }} />
+          {a?.rank === "manager" && <span className="o3d-pill-rank">🎖️팀장</span>}
+          {a?.rank === "junior" && <span className="o3d-pill-rank jr">🌱</span>}
+          {a?.rank === "intern" && <span className="o3d-pill-rank jr">🐣</span>}
           {a?.name}
           {stLabel && <span className="o3d-pill-st">· {stLabel}</span>}
         </div>

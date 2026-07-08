@@ -1489,6 +1489,8 @@ button { font-family: inherit; }
   cursor: pointer; user-select: none;
 }
 .o3d-pill-st { color: #9aa5bb; font-weight: 500; }
+.o3d-pill-rank { color: #c4b5fd; font-weight: 800; font-size: 0.82em; margin-right: 2px; }
+.o3d-pill-rank.jr { color: #86efac; }
 .o3d-zone {
   display: flex; align-items: center; gap: 6px; white-space: nowrap;
   background: rgba(13, 16, 24, 0.85); color: #dde3ee; border: 1px solid rgba(130, 140, 170, 0.28);
@@ -1762,6 +1764,28 @@ button { font-family: inherit; }
 .os-agent-lv {
   font-size: 10px; font-weight: 800; color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.45);
   border-radius: 6px; padding: 0 4px; white-space: nowrap; flex-shrink: 0;
+}
+
+/* ── v3.7: 조직도 로스터 (부서→직급 계층) ── */
+.os-dept { margin-bottom: 4px; }
+.os-dept-head {
+  font-size: 10.5px; font-weight: 800; color: var(--text-dim); letter-spacing: 0.02em;
+  padding: 7px 4px 3px; border-top: 1px solid var(--border-soft); margin-top: 2px;
+}
+.os-dept:first-child .os-dept-head { border-top: none; margin-top: 0; }
+.os-rank-emoji { margin-right: 3px; }
+.os-agent-tag {
+  font-size: 9.5px; font-weight: 800; border-radius: 5px; padding: 0 4px; white-space: nowrap; flex-shrink: 0;
+}
+.os-agent-tag.mgr { color: #c4b5fd; border: 1px solid rgba(196, 181, 253, 0.5); }
+/* 직급 들여쓰기 — 팀장 0, 시니어 8, 주니어 16, 인턴 20 */
+.os-agent.rk-manager { padding-left: 4px; }
+.os-agent.rk-manager .os-agent-name { font-weight: 700; }
+.os-agent.rk-senior { padding-left: 12px; }
+.os-agent.rk-junior { padding-left: 20px; opacity: 0.94; }
+.os-agent.rk-intern { padding-left: 24px; opacity: 0.88; }
+.os-agent.rk-junior::before, .os-agent.rk-intern::before {
+  content: "└"; color: var(--text-mute); margin-right: 2px; font-size: 11px;
 }
 
 /* ── v3.4: 결정 모달 반영안 미리보기 ── */

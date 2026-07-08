@@ -13,9 +13,16 @@ import {
   revisePrompt,
   pmSummaryPrompt,
   pmVerifyPrompt,
-  pmRoutePrompt,
   stripInternalUrls,
-  parseRoutePlan,
+  pmDeptRoutePrompt,
+  parseDeptPlan,
+  managerAssignPrompt,
+  parseAssignPlan,
+  contribPrompt,
+  managerConsolidatePrompt,
+  escalationTarget,
+  deptManagerId,
+  contributorsOf,
   reportPrompt,
   reportVerifyPrompt,
   sdPromptPrompt,
@@ -122,7 +129,7 @@ import {
   type ProjectInfo,
   type GddVersion,
 } from "./lib/gdd";
-import { loadCommScopes, saveCommScopes, scopeMutual, zoneOf, type CommScope } from "./lib/zones";
+import { loadCommScopes, saveCommScopes, scopeMutual, zoneOf, AGENT_ZONE, type CommScope } from "./lib/zones";
 
 export type View = "studio" | "orch" | "chat" | "office" | "data";
 export type MobilePanel = "agents" | "work" | "gdd";
@@ -1228,252 +1235,288 @@ export const useVE = create<VEState>()((set, get) => {
       // 회의 전 스냅샷 — 끝난 뒤 "🔍 변경 확인"(diff)과 "⏪ 되돌리기"의 기준이 된다
       set({ orchBaseline: baseMd, meetingDiffOpen: false });
 
-      // PM 자동 분배 — 지시를 분류해 관련 담당자에게만 배정한다 (실패 시 선택된 전원 폴백)
-      let targets = pool;
-      const focusMap: Record<string, string> = {};
-      if (st.autoRoute && pool.length > 1 && !get().stopRequested) {
-        updateCard("pm", { state: "running", phase: "지시 분류 중", startedAt: Date.now() });
-        setAgentStatus("pm", "running");
-        pushFeed({ from: "pm", kind: "status", text: "지시를 분석해 담당자를 배정하는 중…" });
+      set((s) => ({
+        cards: {
+          ...s.cards,
+          ...Object.fromEntries(pool.map((a) => [a.id, { agentId: a.id, state: "queued" as const, output: "" }])),
+        },
+      }));
+
+      const results: { agent: AgentDef; text: string }[] = [];
+      // 멘토 시니어 id → 주니어·인턴이 올린 기여 초안 (섹션 완성 시 반영)
+      const contribCache: Record<string, string> = {};
+
+      /** 한 섹션 완성: (주니어 기여 반영) 초안 → 동료 검토 → QA 게이트 → GDD 반영. 결과를 results에 적립 */
+      const produceSection = async (agent: AgentDef, focusDirective: string) => {
+        if (get().stopRequested) return;
+        const boss = escalationTarget(agent.id); // 이 시니어를 지휘하는 팀장(없으면 pm)
+        const agentWeb: WebMode = agent.id === "marketing" ? (get().braveOk ? "full" : "fetch") : web;
+        const contrib = contribCache[agent.id]
+          ? `\n\n[팀원(주니어·인턴) 기여 초안 — 검토해서 네 파트에 통합해라]\n${contribCache[agent.id]}`
+          : "";
+        const instruction = specialistPrompt(
+          req,
+          agent,
+          agentWeb,
+          getSectionBody(baseMd, agent.section),
+          overview,
+          (focusDirective ?? "") + contrib,
+          knowledgeBlockFor(agent.id, get().knowledge, req),
+          panorama,
+          decisionsText
+        );
+        updateCard(agent.id, { state: "running", phase: "초안 작성 중", startedAt: Date.now(), instruction });
+        setAgentStatus(agent.id, "running");
+        pushFeed({ from: boss, to: agent.id, kind: "instruction", text: instruction });
         try {
-          const r = await gateway.runAgent("pm", pmRoutePrompt(req, pool), `${runTag}-route`, signal);
+          const r = await gateway.runAgent(agent.id, instruction, runTag, signal);
+          const draft = sanitizeAgentOutput(r.text);
+          addUsage(r.usage, draft);
+          pushFeed({ from: agent.id, to: boss, kind: "draft", text: draft });
+
+          let final = draft;
+          const reviewerId = REVIEWERS[agent.id];
+          if (get().crossReview && reviewerId && !scopeMutual(get().commScope, agent.id, reviewerId)) {
+            const scopes = get().commScope;
+            const viaFeed = scopes[agent.id]?.mode === "feed" || scopes[reviewerId]?.mode === "feed";
+            pushFeed({
+              from: "system",
+              kind: "status",
+              text: viaFeed
+                ? `📮 피드 위탁 — ${AGENT_MAP[reviewerId].name}의 동료 검토 없이 ${agent.name}의 초안이 피드로 공유됩니다.`
+                : `🔇 소통 범위 설정에 따라 ${AGENT_MAP[reviewerId].name}의 ${agent.name} 초안 검토를 건너뜁니다.`,
+            });
+          } else if (get().crossReview && reviewerId && !get().stopRequested) {
+            const reviewer = AGENT_MAP[reviewerId];
+            try {
+              updateCard(agent.id, { phase: `${reviewer.name} 검토 중` });
+              setAgentStatus(reviewer.id, "running");
+              pushFeed({ from: boss, to: reviewer.id, kind: "status", text: `${agent.name}의 "${agent.sectionTitle}" 초안 검토를 요청합니다.` });
+              const rv = await gateway.runAgent(reviewer.id, reviewPrompt(req, agent, reviewer, draft), `${runTag}-rv`, signal);
+              const review = sanitizeAgentOutput(rv.text);
+              addUsage(rv.usage, review);
+              pushFeed({ from: reviewer.id, to: agent.id, kind: "review", text: review });
+              setAgentStatus(reviewer.id, "done");
+              get().recordGrowth(reviewer.id, "review");
+
+              updateCard(agent.id, { phase: "검토 반영 수정 중" });
+              setAgentStatus(agent.id, "running");
+              const rev = await gateway.runAgent(agent.id, revisePrompt(agent, reviewer, review), runTag, signal);
+              const revised = sanitizeAgentOutput(rev.text);
+              addUsage(rev.usage, revised);
+              if (revised && revised.length > 30) final = revised;
+              pushFeed({ from: agent.id, to: boss, kind: "revision", text: final });
+            } catch (e: any) {
+              setAgentStatus(reviewerId, "error");
+              pushFeed({
+                from: "system",
+                kind: "status",
+                text: `⚠️ ${AGENT_MAP[reviewerId].name} 검토 단계 실패 (${String(e?.message ?? e).slice(0, 80)}) — ${agent.name}의 초안을 그대로 사용합니다.`,
+              });
+            }
+          }
+
+          // 품질 게이트 — QA 디렉터가 루브릭 채점, 미달이면 1회 반려·재작성
+          if (get().qaGate && !get().stopRequested) {
+            try {
+              updateCard(agent.id, { phase: "QA 채점 중" });
+              setAgentStatus("qa", "running");
+              const qres = await gateway.runAgent("qa", qaScorePrompt(agent, final, panorama, req), `${runTag}-qa`, signal);
+              addUsage(qres.usage, qres.text);
+              const verdict = parseQaScore(sanitizeAgentOutput(qres.text));
+              setAgentStatus("qa", "done");
+              if (!verdict) {
+                pushFeed({ from: "system", kind: "status", text: `⚠️ QA 채점 결과를 해석하지 못해 통과 처리합니다 (${agent.name}).` });
+              } else {
+                const scoreLine = Object.entries(verdict.scores).map(([k, v]) => `${k} ${v}`).join(" · ");
+                if (verdict.pass) {
+                  pushFeed({ from: "qa", to: agent.id, kind: "review", text: `✅ 품질 통과 (평균 ${verdict.avg.toFixed(1)}/10) — ${scoreLine}\n${verdict.summary}` });
+                  get().recordGrowth(agent.id, "qaPass");
+                } else {
+                  get().recordGrowth(agent.id, "qaFail", { lesson: (verdict.notes || verdict.summary).slice(0, 280) });
+                  pushFeed({ from: "qa", to: agent.id, kind: "review", text: `🔴 반려 (평균 ${verdict.avg.toFixed(1)}/10) — ${scoreLine}\n${verdict.notes || verdict.summary}` });
+                  updateCard(agent.id, { phase: "QA 반려 — 재작성 중" });
+                  setAgentStatus(agent.id, "running");
+                  const rr = await gateway.runAgent(agent.id, qaRevisePrompt(agent, verdict), runTag, signal);
+                  const rewritten = sanitizeAgentOutput(rr.text);
+                  addUsage(rr.usage, rewritten);
+                  if (rewritten && rewritten.length > 30) final = rewritten;
+                  pushFeed({ from: agent.id, to: "qa", kind: "revision", text: final });
+                }
+              }
+            } catch (e: any) {
+              setAgentStatus("qa", "idle");
+              if (get().stopRequested) return;
+              pushFeed({ from: "system", kind: "status", text: `⚠️ QA 게이트 실패 (${String(e?.message ?? e).slice(0, 80)}) — 채점 없이 진행합니다.` });
+            }
+          }
+
+          updateCard(agent.id, { state: "done", phase: undefined, output: final, endedAt: Date.now() });
+          setAgentStatus(agent.id, "done");
+          get().recordGrowth(agent.id, "draft");
+          results.push({ agent, text: final });
+          if (get().autoReflect) {
+            await get().reflectToGdd(agent.id, final);
+            updateCard(agent.id, { reflected: true });
+            pushFeed({ from: "system", kind: "status", text: `📄 마스터 GDD "${agent.sectionTitle}" 섹션이 갱신되었습니다.` });
+          }
+        } catch (e: any) {
+          if (get().stopRequested) {
+            updateCard(agent.id, { state: "pending", phase: undefined, endedAt: Date.now() });
+            setAgentStatus(agent.id, "idle");
+            return;
+          }
+          updateCard(agent.id, { state: "error", phase: undefined, error: String(e?.message ?? e), endedAt: Date.now() });
+          setAgentStatus(agent.id, "error");
+          pushFeed({ from: "system", kind: "error", text: `⚠️ ${agent.name} 작업 실패: ${String(e?.message ?? e).slice(0, 120)}` });
+        }
+      };
+
+      // ── 1) 대표(PM) → 본부(팀장) 하달 ──
+      const zonesForRouting = [...new Set(pool.map((a) => AGENT_ZONE[a.id] ?? "plan"))];
+      const deptList = zonesForRouting.map((z) => ({ zone: z, label: zoneOf(z).label, manager: AGENT_MAP[deptManagerId(z)] }));
+      let activeDepts: { zone: string; directive: string }[] = zonesForRouting.map((z) => ({ zone: z, directive: req }));
+
+      if (st.autoRoute && !get().stopRequested && deptList.length > 0) {
+        updateCard("pm", { state: "running", phase: "본부 배정 중", startedAt: Date.now() });
+        setAgentStatus("pm", "running");
+        pushFeed({ from: "pm", kind: "status", text: "지시를 분석해 관련 본부 팀장에게 하달하는 중…" });
+        try {
+          const r = await gateway.runAgent("pm", pmDeptRoutePrompt(req, deptList), `${runTag}-route`, signal);
           const routeText = sanitizeAgentOutput(r.text);
           addUsage(r.usage, r.text);
-          // PM이 협업 회의를 소집했으면 개별 배정 대신 협업 세션 실행
+          // 협업 회의 소집 (그대로 유지) — 여러 역할이 토론해야 좋은 문제
           const collab = parseCollabPlan(routeText, pool.map((a) => a.id));
           if (collab) {
             const members = collab.members.map((id) => AGENT_MAP[id]);
-            pushFeed({
-              from: "pm",
-              kind: "instruction",
-              text: `이 건은 개별 작업보다 **협업 회의**가 필요합니다. ${members.map((m) => `${m.emoji} ${m.name}`).join(" ↔ ")} 소집 — 주제: ${collab.topic}`,
-            });
+            pushFeed({ from: "pm", kind: "instruction", text: `이 건은 **협업 회의**가 필요합니다. ${members.map((m) => `${m.emoji} ${m.name}`).join(" ↔ ")} 소집 — 주제: ${collab.topic}` });
             setAgentStatus("pm", "done");
             updateCard("pm", { state: "done", phase: undefined });
             try {
               await runCollabRounds(members, collab.topic, project, `${runTag}-collab`, signal, overview);
             } catch (e: any) {
-              if (!get().stopRequested) {
-                pushFeed({ from: "system", kind: "error", text: `⚠️ 협업 실패: ${String(e?.message ?? e).slice(0, 120)}` });
-              }
+              if (!get().stopRequested) pushFeed({ from: "system", kind: "error", text: `⚠️ 협업 실패: ${String(e?.message ?? e).slice(0, 120)}` });
             }
             set({ orchRunning: false });
             return;
           }
-          const routed = parseRoutePlan(routeText, pool.map((a) => a.id));
-          if (routed.length > 0) {
-            targets = routed.map((p) => AGENT_MAP[p.id]);
-            for (const p of routed) focusMap[p.id] = p.directive;
+          const parsed = parseDeptPlan(routeText, zonesForRouting);
+          if (parsed.length > 0) {
+            activeDepts = parsed;
             pushFeed({
               from: "pm",
               kind: "instruction",
-              text: routed
-                .map((p) => `**${AGENT_MAP[p.id].emoji} ${AGENT_MAP[p.id].name}** — ${p.directive}`)
-                .join("\n\n"),
+              text:
+                "관련 본부에 하달합니다 — 각 팀장이 팀원에게 나눠 진행합니다.\n\n" +
+                parsed.map((d) => `**${zoneOf(d.zone).label}** (${AGENT_MAP[deptManagerId(d.zone)]?.name ?? "대표"}) — ${d.directive}`).join("\n"),
             });
           } else {
-            pushFeed({
-              from: "system",
-              kind: "status",
-              text: `⚠️ PM의 배정 결과를 해석하지 못해 선택된 전원(${pool.length}명)에게 전달합니다 — API 호출이 그만큼 늘어납니다.`,
-            });
+            pushFeed({ from: "system", kind: "status", text: `⚠️ PM의 본부 배정을 해석하지 못해 관련 본부 전체에 전달합니다.` });
           }
         } catch (e: any) {
-          pushFeed({
-            from: "system",
-            kind: "status",
-            text: `⚠️ PM 분배 단계 실패 (${String(e?.message ?? e).slice(0, 80)}) — 선택된 전원(${pool.length}명)에게 전달합니다.`,
-          });
+          pushFeed({ from: "system", kind: "status", text: `⚠️ PM 본부 배정 실패 (${String(e?.message ?? e).slice(0, 80)}) — 관련 본부 전체에 전달합니다.` });
         }
         setAgentStatus("pm", "done");
         updateCard("pm", { state: "pending", phase: undefined, startedAt: undefined });
       }
 
-      set((s) => ({
-        cards: {
-          ...s.cards,
-          ...Object.fromEntries(targets.map((a) => [a.id, { agentId: a.id, state: "queued" as const, output: "" }])),
-        },
-      }));
+      // ── 2) 본부별 처리 (순차 — 팀장 취합본이 대표에 차례로 상신) ──
+      for (const { zone, directive } of activeDepts) {
+        if (get().stopRequested) break;
+        const managerId = deptManagerId(zone);
+        const manager = AGENT_MAP[managerId];
+        const hasManager = !!manager && manager.id !== "pm";
+        const owners = pool.filter((a) => (AGENT_ZONE[a.id] ?? "plan") === zone);
+        if (owners.length === 0) continue;
 
-      const hasExisting = targets.some((a) => getSectionBody(baseMd, a.section).length > 0);
-      pushFeed({
-        from: "pm",
-        kind: "status",
-        text: `지시를 접수했습니다. ${targets.map((a) => `${a.emoji} ${a.name}`).join(", ")}에게 분배합니다.${hasExisting ? " 기존 기획은 유지하고 지시사항만 반영합니다." : ""}${st.crossReview ? " 각 결과는 동료 검토를 거쳐 확정됩니다." : ""}`,
-      });
+        const assignFocus: Record<string, string> = Object.fromEntries(owners.map((o) => [o.id, directive]));
+        const juniorFocus: Record<string, string> = {};
 
-      // 지식 주입 투명화 — 누가 어떤 학습 지식을 참고하는지 한 줄로 알린다
-      const injectedNotes: string[] = [];
-      for (const a of targets) {
-        const picked = knowledgePickFor(a.id, get().knowledge, req);
-        if (picked.length > 0) injectedNotes.push(`${a.emoji} ${picked.map((k) => k.title).join("·")}`);
-      }
-      if (injectedNotes.length > 0) {
-        pushFeed({ from: "system", kind: "status", text: `📚 학습 지식 주입 — ${injectedNotes.join(" / ").slice(0, 400)}` });
-      }
-
-      const queue = [...targets];
-      const results: { agent: AgentDef; text: string }[] = [];
-
-      const worker = async () => {
-        while (queue.length > 0) {
-          if (get().stopRequested) return;
-          const agent = queue.shift();
-          if (!agent) return;
-          // 마케팅 담당관은 웹 조사가 기본 업무 — 토글과 무관하게 최소 web_fetch는 허용
-          const agentWeb: WebMode = agent.id === "marketing" ? (get().braveOk ? "full" : "fetch") : web;
-          const instruction = specialistPrompt(
-            req,
-            agent,
-            agentWeb,
-            getSectionBody(baseMd, agent.section),
-            overview,
-            focusMap[agent.id] ?? "",
-            knowledgeBlockFor(agent.id, get().knowledge, req),
-            panorama,
-            decisionsText
-          );
-          updateCard(agent.id, { state: "running", phase: "초안 작성 중", startedAt: Date.now(), instruction });
-          setAgentStatus(agent.id, "running");
-          pushFeed({ from: "pm", to: agent.id, kind: "instruction", text: instruction });
+        // 2a) 팀장이 팀원에게 배분 (오너 2명 이상일 때만 — 단독이면 불필요)
+        if (hasManager && owners.length >= 2) {
+          const team = [...owners, ...owners.flatMap((o) => contributorsOf(o.id))];
           try {
-            const r = await gateway.runAgent(agent.id, instruction, runTag, signal);
-            const draft = sanitizeAgentOutput(r.text);
-            addUsage(r.usage, draft);
-            pushFeed({ from: agent.id, to: "pm", kind: "draft", text: draft });
-
-            let final = draft;
-            const reviewerId = REVIEWERS[agent.id];
-            // 소통 범위 — 작성자↔검토자가 서로 허용 범위 밖이면 검토를 건너뛴다
-            if (get().crossReview && reviewerId && !scopeMutual(get().commScope, agent.id, reviewerId)) {
-              const scopes = get().commScope;
-              const viaFeed = scopes[agent.id]?.mode === "feed" || scopes[reviewerId]?.mode === "feed";
+            setAgentStatus(manager.id, "running");
+            updateCard(manager.id, { state: "running", phase: "팀원 배분 중", startedAt: Date.now() });
+            pushFeed({ from: "pm", to: manager.id, kind: "instruction", text: `[${zoneOf(zone).label}] ${directive}` });
+            const ar = await gateway.runAgent(manager.id, managerAssignPrompt(req, directive, manager, team), `${runTag}-assign`, signal);
+            addUsage(ar.usage, ar.text);
+            const assigns = parseAssignPlan(sanitizeAgentOutput(ar.text), team.map((a) => a.id));
+            if (assigns.length > 0) {
+              for (const as of assigns) {
+                if (owners.some((o) => o.id === as.id)) assignFocus[as.id] = as.directive;
+                else juniorFocus[as.id] = as.directive;
+              }
               pushFeed({
-                from: "system",
-                kind: "status",
-                text: viaFeed
-                  ? `📮 피드 위탁 — ${AGENT_MAP[reviewerId].name}의 동료 검토 없이 ${agent.name}의 초안이 피드로 공유됩니다.`
-                  : `🔇 소통 범위 설정에 따라 ${AGENT_MAP[reviewerId].name}의 ${agent.name} 초안 검토를 건너뜁니다.`,
+                from: manager.id,
+                kind: "instruction",
+                text: assigns.map((as) => `**${AGENT_MAP[as.id]?.name ?? as.id}** — ${as.directive}`).join("\n"),
               });
-            } else if (get().crossReview && reviewerId && !get().stopRequested) {
-              const reviewer = AGENT_MAP[reviewerId];
-              try {
-                updateCard(agent.id, { phase: `${reviewer.name} 검토 중` });
-                setAgentStatus(reviewer.id, "running");
-                pushFeed({
-                  from: "pm",
-                  to: reviewer.id,
-                  kind: "status",
-                  text: `${agent.name}의 "${agent.sectionTitle}" 초안 검토를 요청합니다.`,
-                });
-                const rv = await gateway.runAgent(
-                  reviewer.id,
-                  reviewPrompt(req, agent, reviewer, draft),
-                  `${runTag}-rv`,
-                  signal
-                );
-                const review = sanitizeAgentOutput(rv.text);
-                addUsage(rv.usage, review);
-                pushFeed({ from: reviewer.id, to: agent.id, kind: "review", text: review });
-                setAgentStatus(reviewer.id, "done");
-                get().recordGrowth(reviewer.id, "review");
-
-                updateCard(agent.id, { phase: "검토 반영 수정 중" });
-                setAgentStatus(agent.id, "running");
-                const rev = await gateway.runAgent(agent.id, revisePrompt(agent, reviewer, review), runTag, signal);
-                const revised = sanitizeAgentOutput(rev.text);
-                addUsage(rev.usage, revised);
-                if (revised && revised.length > 30) final = revised;
-                pushFeed({ from: agent.id, to: "pm", kind: "revision", text: final });
-              } catch (e: any) {
-                setAgentStatus(reviewerId, "error");
-                pushFeed({
-                  from: "system",
-                  kind: "status",
-                  text: `⚠️ ${AGENT_MAP[reviewerId].name} 검토 단계 실패 (${String(e?.message ?? e).slice(0, 80)}) — ${agent.name}의 초안을 그대로 사용합니다.`,
-                });
-              }
             }
-
-            // 품질 게이트 — QA 디렉터가 루브릭 채점, 미달이면 1회 반려·재작성
-            if (get().qaGate && !get().stopRequested) {
-              try {
-                updateCard(agent.id, { phase: "QA 채점 중" });
-                setAgentStatus("qa", "running");
-                const qres = await gateway.runAgent("qa", qaScorePrompt(agent, final, panorama, req), `${runTag}-qa`, signal);
-                addUsage(qres.usage, qres.text);
-                const verdict = parseQaScore(sanitizeAgentOutput(qres.text));
-                setAgentStatus("qa", "done");
-                if (!verdict) {
-                  pushFeed({ from: "system", kind: "status", text: `⚠️ QA 채점 결과를 해석하지 못해 통과 처리합니다 (${agent.name}).` });
-                } else {
-                  const scoreLine = Object.entries(verdict.scores)
-                    .map(([k, v]) => `${k} ${v}`)
-                    .join(" · ");
-                  if (verdict.pass) {
-                    pushFeed({
-                      from: "qa",
-                      to: agent.id,
-                      kind: "review",
-                      text: `✅ 품질 통과 (평균 ${verdict.avg.toFixed(1)}/10) — ${scoreLine}\n${verdict.summary}`,
-                    });
-                    get().recordGrowth(agent.id, "qaPass");
-                  } else {
-                    // 반려는 교훈으로 적립 — 다음 레벨업 회고에서 작업 요령으로 증류된다
-                    get().recordGrowth(agent.id, "qaFail", { lesson: (verdict.notes || verdict.summary).slice(0, 280) });
-                    pushFeed({
-                      from: "qa",
-                      to: agent.id,
-                      kind: "review",
-                      text: `🔴 반려 (평균 ${verdict.avg.toFixed(1)}/10) — ${scoreLine}\n${verdict.notes || verdict.summary}`,
-                    });
-                    updateCard(agent.id, { phase: "QA 반려 — 재작성 중" });
-                    setAgentStatus(agent.id, "running");
-                    const rr = await gateway.runAgent(agent.id, qaRevisePrompt(agent, verdict), runTag, signal);
-                    const rewritten = sanitizeAgentOutput(rr.text);
-                    addUsage(rr.usage, rewritten);
-                    if (rewritten && rewritten.length > 30) final = rewritten;
-                    pushFeed({ from: agent.id, to: "qa", kind: "revision", text: final });
-                  }
-                }
-              } catch (e: any) {
-                setAgentStatus("qa", "idle");
-                if (get().stopRequested) return;
-                pushFeed({
-                  from: "system",
-                  kind: "status",
-                  text: `⚠️ QA 게이트 실패 (${String(e?.message ?? e).slice(0, 80)}) — 채점 없이 진행합니다.`,
-                });
-              }
-            }
-
-            updateCard(agent.id, { state: "done", phase: undefined, output: final, endedAt: Date.now() });
-            setAgentStatus(agent.id, "done");
-            get().recordGrowth(agent.id, "draft");
-            results.push({ agent, text: final });
-            if (get().autoReflect) {
-              await get().reflectToGdd(agent.id, final);
-              updateCard(agent.id, { reflected: true });
-              pushFeed({ from: "system", kind: "status", text: `📄 마스터 GDD "${agent.sectionTitle}" 섹션이 갱신되었습니다.` });
-            }
+            setAgentStatus(manager.id, "done");
           } catch (e: any) {
-            if (get().stopRequested) {
-              // 오너의 ⏹ 중단 — 오류가 아니라 중단으로 표시
-              updateCard(agent.id, { state: "pending", phase: undefined, endedAt: Date.now() });
-              setAgentStatus(agent.id, "idle");
-              return;
-            }
-            updateCard(agent.id, { state: "error", phase: undefined, error: String(e?.message ?? e), endedAt: Date.now() });
-            setAgentStatus(agent.id, "error");
-            pushFeed({ from: "system", kind: "error", text: `⚠️ ${agent.name} 작업 실패: ${String(e?.message ?? e).slice(0, 120)}` });
+            setAgentStatus(manager.id, "done");
+            pushFeed({ from: "system", kind: "status", text: `⚠️ ${manager.name} 배분 실패 — 팀원 전원이 본부 지시대로 진행합니다.` });
           }
         }
-      };
 
-      // 클라우드 모델이면 여러 명이 진짜 동시에 일한다. 로컬(GPU 1개)은 1을 권장.
-      const n = Math.max(1, Math.min(7, st.concurrency));
-      await Promise.all(Array.from({ length: n }, () => worker()));
+        // 2b) 주니어·인턴이 멘토 시니어에게 기여 초안을 올린다
+        for (const o of owners) {
+          if (get().stopRequested) break;
+          for (const jr of contributorsOf(o.id)) {
+            if (get().stopRequested) break;
+            try {
+              setAgentStatus(jr.id, "running");
+              updateCard(jr.id, { state: "running", phase: `${o.name} 파트 지원`, startedAt: Date.now() });
+              const cr = await gateway.runAgent(
+                jr.id,
+                contribPrompt(req, jr, o, getSectionBody(baseMd, o.section), juniorFocus[jr.id] ?? directive, overview),
+                `${runTag}-contrib`,
+                signal
+              );
+              const ctext = sanitizeAgentOutput(cr.text);
+              addUsage(cr.usage, ctext);
+              if (ctext && ctext.length > 20) {
+                contribCache[o.id] = (contribCache[o.id] ? contribCache[o.id] + "\n\n" : "") + `[${jr.name}] ${ctext}`;
+              }
+              pushFeed({ from: jr.id, to: o.id, kind: "draft", text: ctext });
+              updateCard(jr.id, { state: "done", phase: undefined, output: ctext, endedAt: Date.now() });
+              setAgentStatus(jr.id, "done");
+              get().recordGrowth(jr.id, "talk");
+            } catch (e: any) {
+              if (get().stopRequested) break;
+              setAgentStatus(jr.id, "idle");
+              pushFeed({ from: "system", kind: "status", text: `⚠️ ${jr.name} 기여 실패 (${String(e?.message ?? e).slice(0, 60)}) — 건너뜁니다.` });
+            }
+          }
+        }
+
+        // 2c) 시니어(오너)가 섹션을 완성한다
+        const before = results.length;
+        for (const o of owners) {
+          if (get().stopRequested) break;
+          await produceSection(o, assignFocus[o.id] ?? directive);
+        }
+        const deptOut = results.slice(before);
+
+        // 2d) 팀장이 취합·검수해 대표에 상신 (본부에 오너 2명 이상일 때)
+        if (hasManager && deptOut.length >= 2 && !get().stopRequested) {
+          try {
+            setAgentStatus(manager.id, "running");
+            updateCard(manager.id, { state: "running", phase: "본부 취합·상신 중", startedAt: Date.now() });
+            const cr = await gateway.runAgent(manager.id, managerConsolidatePrompt(manager, zoneOf(zone).label, req, deptOut), `${runTag}-consol`, signal);
+            const digest = sanitizeAgentOutput(cr.text);
+            addUsage(cr.usage, digest);
+            pushFeed({ from: manager.id, to: "pm", kind: "summary", text: `📤 ${zoneOf(zone).label} 취합 → 대표실 상신\n\n${digest}` });
+            updateCard(manager.id, { state: "done", phase: undefined, output: digest, endedAt: Date.now() });
+            setAgentStatus(manager.id, "done");
+            get().recordGrowth(manager.id, "conclusion");
+          } catch (e: any) {
+            setAgentStatus(manager.id, "done");
+            pushFeed({ from: "system", kind: "status", text: `⚠️ ${manager.name} 취합 실패 — 팀원 산출물을 대표에 직접 전달합니다.` });
+          }
+        }
+      }
 
       if (get().stopRequested) {
         pushFeed({ from: "system", kind: "status", text: "사용자 요청으로 오케스트레이션이 중단되었습니다." });
@@ -1483,9 +1526,9 @@ export const useVE = create<VEState>()((set, get) => {
 
       if (results.length > 0) {
         const pmInstruction = pmSummaryPrompt(req, results, overview);
-        updateCard("pm", { state: "running", phase: "산출물 통합 중", startedAt: Date.now(), instruction: pmInstruction });
+        updateCard("pm", { state: "running", phase: "대표 최종 통합 중", startedAt: Date.now(), instruction: pmInstruction });
         setAgentStatus("pm", "running");
-        pushFeed({ from: "pm", kind: "status", text: `산출물 ${results.length}건을 취합해 "1. 개요"를 통합 작성합니다.` });
+        pushFeed({ from: "pm", kind: "status", text: `👑 대표실 — 각 본부의 취합본과 산출물 ${results.length}건을 마지막으로 받아 "1. 개요"로 통합합니다.` });
         try {
           const r = await gateway.runAgent("pm", pmInstruction, runTag, signal);
           const clean = sanitizeAgentOutput(r.text);

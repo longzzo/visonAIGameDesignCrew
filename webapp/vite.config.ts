@@ -492,6 +492,9 @@ function hireApiPlugin(): Plugin {
             const role = String(j.role ?? "").trim().slice(0, 60);
             const zone = String(j.zone ?? "plan");
             const persona = String(j.persona ?? "").slice(0, 8000);
+            const RANKS = new Set(["manager", "senior", "junior", "intern"]);
+            const rank = RANKS.has(String(j.rank)) ? String(j.rank) : "senior";
+            const reportsTo = isSafeId(String(j.reportsTo ?? "")) ? String(j.reportsTo) : "pm";
             if (!isSafeId(id)) {
               res.statusCode = 400;
               res.end(JSON.stringify({ ok: false, error: "id는 영문 소문자·숫자·하이픈만 가능합니다 (예: sound)" }));
@@ -528,7 +531,7 @@ function hireApiPlugin(): Plugin {
               tools: { deny: [...HIRE_TOOL_DENY] },
             });
             fs.writeFileSync(OPENCLAW_CFG, JSON.stringify(cfg, null, 2), "utf-8");
-            const hire = { id, name, emoji, role, zone, color, section };
+            const hire = { id, name, emoji, role, zone, color, section, rank, reportsTo };
             writeCustomAgents([...customs, hire]);
             restartGateway();
             res.end(JSON.stringify({ ok: true, hire }));
