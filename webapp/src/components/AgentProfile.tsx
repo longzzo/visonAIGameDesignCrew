@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AGENTS, AGENT_MAP, REVIEWERS } from "../lib/agents";
 import { uiAlert, uiConfirm, uiPrompt } from "../lib/dialog";
+import { xpForLevel } from "../lib/growth";
 import { getModelsInfo, registerModelKey, setAgentModels, type ModelsInfo } from "../lib/models";
 import { saveTemp, tempOf, TEMP_DEFAULT } from "../lib/tuning";
 import { zoneOfAgent } from "../lib/zones";
@@ -13,7 +14,7 @@ import { useVE } from "../store";
  * 팀 안에서의 관계(담당 섹션·검토자)와 활동(작업·보고서·학습 지식)을 한눈에 본다.
  */
 export function AgentProfile() {
-  const { profileAgent, closeProfile, selectAgent, feed, reports, knowledge, agentHealth, commScope, setCommScope, fireAgentAction } = useVE();
+  const { profileAgent, closeProfile, selectAgent, feed, reports, knowledge, agentHealth, commScope, setCommScope, fireAgentAction, growth, removeSkill } = useVE();
   const id = profileAgent ?? "";
   const a = AGENT_MAP[id];
   const scope = commScope[id] ?? { mode: "all" as const, allow: [] };
@@ -268,6 +269,44 @@ export function AgentProfile() {
             ) : (
               <span className="dim">모델 정보를 불러오지 못했습니다 (PC 로컬에서만 변경 가능)</span>
             )}
+          </div>
+
+          {/* 성장 — XP·레벨·자가 학습 스킬 */}
+          <div className="profile-card">
+            <div className="profile-card-title">🌱 성장</div>
+            {(() => {
+              const g = growth[id] ?? { xp: 0, level: 1, skills: [], lessons: [] };
+              const cur = xpForLevel(g.level);
+              const next = xpForLevel(g.level + 1);
+              const pct = Math.min(100, Math.round(((g.xp - cur) / Math.max(1, next - cur)) * 100));
+              return (
+                <>
+                  <div className="growth-line">
+                    <b className="growth-lv">Lv.{g.level}</b>
+                    <div className="growth-bar" title={`${g.xp} XP — 다음 레벨까지 ${Math.max(0, next - g.xp)} XP`}>
+                      <i style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="dim">{g.xp} XP</span>
+                  </div>
+                  <div className="dim growth-note">
+                    작업(산출물·검토·협업·보고서)으로 경험치를 얻고, 레벨업 순간 스스로 회고해 작업 요령을 익힙니다.
+                    {(g.lessons?.length ?? 0) > 0 && ` 적립된 교훈 ${g.lessons.length}건 — 다음 레벨업 회고에서 요령으로 정리됩니다.`}
+                  </div>
+                  {(g.skills?.length ?? 0) > 0 && (
+                    <ul className="profile-list growth-skills">
+                      {g.skills.map((s) => (
+                        <li key={s.ts}>
+                          📖 {s.text}
+                          <button className="btn tiny" onClick={() => void removeSkill(id, s.ts)} title="이 요령을 잊게 합니다">
+                            🗑
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              );
+            })()}
           </div>
 
           {/* 팀 관계 */}

@@ -7,6 +7,7 @@
 //  - 메시지 전송: method "chat.send" (스트리밍 이벤트 "chat") 또는 method "agent" (완료 시 res)
 
 import { loadGuard } from "./cost";
+import { skillDirective } from "./growth";
 import { tempDirective } from "./tuning";
 
 export type EventFrame = { type: "event"; event: string; payload?: any; seq?: number };
@@ -303,8 +304,8 @@ export class GatewayClient {
   async runAgent(agentId: string, input: string, sessionSuffix: string, signal?: AbortSignal): Promise<RunResult> {
     this.checkCostGuard();
     this.callTimes.push(Date.now());
-    // 창의성(온도) 튜닝 — 프로필의 🎚 슬라이더 값이 기본(5)이 아니면 작업 스타일 지시문을 앞에 붙인다
-    input = tempDirective(agentId) + input;
+    // 창의성(온도) 튜닝 + 자가 학습 요령(스킬) — 모든 작업 프롬프트 앞에 주입
+    input = tempDirective(agentId) + skillDirective(agentId) + input;
     const r = await fetch("/api/agent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

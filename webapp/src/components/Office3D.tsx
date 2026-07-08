@@ -126,8 +126,8 @@ const WELCOME_LINES = ["환영합니다! 🎉", "잘 부탁드려요~ 👏", "�
 const WELCOME_SPOTS: [number, number][] = [[-1.7, 0.5], [1.7, 0.5], [-0.9, 1.8], [0.9, 1.8]];
 const CONFETTI_COLORS = ["#8b7cf6", "#e879f9", "#34d399", "#fbbf24", "#f87171", "#60a5fa", "#fb923c"];
 
-/** 폭죽 — 새 책상 위로 색종이가 쏟아진다 */
-function Confetti({ pos }: { pos: V3 }) {
+/** 폭죽 — 책상 위로 색종이가 쏟아진다 (입사 축하·레벨업 공용) */
+function Confetti({ pos, label = "🎉 신규 입사를 환영합니다!" }: { pos: V3; label?: string }) {
   const parts = useMemo(
     () =>
       Array.from({ length: 44 }, (_, i) => ({
@@ -162,7 +162,7 @@ function Confetti({ pos }: { pos: V3 }) {
         </group>
       ))}
       <Html center position={[0, 3.2, 0]} distanceFactor={11} zIndexRange={[30, 0]}>
-        <div className="o3d-welcome">🎉 신규 입사를 환영합니다!</div>
+        <div className="o3d-welcome">{label}</div>
       </Html>
       <pointLight position={[0, 2.4, 0]} intensity={9} color="#ffd98a" distance={7} />
     </group>
@@ -1119,6 +1119,7 @@ function OfficeScene({
   const feed = useVE((s) => s.feed);
   const meetingMembers = useVE((s) => s.meetingMembers);
   const welcomeAgent = useVE((s) => s.welcomeAgent);
+  const levelUpAgent = useVE((s) => s.levelUpAgent);
   useVE((s) => s.rosterVersion); // 채용/퇴사 시 로스터 다시 그리기
   const P = useMemo(() => paletteFor(mode), [mode]);
   const night = mode === "night";
@@ -1271,11 +1272,25 @@ function OfficeScene({
           onSelect={onSelect}
           selected={selId === a.id}
           inMeeting={meetingMembers.includes(a.id)}
-          say={meetingMembers.includes(a.id) ? meetingSay[a.id] : welcomeSay[a.id] ?? breakSay[a.id]}
+          say={
+            meetingMembers.includes(a.id)
+              ? meetingSay[a.id]
+              : levelUpAgent?.id === a.id
+                ? `✨ 레벨 업! Lv.${levelUpAgent.level} — 회고 중…`
+                : welcomeSay[a.id] ?? breakSay[a.id]
+          }
         />
       ))}
       {/* 신입 환영 폭죽 — 새 책상 위 */}
       {welcomeAgent && welcomeDesk && <Confetti key={welcomeAgent} pos={welcomeDesk} />}
+      {/* 레벨업 폭죽 — 성장한 직원 책상 위 */}
+      {levelUpAgent && !welcomeAgent && (
+        <Confetti
+          key={`lv-${levelUpAgent.id}-${levelUpAgent.level}`}
+          pos={deskFor(levelUpAgent.id)}
+          label={`✨ ${AGENT_MAP[levelUpAgent.id]?.name ?? levelUpAgent.id} — Lv.${levelUpAgent.level} 달성!`}
+        />
+      )}
 
       <CameraRig camApi={camApi} />
     </>

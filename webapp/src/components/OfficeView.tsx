@@ -412,6 +412,7 @@ export function OfficeView() {
     cards,
     selected,
     toggleSelected,
+    growth,
   } = useVE();
   useVE((s) => s.rosterVersion); // 채용/퇴사 시 로스터 다시 그리기
   const [hireOpen, setHireOpen] = useState(false);
@@ -642,6 +643,11 @@ export function OfficeView() {
                     )}
                     <span className="o3d-dot" style={{ background: a.color }} />
                     <span className="os-agent-name">{a.name}</span>
+                    {(growth[a.id]?.level ?? 1) > 1 && (
+                      <span className="os-agent-lv" title={`${growth[a.id].xp} XP · 스킬 ${growth[a.id].skills?.length ?? 0}개`}>
+                        Lv.{growth[a.id].level}
+                      </span>
+                    )}
                     <span className={`os-agent-st s-${meeting ? "running" : st}`}>
                       {meeting ? "회의" : st === "running" ? "작업" : st === "done" ? "완료" : st === "error" ? "오류" : "대기"}
                     </span>

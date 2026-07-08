@@ -43,12 +43,15 @@ import {
   unityKitPrompt,
   janitorFeedPrompt,
   janitorChatPrompt,
+  retrospectPrompt,
+  parseRetrospect,
   DEFAULT_REPORT_TOPIC,
   registerCustomAgent,
   unregisterCustomAgent,
   type AgentDef,
   type WebMode,
 } from "./lib/agents";
+import { fetchGrowth, postGrowth, setGrowthCache, XP_RULES, type GrowthMap } from "./lib/growth";
 import { listHires, hireAgentApi, fireAgentApi, type HireRequest } from "./lib/hire";
 import {
   listKnowledge,
@@ -268,6 +271,14 @@ interface VEState {
   rosterVersion: number;
   /** 방금 입사한 직원 id — 3D 사무실 축하 연출(폭죽·동료 환영 인사) 트리거, ~14초 뒤 자동 해제 */
   welcomeAgent: string | null;
+  /** 에이전트 성장(XP·레벨·자가 학습 스킬) — config/agent-growth.json 영속 */
+  growth: GrowthMap;
+  /** 방금 레벨업한 직원 — 3D 폭죽·말풍선 연출 트리거 */
+  levelUpAgent: { id: string; level: number } | null;
+  /** 작업 완료 이벤트 → XP 적립 (+반려 교훈), 레벨업 시 회고 1회로 스킬 증류 */
+  recordGrowth: (agentId: string, kind: keyof typeof XP_RULES, opts?: { lesson?: string }) => void;
+  /** 프로필에서 스킬 삭제 */
+  removeSkill: (agentId: string, ts: number) => Promise<void>;
   /** 직원 채용 — 서버가 페르소나 생성 + OpenClaw 설정 추가 + 게이트웨이 재시작(~10초) */
   hireAgentAction: (req: HireRequest) => Promise<void>;
   /** 채용 직원 퇴사 처리 (기본 로스터는 불가) */
@@ -653,6 +664,7 @@ export const useVE = create<VEState>()((set, get) => {
         transcript += `\n[${agent.name}] ${say}\n`;
         pushFeed({ from: agent.id, kind: "talk", text: say });
         setAgentStatus(agent.id, "done");
+        get().recordGrowth(agent.id, "talk");
       }
     }
     if (get().stopRequested) return;
@@ -667,6 +679,7 @@ export const useVE = create<VEState>()((set, get) => {
     addUsage(r.usage, conclusion);
     pushFeed({ from: lead.id, kind: "summary", text: conclusion });
     setAgentStatus(lead.id, "done");
+    get().recordGrowth(lead.id, "conclusion");
     const title = `협업 결론 — ${topic.slice(0, 40)}${topic.length > 40 ? "…" : ""}`;
     await saveReport(project, lead.id, title, `# ${title}\n\n## 결론\n${conclusion}\n\n## 대화 전문\n${transcript}`);
     await get().loadReports();
@@ -788,6 +801,8 @@ export const useVE = create<VEState>()((set, get) => {
     commScope: loadCommScopes(),
     rosterVersion: 0,
     welcomeAgent: null,
+    growth: {},
+    levelUpAgent: null,
     janitorBusy: false,
     briefingBusy: false,
     knowledge: [],
@@ -842,6 +857,11 @@ export const useVE = create<VEState>()((set, get) => {
           }
         }
         if (added > 0) set((s) => ({ rosterVersion: s.rosterVersion + 1, selected: { ...sel, ...s.selected } }));
+      });
+      // 성장 데이터 복원 — 스킬은 gateway 주입 캐시에도 올린다
+      void fetchGrowth().then((growth) => {
+        setGrowthCache(growth);
+        set({ growth });
       });
       void get().loadBraveStatus();
       await get().loadProjects();
@@ -1037,6 +1057,7 @@ export const useVE = create<VEState>()((set, get) => {
         });
         addUsage(result?.usage, result?.text ?? "");
         setAgentStatus(id, "done");
+        get().recordGrowth(id, "chat");
       } catch (e: any) {
         set((s) => ({
           chats: {
@@ -1356,6 +1377,7 @@ export const useVE = create<VEState>()((set, get) => {
                 addUsage(rv.usage, review);
                 pushFeed({ from: reviewer.id, to: agent.id, kind: "review", text: review });
                 setAgentStatus(reviewer.id, "done");
+                get().recordGrowth(reviewer.id, "review");
 
                 updateCard(agent.id, { phase: "검토 반영 수정 중" });
                 setAgentStatus(agent.id, "running");
@@ -1396,7 +1418,10 @@ export const useVE = create<VEState>()((set, get) => {
                       kind: "review",
                       text: `✅ 품질 통과 (평균 ${verdict.avg.toFixed(1)}/10) — ${scoreLine}\n${verdict.summary}`,
                     });
+                    get().recordGrowth(agent.id, "qaPass");
                   } else {
+                    // 반려는 교훈으로 적립 — 다음 레벨업 회고에서 작업 요령으로 증류된다
+                    get().recordGrowth(agent.id, "qaFail", { lesson: (verdict.notes || verdict.summary).slice(0, 280) });
                     pushFeed({
                       from: "qa",
                       to: agent.id,
@@ -1425,6 +1450,7 @@ export const useVE = create<VEState>()((set, get) => {
 
             updateCard(agent.id, { state: "done", phase: undefined, output: final, endedAt: Date.now() });
             setAgentStatus(agent.id, "done");
+            get().recordGrowth(agent.id, "draft");
             results.push({ agent, text: final });
             if (get().autoReflect) {
               await get().reflectToGdd(agent.id, final);
@@ -1605,6 +1631,7 @@ export const useVE = create<VEState>()((set, get) => {
         const ts = await saveReport(project, agentId, title, markdown);
         await get().loadReports();
         setAgentStatus(agentId, "done");
+        get().recordGrowth(agentId, "report");
         // 채팅에 완료 안내 남기기 (해당 에이전트 대화방)
         set((s) => ({
           chats: {
@@ -1975,6 +2002,72 @@ export const useVE = create<VEState>()((set, get) => {
       const next = { ...get().commScope, [id]: scope };
       saveCommScopes(next);
       set({ commScope: next });
+    },
+
+    /* ── 자가 성장 (XP·레벨·스킬) ─────────────────────── */
+
+    recordGrowth: (agentId, kind, opts) => {
+      const xp = XP_RULES[kind] ?? 0;
+      if (xp <= 0 && !opts?.lesson) return;
+      void (async () => {
+        const out = await postGrowth(agentId, { addXp: xp || undefined, lesson: opts?.lesson });
+        if (!out) return;
+        set((s) => {
+          const growth = { ...s.growth, [agentId]: out.agent };
+          setGrowthCache(growth);
+          return { growth };
+        });
+        if (!out.leveledUp) return;
+        const a = AGENT_MAP[agentId];
+        set({ levelUpAgent: { id: agentId, level: out.agent.level } });
+        setTimeout(() => {
+          if (get().levelUpAgent?.id === agentId) set({ levelUpAgent: null });
+        }, 9000);
+        pushFeed({
+          from: "system",
+          kind: "status",
+          text: `✨ ${a?.name ?? agentId}이(가) Lv.${out.agent.level}로 성장했습니다 — 그동안의 경험을 회고해 작업 요령을 정리합니다.`,
+        });
+        // 레벨업 회고 — 경험을 요령 1문장으로 증류 (성장 시스템의 유일한 LLM 비용)
+        try {
+          const recent = get()
+            .feed.filter((m) => m.from === agentId)
+            .slice(-3)
+            .map((m) => m.text.slice(0, 400))
+            .join("\n---\n");
+          const r = await gateway.runAgent(
+            agentId,
+            retrospectPrompt(a ?? ({ id: agentId, name: agentId, role: "" } as AgentDef), out.agent.level, recent, out.agent.lessons ?? []),
+            `retro-${Date.now().toString(36)}`
+          );
+          addUsage(r.usage, r.text);
+          const skill = parseRetrospect(sanitizeAgentOutput(r.text));
+          if (skill) {
+            const su = await postGrowth(agentId, { skill });
+            if (su) {
+              set((s) => {
+                const growth = { ...s.growth, [agentId]: su.agent };
+                setGrowthCache(growth);
+                return { growth };
+              });
+            }
+            pushFeed({ from: agentId, kind: "status", text: `📖 회고 완료 — 새 작업 요령을 익혔습니다: "${skill}"` });
+          }
+        } catch {
+          /* 회고 실패는 조용히 — 다음 레벨업에서 재시도 */
+        }
+      })();
+    },
+
+    removeSkill: async (agentId, ts) => {
+      const out = await postGrowth(agentId, { removeSkill: ts });
+      if (out) {
+        set((s) => {
+          const growth = { ...s.growth, [agentId]: out.agent };
+          setGrowthCache(growth);
+          return { growth };
+        });
+      }
     },
 
     /* ── 직원 채용/퇴사 (동적 로스터) ──────────────────── */

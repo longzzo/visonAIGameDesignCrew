@@ -457,6 +457,35 @@ export function briefingPrompt(projectName: string, gddFull: string, reportLines
     .join("\n");
 }
 
+/* ── 자가 성장 — 레벨업 회고 프롬프트 ─────────────────── */
+
+/**
+ * 레벨업 회고 — 최근 작업과 반려 지적에서 "다음부터 지킬 작업 요령" 1문장을 스스로 뽑는다.
+ * 레벨업 순간에만 1회 호출되는 유일한 성장 LLM 비용.
+ */
+export function retrospectPrompt(agent: AgentDef, level: number, recentWork: string, lessons: string[]): string {
+  return [
+    `너는 ${agent.name}(${agent.role})다. 방금 레벨 ${level}로 성장했다 — 성장 기념 회고를 한다.`,
+    ``,
+    recentWork.trim() ? `[너의 최근 산출물 발췌]\n${recentWork.slice(0, 1800)}` : ``,
+    lessons.length > 0 ? `\n[그동안 받은 반려·검토 지적]\n${lessons.map((l) => `- ${l}`).join("\n")}` : ``,
+    ``,
+    `위 경험에서, 다음 작업부터 반드시 지킬 "작업 요령"을 딱 1문장 뽑아라.`,
+    `- 특정 과제가 아니라 앞으로의 모든 작업에 일반화되는 행동 지침이어야 한다.`,
+    `- 예: "수치를 제시할 때는 반드시 근거 공식을 한 줄 덧붙인다."`,
+    `출력은 정확히 아래 한 줄만. 다른 말·도구 호출 금지.`,
+    `요령: <1문장>`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** retrospectPrompt 응답 파싱 */
+export function parseRetrospect(text: string): string {
+  const m = /요령\s*[:：]\s*(.+)/.exec(text);
+  return m ? m[1].trim().replace(/\**$/, "").slice(0, 220) : "";
+}
+
 /* ── 사무실 관리인 — 대화 자동 정리(compact) 프롬프트 ────── */
 
 /** 오케스트레이션 피드의 오래된 구간을 결정·결론 중심으로 압축 */

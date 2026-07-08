@@ -1745,6 +1745,25 @@ button { font-family: inherit; }
   100% { transform: scale(1); opacity: 1; }
 }
 
+/* ── v3.6: 자가 성장 (프로필 카드 + 로스터 Lv 뱃지) ── */
+.growth-line { display: flex; align-items: center; gap: 9px; margin-bottom: 6px; }
+.growth-lv { color: var(--accent-2); font-size: 15px; white-space: nowrap; }
+.growth-bar {
+  flex: 1; height: 8px; border-radius: 999px; background: var(--panel-3);
+  border: 1px solid var(--border-soft); overflow: hidden;
+}
+.growth-bar i {
+  display: block; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), #e879f9); transition: width 0.6s ease;
+}
+.growth-note { font-size: 11px; line-height: 1.5; margin-bottom: 6px; }
+.growth-skills li { display: flex; align-items: center; gap: 6px; }
+.growth-skills .btn.tiny { margin-left: auto; flex-shrink: 0; }
+.os-agent-lv {
+  font-size: 10px; font-weight: 800; color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.45);
+  border-radius: 6px; padding: 0 4px; white-space: nowrap; flex-shrink: 0;
+}
+
 /* ── v3.4: 결정 모달 반영안 미리보기 ── */
 .decision-preview {
   border: 1px solid var(--border-soft); border-radius: 10px; background: var(--panel-2);

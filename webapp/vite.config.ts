@@ -192,6 +192,87 @@ function personaApiPlugin(): Plugin {
   };
 }
 
+/* ── 플러그인: 에이전트 성장 (XP·레벨·스킬) ─────────────
+ * 직원이 작업으로 경험치를 쌓고, 레벨업 회고로 스스로 배운 "작업 요령(스킬)"을 축적한다.
+ * 저장: config/agent-growth.json — { [agentId]: { xp, level, skills:[{ts,text}], lessons:[...] } }
+ *   GET  /api/growth → 전체 성장 데이터
+ *   POST /api/growth { agentId, addXp? , lesson?, skill?, removeSkill? } → 갱신 (레벨업 여부 반환)
+ */
+const GROWTH_FILE = path.resolve(__dirname, "..", "config", "agent-growth.json");
+/** 누적 XP 임계 — Lv n 도달에 40·n·(n-1) (L2=80, L3=240, L4=480 …) */
+function levelOf(xp: number): number {
+  let n = 1;
+  while (40 * (n + 1) * n <= xp) n++;
+  return n;
+}
+function readGrowth(): Record<string, any> {
+  try {
+    const j = JSON.parse(fs.readFileSync(GROWTH_FILE, "utf-8"));
+    return typeof j === "object" && j ? j : {};
+  } catch {
+    return {};
+  }
+}
+function growthApiPlugin(): Plugin {
+  return {
+    name: "vision-engine-growth-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/growth", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            const all = readGrowth();
+            if (req.method === "GET") {
+              res.end(JSON.stringify({ ok: true, growth: all }));
+              return;
+            }
+            if (req.method !== "POST") {
+              res.statusCode = 405;
+              res.end(JSON.stringify({ ok: false, error: "GET/POST only" }));
+              return;
+            }
+            if (blockRemoteWrite(req, res)) return;
+            const j = JSON.parse((await readBody(req)) || "{}");
+            const agentId = String(j.agentId ?? "");
+            if (!isSafeId(agentId)) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: "agentId 확인 필요" }));
+              return;
+            }
+            const g = all[agentId] ?? { xp: 0, level: 1, skills: [], lessons: [] };
+            let leveledUp = false;
+            if (typeof j.addXp === "number" && j.addXp > 0) {
+              g.xp += Math.min(100, Math.round(j.addXp));
+              const nl = levelOf(g.xp);
+              if (nl > (g.level ?? 1)) {
+                g.level = nl;
+                leveledUp = true;
+              }
+            }
+            if (typeof j.lesson === "string" && j.lesson.trim()) {
+              g.lessons = [...(g.lessons ?? []), j.lesson.trim().slice(0, 300)].slice(-6);
+            }
+            if (typeof j.skill === "string" && j.skill.trim()) {
+              g.skills = [...(g.skills ?? []), { ts: Date.now(), text: j.skill.trim().slice(0, 220) }].slice(-4);
+              g.lessons = []; // 회고로 소화된 교훈은 비운다
+            }
+            if (typeof j.removeSkill === "number") {
+              g.skills = (g.skills ?? []).filter((s: any) => s.ts !== j.removeSkill);
+            }
+            all[agentId] = g;
+            fs.mkdirSync(path.dirname(GROWTH_FILE), { recursive: true });
+            fs.writeFileSync(GROWTH_FILE, JSON.stringify(all, null, 2), "utf-8");
+            res.end(JSON.stringify({ ok: true, agent: g, leveledUp }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 200) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
 /* ── 플러그인: 노션 발행 (GDD·보고서 자동 아카이브) ──────
  * 오너의 레퍼런스 디자인(허브+개요표+콜아웃+섹션 자식 페이지)으로 발행한다.
  *   GET  /api/notion            → 연동 상태 + 프로젝트별 마지막 발행
@@ -2876,6 +2957,7 @@ export default defineConfig({
     personaApiPlugin(),
     hireApiPlugin(),
     notionApiPlugin(),
+    growthApiPlugin(),
     pdfTextApiPlugin(),
     protoApiPlugin(),
     decisionsApiPlugin(),
