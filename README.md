@@ -1,71 +1,121 @@
-# Vision Engine
+# 🎮 Vision Engine
 
-> **🚀 처음 오셨나요? → [GETTING-STARTED.md](GETTING-STARTED.md)** — 웹앱(픽셀아트 사무실 + 에이전트 12명 + 개발 착수 킷) 설치·사용 가이드. 현재 이 프로젝트의 주력은 그 웹앱이며, 아래 내용은 초기 설계(Claude Code 서브에이전트 경로)의 기록입니다.
+> 게임 아이디어 한 줄을 넣으면, **AI 에이전트들이 3D 사무실에서 직급에 따라 협업**해 게임 기획서(GDD)를 쓰고, 서로 검토·채점하고, 개발 착수 킷까지 뽑아주는 **1인 게임 개발 스튜디오**.
 
-Claude Code 세션 하나로 **실제 병렬 서브에이전트**를 지휘해 어떤 장르의 게임이든 기획·설계할 수 있는 범용 멀티에이전트 스튜디오. 원래 제안서(Vision Engine PDF)의 구조를 **Claude Code의 실제 서브에이전트 기능**으로 구현했고, 주력 모델을 오늘 공개된 **Claude Fable 5**로 잡았다.
+기획팀이 회의해서 세계관·게임플레이·시스템·밸런스·UI·수익모델·아트를 설계하고, 팀장이 취합해 대표에게 올리면, 개발팀이 이어받아 **유니티 개발 문서 + 밸런스 CSV + 에셋 목록 + C# 스켈레톤 + 플레이 가능한 프로토타입**을 ZIP 하나로 만들어 냅니다. 전부 **로컬 모델 + 무료 클라우드 크레딧으로 무료** 구동 가능하며, API 키는 저장소에 없고 여러분 PC(`~/.openclaw`)에만 저장됩니다.
 
-> **중요**: 이 저장소의 핵심 실행 파일은 `.claude/agents/*.md`다. Claude Code가 세션 시작 시 자동으로 읽어서 진짜로 병렬 실행되는 서브에이전트로 등록한다. `agents/*/AGENTS.md`(확장자 없는 `agents/` 폴더)는 그 설계 원본(장문판)이며 실행에는 관여하지 않는다 — 헷갈리지 않도록 아래 폴더 구조를 참고할 것.
+> **처음이라면 → [GETTING-STARTED.md](GETTING-STARTED.md)** 에 15분 설치 walkthrough가 있습니다. 아래는 기능 요약과 빠른 설치입니다.
 
-## 무엇이 바뀌었나 (원안 대비 보완)
+---
 
-- **가상의 "Codex Pro" → 실존 도구로 교체**: Claude Code(하네스) + Claude Fable 5(모델)가 메인 세션(PM) 역할.
-- **"AI 역할극"이 아니라 진짜 서브에이전트**: 처음 버전은 하나의 세션이 여러 역할을 순서대로 "연기"하는 지침 문서였다. 지금 버전은 `.claude/agents/*.md`로 Claude Code의 실제 서브에이전트 기능을 사용해, 각자 독립된 컨텍스트에서 병렬로 실행되고 결과만 메인 세션에 돌아온다.
-- **쓰기 권한이 실제로 강제됨**: "서브에이전트는 GDD를 못 고친다"는 규칙이 말뿐이 아니라, `.claude/agents/*.md`의 `tools: Read, Grep, Glob` 설정으로 실제 도구 권한 수준에서 막혀 있다.
-- **11명 → 8개 역할로 압축**: 개인 운영 현실에 맞게 핵심만.
-- **GDD를 단일 파일로 고정**: 모든 서브에이전트가 참조하는 진실의 원천(`templates/MASTER_GDD.md`).
-- **장르 무관 부트스트랩**: 게임 아이디어가 없어도 PM(메인 세션)이 `templates/PROJECT_INTAKE.md`로 단계별 질문을 던져 GDD를 채운다.
-- **Visual 서브에이전트 신설**: 모티브 영상처럼 "여러 에이전트가 각자 파트를 맡아 하나의 결과물을 완성"하는 구조를 게임 기획에 맞게 반영.
+## ✨ 주요 기능
 
-## 폴더 구조
+### 🏢 3D 디지털 사무실 (메인 화면)
+- 부서별 존(기획·개발·사업·아트·품질·회의실·**휴게실**)으로 나뉜 아이소메트릭 오피스
+- 에이전트가 실제로 걸어다니며 **회의실에 모이고, 대표실에 보고하고, 휴게실에서 잡담**합니다 (연출은 LLM 호출 0 = 무료)
+- 직원 클릭 → 정보 팝업 → 1:1 채팅, 낮/밤 테마, 카메라 팬·회전·존 포커스
+
+### 🧑‍💼 직급 조직 & 계층 오케스트레이션
+- **5직급**: 👑 대표 · 🎖️ 팀장 · 시니어 · 🌱 주니어 · 🐣 인턴
+- 업무가 **직급에 따라 흐릅니다**: 대표(PM)가 본부에 하달 → 팀장이 팀원에게 배분 → 주니어·인턴이 기여 → 시니어가 완성 → **팀장이 취합·검수** → 대표가 **마지막에** 통합·결재
+- **직원 채용/퇴사**: 팀장·시니어·주니어·인턴을 골라 뽑으면 페르소나(AGENTS.md)가 생성되고 즉시 조직에 합류 (입사 축하 폭죽 연출)
+- **소통 범위** 설정(전체/부서 내/커스텀/피드 위탁), **인력 배치**(회의 투입 선택)
+
+### 🌱 자가 성장
+- 작업(산출물·검토·협업·보고서)으로 **경험치·레벨**을 쌓고, QA 반려를 **교훈**으로 적립
+- 레벨업 순간 스스로 **회고해 "작업 요령(스킬)"을 증류** → 이후 모든 작업에 자동 적용 (성장의 LLM 비용은 레벨업 1회뿐)
+
+### 📝 마스터 GDD & 산출물
+- 모든 에이전트가 공유하는 단일 진실의 GDD, 버전 히스토리·되돌리기
+- **정식 보고서·회의록·협업 결론** 자동 저장, **결정사항 원장**(조직의 기억)
+- **개발 착수 킷**: 유니티 문서 + 밸런스 CSV + 에셋 매니페스트 + C# 스켈레톤 + 그레이박스 프로토타입 → ZIP
+
+### 🎨 아트·개발 인턴
+- **아트 인턴**: 로컬 Stable Diffusion / NVIDIA로 컨셉 아트·사무실 배경 생성 (규제 소지 콘텐츠는 로컬 자동 라우팅)
+- **개발 인턴(시뮬레이터)**: 기능별로 **플레이 가능한 HTML 프로토타입** 생성
+
+### 📚 노션 연동 & 기존 기획 가져오기
+- GDD·보고서를 **노션에 자동 발행**(허브 페이지 + 개요 표 + 섹션별 자식 페이지), 전담 **노션 아키비스트**
+- 기존 기획 **PDF 가져오기**(스캔 PDF는 로컬 OCR), 옵시디안 볼트 연동·지식 학습
+
+### 💰 비용·보안 가드
+- **비용 폭탄 방지**: 10분당 LLM 호출 상한(클라이언트+서버 이중), 무한 반복 시 자동 차단·중단
+- **사용량·크레딧 창**: 호출 수·토큰·추정 비용(모델별 단가)
+- **보안**: DNS 리바인딩/CSRF 차단, 개발 작업 PC 전용, 에이전트 산출 HTML 격리(CSP)
+
+### 🖥 어디서나
+- **원클릭 데스크톱 앱**(설치 시 바탕화면 바로가기 자동 생성)
+- LAN / Tailscale로 **폰·노트북에서 접속**, 사무실 관리인이 대화가 길어지면 자동 compact
+
+---
+
+## 🚀 설치
+
+### 방법 A — 데스크톱 설치본 (가장 쉬움)
+[**Releases**](https://github.com/longzzo/visonAIGameDesignCrew/releases)에서 최신 `VisionEngine-Setup-x.y.z.exe`를 받아 실행하면 설치 + **바탕화면 바로가기**가 생깁니다.
+> 단, AI가 실제로 응답하려면 로컬에 **OpenClaw 게이트웨이 + Ollama**가 켜져 있어야 합니다(아래 방법 B의 준비물 참고).
+
+### 방법 B — 소스에서 원클릭 실행 (권장)
+
+**준비물**
+
+| 항목 | 필수 | 비고 |
+|---|:---:|---|
+| Windows 10/11, [Node.js](https://nodejs.org) 20+ | ✅ | |
+| [Ollama](https://ollama.com) + `qwen3:8b` | ✅ | 무료 로컬 모델 (VRAM 8GB 권장) |
+| [Git](https://git-scm.com) | ✅ | |
+| NVIDIA NIM 키 ([build.nvidia.com](https://build.nvidia.com)) | 선택 | 회의 품질·속도 향상 (무료 크레딧) |
+| Stable Diffusion (Forge), Tailscale, Obsidian | 선택 | 아트 생성 / 원격 접속 / 노트 학습 |
+
+**실행**
+
+```bat
+git clone https://github.com/longzzo/visonAIGameDesignCrew.git vision-engine
+cd vision-engine
+ollama pull qwen3:8b
+VisionEngine-Start.bat
+```
+
+런처가 OpenClaw 게이트웨이와 웹앱을 함께 띄우고 브라우저를 엽니다. 다른 런처:
+- `VisionEngine-Local.bat` — 이 PC 전용(가장 안전)
+- `VisionEngine-Mobile.bat` — Tailscale로 폰·노트북에서 접속
+- `VisionEngine-Desktop.bat` — Electron 데스크톱 셸
+
+**직접 실행**(런처 없이):
+```bat
+cd webapp
+npm install
+npm run dev        # http://127.0.0.1:5199
+```
+
+> 자세한 단계별 안내(모델 키 등록, SD 연결, 원격 접속, 문제 해결)는 **[GETTING-STARTED.md](GETTING-STARTED.md)** 를 참고하세요.
+
+---
+
+## 🧱 기술 스택 & 구조
+
+- **웹앱**: React 18 + Zustand + Vite (서버 로직은 `webapp/vite.config.ts`의 미들웨어 플러그인), 3D는 react-three-fiber + drei
+- **AI 게이트웨이**: [OpenClaw](README.openclaw.md) — 각 에이전트가 독립 세션에서 실행, 모델은 Ollama(로컬) / NVIDIA NIM / GitHub Models 전환
+- **데스크톱**: Electron + NSIS 설치본 (`desktop/`)
+- **에이전트 페르소나**: `agents/<id>/AGENTS.md` (직급·역할·산출물 형식·규칙)
 
 ```
 vision-engine/
-├── README.md                  ← 이 파일
-├── CLAUDE.md                  ← 메인 세션(PM) 역할 정의, 세션 시작 시 자동 로드
-├── .claude/
-│   └── agents/                ← ★ 실제 실행되는 서브에이전트 (Claude Code 자동 인식)
-│       ├── scenario.md
-│       ├── gameplay.md
-│       ├── uiux.md
-│       ├── systems.md
-│       ├── balance.md
-│       ├── bm.md
-│       └── visual.md
-├── docs/
-│   ├── ARCHITECTURE.md        ← 시스템 아키텍처
-│   ├── architecture.mmd       ← 아키텍처 다이어그램 (Mermaid)
-│   ├── WORKFLOW.md            ← 요청 처리 흐름·시나리오
-│   ├── SETUP.md              ← 설치·초기 설정 (경로 A: 실제 구현 / 경로 B: OpenClaw 별도 확장)
-│   └── KICKOFF_PROMPT.md      ← Claude Code에 붙여넣어 바로 시작하는 프롬프트
-├── agents/                    ← (참고용 원본 설계 문서 — 실제 실행 안 함)
-│   └── */AGENTS.md
-├── templates/
-│   ├── PROJECT_INTAKE.md      ← 장르 무관 프로젝트 부트스트랩 질문지
-│   ├── MASTER_GDD.md          ← 마스터 게임 디자인 문서 (진실의 원천)
-│   └── TASK_BRIEF.md          ← 작업 지시 표준 양식
-└── config/
-    ├── openclaw.json          ← (선택, 별도 확장 경로) OpenClaw 상시운영 웹앱용 설계 초안
-    └── .env.example
+├── webapp/            ← 메인 웹앱 (React + Vite, 서버 미들웨어 포함)
+│   ├── src/           ← 컴포넌트·스토어(store.ts)·lib(agents/zones/growth/…)
+│   └── server/        ← 이미지·노션·MCP·개발작업 서버 모듈
+├── desktop/           ← Electron 데스크톱 셸 + 설치본 빌드
+├── agents/*/AGENTS.md ← 에이전트 페르소나(인격)
+├── docs/              ← ARCHITECTURE·WORKFLOW·HANDOFF(개발 인수인계)·SETUP
+├── config/            ← 로컬 설정(커밋 제외: 토큰·성장·채용 데이터)
+└── VisionEngine-*.bat ← 원클릭 런처
 ```
 
-## 빠른 시작
+- 개발자용 상세 지도(기능 맵·함정·로드맵): **[docs/HANDOFF.md](docs/HANDOFF.md)**
+- 최초 설계(Claude Code 서브에이전트 경로) 기록: **[README.openclaw.md](README.openclaw.md)**
 
-1. `docs/SETUP.md`의 **경로 A**로 시작한다 (Claude Code 네이티브 서브에이전트 — 지금 실제로 작동하는 구현).
-2. Claude Code 세션 모델을 `claude-fable-5`로 지정한다.
-3. `docs/KICKOFF_PROMPT.md`의 "1) 최초 실행" 프롬프트를 붙여넣는다.
-4. GDD가 비어 있으므로 자동으로 `templates/PROJECT_INTAKE.md` 질문이 시작된다. 답하면서 GDD가 채워진다.
-5. 인테이크가 끝나면 메인 세션(PM)이 실제로 `Task` 도구를 통해 `.claude/agents/`의 서브에이전트를 병렬 호출한다.
+---
 
-## 핵심 원칙
+## 📄 참고
 
-- GDD가 최우선. 모든 산출물은 GDD와 대조·검증한다.
-- 서브에이전트는 `Read/Grep/Glob`만 가지고 있어 GDD를 실제로 못 고친다 — 쓰기는 메인 세션(PM)만.
-- 추측보다 확인. 모호하면 오너에게 되묻는다.
-- 이 프로젝트의 목적은 Fable 5 성능 실험 — 서브에이전트들은 모델을 지정하지 않아 세션 모델을 그대로 상속받는다. 세션을 Fable 5로 실행하면 전부 Fable 5로 작동한다.
-
-## 참고
-
-- Fable 5는 2026-07-01부터 Claude Platform·Claude.ai·Claude Code·Claude Cowork에서 전 세계 사용 가능.
-- 가격: 입력 $10 / 출력 $50 (백만 토큰당). Pro/Max는 7/7까지 주간 한도 50%까지 무료 포함, 이후 크레딧.
-- 사이버·생물·화학 요청은 안전장치로 Opus 4.8에 폴백(게임 기획에선 거의 없음).
-- `.claude/agents/*.md`는 세션 시작 시에만 로드된다. 수정 후에는 세션 재시작이 필요하다.
+개인 프로젝트입니다. API 키·토큰은 저장소에 포함되지 않으며 각자의 PC에만 저장됩니다. 로드맵은 [ROADMAP.md](ROADMAP.md), 개발 인수인계 문서는 [docs/HANDOFF.md](docs/HANDOFF.md)를 참고하세요.
