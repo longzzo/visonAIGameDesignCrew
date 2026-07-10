@@ -23,7 +23,7 @@
 | **직급 조직(v3.7)** | 5직급(대표/팀장/시니어/주니어/인턴), 29명. 계층 오케스트레이션: PM→팀장 하달→팀원 배분→주니어 기여→시니어 완성→팀장 취합→**대표 마지막**. rank/reportsTo. | `lib/agents.ts`(rank/헬퍼/계층프롬프트), `store.startOrch`, 로스터 조직도 |
 | 데스크톱 | NSIS 설치본, 바탕화면 바로가기 always | `desktop/` (v3.4.0) |
 
-**대기 중인 오너 액션**: 노션 통합 토큰 등록(앱 내 📚 버튼) — 등록 전까지 자동 발행은 no-op.
+**노션**: 오너 실토큰 등록 완료, 부모 페이지 = 슬라임 김치 허브(오너의 진짜 게임 프로젝트). 자동 발행 켜짐.
 **전담 직원**: 📚 노션 아키비스트(id `archivist`, 사업 데스크) — 페르소나에 노션 스타일 가이드 내장 (`agents/archivist/AGENTS.md`).
 
 ## 2. 실측으로 배운 함정 (시간을 아껴줄 목록)
@@ -37,7 +37,7 @@
 7. **QA/테스트가 workspace 실데이터를 오염시킨다** (feed.json, 채팅, GDD). 테스트 후 `git checkout -- workspace/...` 또는 생성물 삭제. 채용 테스트는 반드시 퇴사로 원복.
 8. **NVIDIA 키는 이미지 함수권한이 없다**("Function not found for account") — env `VE_NVIDIA_IMAGE_URL`로 우회 가능. GitHub Models 무료 티어는 4,000토큰 제한.
 9. 에이전트 산출물의 도구 호출 JSON 누수는 `sanitizeAgentOutput`이 이중 방어 중 — 로컬 모델 교체 시 재확인해라.
-10. **PM 에이전트(모델 kimi-k2.6)가 "[channels] failed to load bundled channel setup entry imessage" 오류로 실패할 수 있다** — 게이트웨이/모델 환경 이슈지 오케스트레이션 코드 문제가 아니다. 계층 흐름은 폴백으로 완주하지만 대표 최종 통합("1.개요")이 비어 실패로 뜬다. 처방: PM 모델을 nvidia qwen3-next-80b 등으로 바꾸거나(프로필 🧠) 게이트웨이 재설치. 팀장·시니어(nvidia qwen)는 정상.
+10. ~~PM kimi-k2.6 channels 오류~~ **해결(2026-07-11): PM을 nvidia/qwen/qwen3.5-122b-a10b로 교체** (백업: openclaw.json.bak-v39). 추가 발견: **qwen3.5-397b는 게이트웨이 경유 시 첫 토큰이 120초를 넘겨 idle 워치독에 잘린다**(직접 API는 5초에 응답 — 게이트웨이의 대형 프롬프트+툴 정의에서만 스톨). PM/팀장급엔 397b 쓰지 마라. 신규 모델 5종(qwen3.5 122b/397b, deepseek-v4-pro, glm-5.2, minimax-m3)을 프로필 🧠에서 선택 가능하게 등록해둠.
 11. **openclaw.json/custom-agents.json을 PowerShell로 쓰지 마라** — PS 5.1 `ConvertTo-Json`이 최상위 배열을 `{value,Count}` 래퍼로 감싼다(v3.7에서 custom-agents.json 깨짐, node로 복구). 설정 JSON 쓰기는 node(`JSON.stringify`)로. 게이트웨이는 BOM 없는 UTF8만 파싱하므로 `[System.IO.File]::WriteAllText(...,UTF8Encoding($false))` 또는 node.
 12. **`webapp/server/*.mjs`를 고치면 dev 서버를 재시작해야 반영된다** — 플러그인이 동적 import로 모듈을 캐시한다. vite.config.ts 저장은 자동 재시작을 트리거하지만 .mjs 단독 수정은 아니다.
 13. **오너의 노션(app.notion.com)은 신형 API라 heading_4~6 블록이 실재한다** — 구식 가정(h1~3만)이면 헤딩 텍스트가 통째로 유실된다(슬라임 김치 기획서에 h4가 57줄). 가져오기(flatten)는 `####`로 살리고, 편집실은 마커로 보존한다.
