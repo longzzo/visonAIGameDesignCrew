@@ -6,6 +6,7 @@ import { uiAlert, uiConfirm, uiPrompt } from "../lib/dialog";
 import { getNotionStatus, publishNotion, setupNotion, type NotionStatus } from "../lib/notionSync";
 import { useVE } from "../store";
 import { Markdown } from "./Markdown";
+import { NotionStudio } from "./NotionStudio";
 import { ReportVerifyFlow } from "./ReportVerifyFlow";
 
 /**
@@ -34,6 +35,8 @@ export function DocViewer() {
   // 노션 발행 — 아키비스트(📚)가 GDD·보고서를 오너 노션에 레퍼런스 디자인으로 발행
   const [notion, setNotion] = useState<NotionStatus | null>(null);
   const [publishing, setPublishing] = useState(false);
+  // 노션 편집실 — 링크를 주면 읽고 분석해 요구대로 수정
+  const [notionStudio, setNotionStudio] = useState(false);
   useEffect(() => {
     if (tab) void getNotionStatus().then(setNotion).catch(() => setNotion(null));
   }, [tab]);
@@ -134,6 +137,15 @@ export function DocViewer() {
               }
             >
               {publishing ? "📚 발행 중…" : notion?.configured ? "📚 노션 발행" : "📚 노션 연동"}
+            </button>
+          )}
+          {(tab === "gdd" || tab === "reports") && notion?.configured && (
+            <button
+              className="btn small"
+              onClick={() => setNotionStudio(true)}
+              title="노션 편집실 — 페이지 링크를 주면 아키비스트가 읽고 분석해, 요구대로 고쳐서 반영합니다"
+            >
+              ✏️ 노션 편집실
             </button>
           )}
           {tab === "reports" && reportPreview && (
@@ -275,6 +287,7 @@ export function DocViewer() {
           </div>
         )}
       </div>
+      {notionStudio && <NotionStudio onClose={() => setNotionStudio(false)} />}
     </div>
   );
 }

@@ -17,6 +17,7 @@
 | 비용 방어 | 클라 가드(10분 60회) + **서버 가드**(/api/agent 120회, dev-task 12회, IP당) | `lib/cost.ts`, vite.config `rateLimited` |
 | 보안 | Host 검증(DNS 리바인딩)·Origin 검증(CSRF)·CSP sandbox(에이전트 HTML)·dev-task 로컬 전용 | vite.config `securityGuardPlugin` |
 | 노션 발행 | 오너 레퍼런스 디자인(허브+개요표+섹션 자식페이지), 90초 디바운스 자동 발행 | `webapp/server/notion-publish.mjs`, `/api/notion` |
+| **노션 편집실(v3.8)** | 링크→읽기(블록→md 역변환)→아키비스트 수정안→오너 승인→반영. 원본 자동 백업(config/notion-edits/), 하위페이지·DB 등 복합 블록은 절대 삭제 안 함, "[[유지:…]]" 마커로 보존 | `fetchPageAsMd`/`updatePageContent`, `/api/notion/read·edit`, `NotionStudio.tsx`, store `analyzeNotionPage`/`applyNotionEdit` |
 | **자가 성장** | 작업→XP/레벨, QA반려→교훈, 레벨업 회고(LLM 1회)→작업 요령(스킬) 증류→모든 프롬프트에 주입 | `lib/growth.ts`, `/api/growth`, `store.recordGrowth` |
 | **직급 조직(v3.7)** | 5직급(대표/팀장/시니어/주니어/인턴), 29명. 계층 오케스트레이션: PM→팀장 하달→팀원 배분→주니어 기여→시니어 완성→팀장 취합→**대표 마지막**. rank/reportsTo. | `lib/agents.ts`(rank/헬퍼/계층프롬프트), `store.startOrch`, 로스터 조직도 |
 | 데스크톱 | NSIS 설치본, 바탕화면 바로가기 always | `desktop/` (v3.4.0) |

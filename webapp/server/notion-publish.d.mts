@@ -28,3 +28,19 @@ export declare function splitSections(md: string): { num: number; title: string;
 export declare function publishProject(payload: NotionPublishPayload): Promise<{ ok: boolean; pageId: string; url: string }>;
 export declare function queueAutoPublish(projectId: string, getPayload: () => Promise<NotionPublishPayload>): void;
 export declare function lastPublishInfo(projectId: string): { url: string; ts: number } | null;
+
+export interface NotionPageRead {
+  pageId: string;
+  title: string;
+  md: string;
+  blockCount: number;
+  complexCount: number;
+  notes: string[];
+  url: string;
+}
+export declare function fetchPageAsMd(pageUrlOrId: string): Promise<NotionPageRead>;
+export declare function updatePageContent(
+  pageUrlOrId: string,
+  markdown: string,
+  mode?: "replace" | "append"
+): Promise<{ ok: boolean; pageId: string; url: string; preserved: number; backup: string }>;

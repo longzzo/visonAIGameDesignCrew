@@ -170,6 +170,12 @@ export function mdToBlocks(md) {
       i++;
       continue;
     }
+    const todo = /^[-*+]\s+\[( |x|X)\]\s+(.*)$/.exec(t);
+    if (todo) {
+      blocks.push({ type: "to_do", to_do: { rich_text: rich(strip(todo[2])), checked: todo[1].toLowerCase() === "x" } });
+      i++;
+      continue;
+    }
     const bullet = /^[-*+]\s+(.*)$/.exec(t);
     if (bullet) {
       blocks.push({ type: "bulleted_list_item", bulleted_list_item: { rich_text: rich(strip(bullet[1])) } });
@@ -372,6 +378,230 @@ export async function publishProject({ projectId, projectName, gddMd, reports })
   saveMap(map);
   const dash = rootId.replace(/-/g, "");
   return { ok: true, pageId: rootId, url: `https://www.notion.so/${dash}` };
+}
+
+/* ── 노션 편집실 — 임의 페이지 읽기(블록→마크다운) + 안전 수정 ──
+ * "링크를 주면 분석해서 내 요구대로 고쳐줘" 흐름의 서버측.
+ *   fetchPageAsMd  : 페이지를 마크다운으로 역변환 (지원 안 되는 블록은 보존 마커로)
+ *   updatePageContent : 수정안 반영 — 하위 페이지·DB 등 복합 블록은 절대 삭제하지 않고,
+ *                       반영 전 원본을 config/notion-edits/에 백업한다.
+ */
+
+const EDIT_BACKUP_DIR = path.resolve(__dirname, "..", "..", "config", "notion-edits");
+
+/** 안전하게 삭제·재작성할 수 있는 블록 타입 (텍스트 계열) */
+const SAFE_TYPES = new Set([
+  "paragraph", "heading_1", "heading_2", "heading_3",
+  "bulleted_list_item", "numbered_list_item", "to_do", "quote",
+  "divider", "code", "callout", "toggle", "table", "table_row", "image",
+]);
+
+/** rich_text 배열 → 인라인 마크다운 */
+function richToMd(rt) {
+  return (rt ?? [])
+    .map((t) => {
+      let s = t?.plain_text ?? "";
+      if (!s) return "";
+      const a = t?.annotations ?? {};
+      if (a.code) s = `\`${s}\``;
+      if (a.bold) s = `**${s}**`;
+      else if (a.italic) s = `*${s}*`;
+      const href = t?.href;
+      if (href) s = `[${s}](${href})`;
+      return s;
+    })
+    .join("");
+}
+
+/** 블록의 자식들을 전부 나열 (페이지네이션) */
+async function listChildren(token, blockId) {
+  const out = [];
+  let cursor;
+  do {
+    const r = await api(token, "GET", `/blocks/${blockId}/children?page_size=100${cursor ? `&start_cursor=${cursor}` : ""}`);
+    out.push(...(r.results ?? []));
+    cursor = r.has_more ? r.next_cursor : undefined;
+  } while (cursor && out.length < 400);
+  return out;
+}
+
+/** 블록 1개 → 마크다운 줄들 (지원 안 되는 타입은 보존 마커) */
+async function blockToMd(token, b, depth, notes, budget) {
+  const ind = "  ".repeat(depth);
+  const t = b.type;
+  const d = b[t] ?? {};
+  const text = richToMd(d.rich_text);
+  const lines = [];
+  const child = async () => {
+    if (!b.has_children || depth >= 2 || budget.calls <= 0) return [];
+    budget.calls--;
+    const kids = await listChildren(token, b.id);
+    const out = [];
+    for (const k of kids) out.push(...(await blockToMd(token, k, depth + 1, notes, budget)));
+    return out;
+  };
+  switch (t) {
+    case "paragraph":
+      if (text) lines.push(ind + text);
+      break;
+    case "heading_1":
+      lines.push(`# ${text}`);
+      break;
+    case "heading_2":
+      lines.push(`## ${text}`);
+      break;
+    case "heading_3":
+      lines.push(`### ${text}`);
+      break;
+    case "bulleted_list_item":
+      lines.push(`${ind}- ${text}`);
+      lines.push(...(await child()));
+      break;
+    case "numbered_list_item":
+      lines.push(`${ind}1. ${text}`);
+      lines.push(...(await child()));
+      break;
+    case "to_do":
+      lines.push(`${ind}- [${d.checked ? "x" : " "}] ${text}`);
+      break;
+    case "quote":
+      lines.push(`${ind}> ${text}`);
+      break;
+    case "divider":
+      lines.push("---");
+      break;
+    case "code":
+      lines.push("```" + (d.language ?? ""), richToMd(d.rich_text), "```");
+      break;
+    case "callout": {
+      const icon = d.icon?.emoji ?? "💡";
+      lines.push(`> ${icon} ${text}`); // 콜아웃은 인용으로 강등 (재작성 시 인용이 됨)
+      notes.add("콜아웃은 인용문으로 단순화되어 읽힙니다");
+      lines.push(...(await child()));
+      break;
+    }
+    case "toggle":
+      lines.push(`${ind}- **${text}**`);
+      lines.push(...(await child()));
+      notes.add("토글은 불릿으로 단순화되어 읽힙니다");
+      break;
+    case "table": {
+      if (budget.calls > 0) {
+        budget.calls--;
+        const rows = await listChildren(token, b.id);
+        rows.forEach((row, i) => {
+          const cells = (row.table_row?.cells ?? []).map((c) => richToMd(c).replace(/\|/g, "\\|"));
+          lines.push(`| ${cells.join(" | ")} |`);
+          if (i === 0) lines.push(`|${cells.map(() => "---").join("|")}|`);
+        });
+      }
+      break;
+    }
+    case "image": {
+      const url = d.external?.url;
+      if (url) lines.push(`![이미지](${url})`);
+      else {
+        lines.push(`[[유지: 업로드 이미지]]`);
+        notes.add("업로드된 이미지는 수정 시 원래 자리(상단)에 보존됩니다");
+      }
+      break;
+    }
+    case "child_page":
+      lines.push(`[[유지: 하위 페이지 「${d.title ?? ""}」]]`);
+      break;
+    case "child_database":
+      lines.push(`[[유지: 데이터베이스 「${d.title ?? ""}」]]`);
+      break;
+    default:
+      lines.push(`[[유지: ${t} 블록]]`);
+      notes.add(`${t} 블록은 수정 대상에서 제외되고 보존됩니다`);
+  }
+  return lines;
+}
+
+/** 페이지 제목 읽기 */
+async function pageTitle(token, pageId) {
+  const page = await api(token, "GET", `/pages/${pageId}`);
+  for (const v of Object.values(page?.properties ?? {})) {
+    if (v?.type === "title") return (v.title ?? []).map((x) => x?.plain_text ?? "").join("") || "(제목 없음)";
+  }
+  return "(제목 없음)";
+}
+
+/** 노션 페이지 → 마크다운 (편집실 읽기 단계) */
+export async function fetchPageAsMd(pageUrlOrId) {
+  const cfg = loadCfg();
+  if (!cfg.token) throw new Error("노션 연동이 설정되지 않았습니다 — 📚 노션 연동에서 토큰을 먼저 등록하세요");
+  const pageId = parsePageId(pageUrlOrId);
+  if (!pageId) throw new Error("링크에서 페이지 id를 찾지 못했습니다");
+  const title = await pageTitle(cfg.token, pageId);
+  const blocks = await listChildren(cfg.token, pageId);
+  const notes = new Set();
+  const budget = { calls: 30 }; // 중첩 블록 추가 조회 상한 (깊은 페이지 폭주 방지)
+  const md = [];
+  let complexCount = 0;
+  for (const b of blocks) {
+    if (!SAFE_TYPES.has(b.type)) complexCount++;
+    md.push(...(await blockToMd(cfg.token, b, 0, notes, budget)));
+  }
+  return {
+    pageId,
+    title,
+    md: md.join("\n"),
+    blockCount: blocks.length,
+    complexCount,
+    notes: [...notes],
+    url: `https://www.notion.so/${pageId.replace(/-/g, "")}`,
+  };
+}
+
+/**
+ * 수정안 반영 — mode "replace"는 텍스트 계열 블록만 지우고(복합 블록 보존) 새 내용을 붙인다.
+ * mode "append"는 기존 내용 아래에 덧붙이기만 한다. 반영 전 원본 마크다운을 백업한다.
+ */
+export async function updatePageContent(pageUrlOrId, markdown, mode = "replace") {
+  const cfg = loadCfg();
+  if (!cfg.token) throw new Error("노션 연동이 설정되지 않았습니다");
+  const pageId = parsePageId(pageUrlOrId);
+  if (!pageId) throw new Error("링크에서 페이지 id를 찾지 못했습니다");
+
+  // ① 원본 백업 (실수해도 되돌릴 수 있게)
+  const before = await fetchPageAsMd(pageId);
+  fs.mkdirSync(EDIT_BACKUP_DIR, { recursive: true });
+  const backupFile = path.join(EDIT_BACKUP_DIR, `${pageId.replace(/-/g, "")}-${Date.now()}.md`);
+  fs.writeFileSync(backupFile, `# [백업] ${before.title}\n\n${before.md}\n`, "utf-8");
+
+  let preserved = 0;
+  if (mode === "replace") {
+    // ② 텍스트 계열만 삭제 — 하위 페이지·DB·임베드 등은 절대 지우지 않는다
+    const blocks = await listChildren(cfg.token, pageId);
+    for (const b of blocks) {
+      if (SAFE_TYPES.has(b.type) && !(b.type === "image" && !b.image?.external)) {
+        try {
+          await api(cfg.token, "DELETE", `/blocks/${b.id}`);
+        } catch {
+          /* 개별 삭제 실패는 무시 */
+        }
+      } else {
+        preserved++;
+      }
+    }
+  }
+
+  // ③ 수정안에서 보존 마커([[유지: …]])는 실블록이 남아 있으므로 제거하고 작성
+  const clean = String(markdown ?? "")
+    .split(/\r?\n/)
+    .filter((l) => !/^\s*\[\[유지:.*\]\]\s*$/.test(l))
+    .join("\n");
+  await appendBlocks(cfg.token, pageId, mdToBlocks(clean));
+
+  return {
+    ok: true,
+    pageId,
+    url: `https://www.notion.so/${pageId.replace(/-/g, "")}`,
+    preserved,
+    backup: path.basename(backupFile),
+  };
 }
 
 /* ── 자동 발행 큐 (디바운스) — GDD/보고서 저장 훅에서 호출 ── */

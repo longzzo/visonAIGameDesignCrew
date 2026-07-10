@@ -44,3 +44,41 @@ export async function publishNotion(project: string): Promise<string> {
   if (!r.ok || !j?.ok) throw new Error(j?.error || `발행 실패 (HTTP ${r.status})`);
   return String(j.url ?? "");
 }
+
+/* ── 노션 편집실 — 링크를 주면 읽고, 아키비스트가 고치고, 승인하면 반영 ── */
+
+export interface NotionPageRead {
+  pageId: string;
+  title: string;
+  md: string;
+  blockCount: number;
+  complexCount: number;
+  notes: string[];
+  url: string;
+}
+
+export async function readNotionPage(url: string): Promise<NotionPageRead> {
+  const r = await fetch("/api/notion/read", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok || !j?.ok) throw new Error(j?.error || `페이지 읽기 실패 (HTTP ${r.status})`);
+  return j as NotionPageRead;
+}
+
+export async function editNotionPage(
+  url: string,
+  markdown: string,
+  mode: "replace" | "append"
+): Promise<{ url: string; preserved: number; backup: string }> {
+  const r = await fetch("/api/notion/edit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, markdown, mode }),
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok || !j?.ok) throw new Error(j?.error || `반영 실패 (HTTP ${r.status})`);
+  return { url: String(j.url ?? url), preserved: Number(j.preserved) || 0, backup: String(j.backup ?? "") };
+}

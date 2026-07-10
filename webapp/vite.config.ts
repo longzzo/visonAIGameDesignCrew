@@ -351,6 +351,30 @@ function notionApiPlugin(): Plugin {
               return;
             }
 
+            // 노션 편집실 — 임의 페이지 읽기 (블록 → 마크다운)
+            if (sub === "/read" && req.method === "POST") {
+              const j = JSON.parse((await readBody(req)) || "{}");
+              const out = await m.fetchPageAsMd(String(j.url ?? ""));
+              res.end(JSON.stringify({ ok: true, ...out }));
+              return;
+            }
+
+            // 노션 편집실 — 수정안 반영 (원본 백업 + 복합 블록 보존)
+            if (sub === "/edit" && req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
+              const j = JSON.parse((await readBody(req)) || "{}");
+              const markdown = String(j.markdown ?? "");
+              if (!markdown.trim()) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: "반영할 내용이 비어 있습니다" }));
+                return;
+              }
+              const mode = j.mode === "append" ? "append" : "replace";
+              const out = await m.updatePageContent(String(j.url ?? ""), markdown, mode);
+              res.end(JSON.stringify(out));
+              return;
+            }
+
             if (req.method === "POST") {
               if (!isLocalReq(req)) {
                 res.statusCode = 403;

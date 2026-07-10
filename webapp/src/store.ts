@@ -50,6 +50,7 @@ import {
   unityKitPrompt,
   janitorFeedPrompt,
   janitorChatPrompt,
+  notionEditPrompt,
   retrospectPrompt,
   parseRetrospect,
   DEFAULT_REPORT_TOPIC,
@@ -60,6 +61,7 @@ import {
 } from "./lib/agents";
 import { fetchGrowth, postGrowth, setGrowthCache, XP_RULES, type GrowthMap } from "./lib/growth";
 import { listHires, hireAgentApi, fireAgentApi, type HireRequest } from "./lib/hire";
+import { readNotionPage, editNotionPage, type NotionPageRead } from "./lib/notionSync";
 import {
   listKnowledge,
   saveKnowledge,
@@ -286,6 +288,11 @@ interface VEState {
   recordGrowth: (agentId: string, kind: keyof typeof XP_RULES, opts?: { lesson?: string }) => void;
   /** 프로필에서 스킬 삭제 */
   removeSkill: (agentId: string, ts: number) => Promise<void>;
+
+  /** 노션 편집실 ① — 링크의 페이지를 읽고 아키비스트가 요구대로 고친 수정안을 만든다 (반영 전) */
+  analyzeNotionPage: (url: string, request: string) => Promise<{ page: NotionPageRead; revised: string }>;
+  /** 노션 편집실 ② — 오너 승인 후 수정안을 노션에 반영 (원본 자동 백업) */
+  applyNotionEdit: (url: string, title: string, markdown: string, mode: "replace" | "append") => Promise<string>;
   /** 직원 채용 — 서버가 페르소나 생성 + OpenClaw 설정 추가 + 게이트웨이 재시작(~10초) */
   hireAgentAction: (req: HireRequest) => Promise<void>;
   /** 채용 직원 퇴사 처리 (기본 로스터는 불가) */
@@ -2111,6 +2118,47 @@ export const useVE = create<VEState>()((set, get) => {
           return { growth };
         });
       }
+    },
+
+    /* ── 노션 편집실 (링크 → 분석 → 수정안 → 승인 반영) ── */
+
+    analyzeNotionPage: async (url, request) => {
+      const page = await readNotionPage(url);
+      pushFeed({
+        from: "archivist",
+        kind: "status",
+        text: `📖 노션 페이지 「${page.title}」를 읽었습니다 (블록 ${page.blockCount}개${page.complexCount ? `, 보존 대상 ${page.complexCount}개` : ""}) — 수정안을 작성합니다.`,
+      });
+      setAgentStatus("archivist", "running");
+      try {
+        const r = await gateway.runAgent(
+          "archivist",
+          notionEditPrompt(page.title, page.md, request),
+          `notion-edit-${Date.now().toString(36)}`
+        );
+        let revised = sanitizeAgentOutput(r.text);
+        addUsage(r.usage, revised);
+        // 모델이 코드펜스로 감쌌으면 벗긴다
+        const fence = /^```(?:markdown|md)?\s*\n([\s\S]*?)\n```\s*$/.exec(revised.trim());
+        if (fence) revised = fence[1];
+        if (!revised.trim()) throw new Error("아키비스트가 수정안을 만들지 못했습니다 — 다시 시도해 주세요");
+        setAgentStatus("archivist", "done");
+        return { page, revised };
+      } catch (e) {
+        setAgentStatus("archivist", "error");
+        throw e;
+      }
+    },
+
+    applyNotionEdit: async (url, title, markdown, mode) => {
+      const out = await editNotionPage(url, markdown, mode);
+      pushFeed({
+        from: "archivist",
+        kind: "summary",
+        text: `📚 노션 「${title}」 수정 반영 완료 (${mode === "replace" ? "본문 교체" : "끝에 추가"}${out.preserved ? ` · 하위 페이지/DB 등 ${out.preserved}개 보존` : ""}) — 원본은 config/notion-edits/${out.backup}에 백업했습니다.`,
+      });
+      get().recordGrowth("archivist", "draft");
+      return out.url;
     },
 
     /* ── 직원 채용/퇴사 (동적 로스터) ──────────────────── */
