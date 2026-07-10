@@ -68,6 +68,27 @@ export async function readNotionPage(url: string): Promise<NotionPageRead> {
   return j as NotionPageRead;
 }
 
+/** 기존 기획을 노션으로 시작 — 허브 페이지를 하위 기획서까지 따라 읽어 한 문서로 */
+export interface NotionPageImport {
+  pageId: string;
+  title: string;
+  md: string;
+  pages: number;
+  notes: string[];
+  url: string;
+}
+
+export async function importNotionPage(url: string): Promise<NotionPageImport> {
+  const r = await fetch("/api/notion/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok || !j?.ok) throw new Error(j?.error || `노션 가져오기 실패 (HTTP ${r.status})`);
+  return j as NotionPageImport;
+}
+
 export async function editNotionPage(
   url: string,
   markdown: string,

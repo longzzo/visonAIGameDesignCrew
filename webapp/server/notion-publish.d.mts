@@ -39,6 +39,16 @@ export interface NotionPageRead {
   url: string;
 }
 export declare function fetchPageAsMd(pageUrlOrId: string): Promise<NotionPageRead>;
+
+export interface NotionPageDeepRead {
+  pageId: string;
+  title: string;
+  md: string;
+  pages: number;
+  notes: string[];
+  url: string;
+}
+export declare function fetchPageDeepAsMd(pageUrlOrId: string, maxPages?: number): Promise<NotionPageDeepRead>;
 export declare function updatePageContent(
   pageUrlOrId: string,
   markdown: string,

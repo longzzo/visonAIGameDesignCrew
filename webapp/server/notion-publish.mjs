@@ -425,19 +425,24 @@ async function listChildren(token, blockId) {
   return out;
 }
 
-/** 블록 1개 → 마크다운 줄들 (지원 안 되는 타입은 보존 마커) */
-async function blockToMd(token, b, depth, notes, budget) {
+/** 블록 1개 → 마크다운 줄들 (지원 안 되는 타입은 보존 마커)
+ * opts.flatten : 컬럼 등 레이아웃 블록을 투과해 내용을 읽는다 (가져오기 전용 — 편집실은 마커 유지)
+ * opts.pages   : 배열이면 하위 페이지·페이지 링크를 수집한다 (딥 리드에서 본문을 이어 읽기 위해)
+ */
+async function blockToMd(token, b, depth, notes, budget, opts = {}) {
   const ind = "  ".repeat(depth);
   const t = b.type;
   const d = b[t] ?? {};
   const text = richToMd(d.rich_text);
   const lines = [];
   const child = async () => {
-    if (!b.has_children || depth >= 2 || budget.calls <= 0) return [];
+    // 허브 페이지는 column_list→column→callout→page 4단 중첩이 흔해 flatten은 더 깊이 내려간다
+    const maxDepth = opts.flatten ? 4 : 2;
+    if (!b.has_children || depth >= maxDepth || budget.calls <= 0) return [];
     budget.calls--;
     const kids = await listChildren(token, b.id);
     const out = [];
-    for (const k of kids) out.push(...(await blockToMd(token, k, depth + 1, notes, budget)));
+    for (const k of kids) out.push(...(await blockToMd(token, k, depth + 1, notes, budget, opts)));
     return out;
   };
   switch (t) {
@@ -452,6 +457,16 @@ async function blockToMd(token, b, depth, notes, budget) {
       break;
     case "heading_3":
       lines.push(`### ${text}`);
+      break;
+    case "heading_4":
+    case "heading_5":
+    case "heading_6":
+      // 노션 신형 API의 심화 헤딩 — 가져오기에서만 텍스트로 살린다 (편집실은 마커 보존 유지)
+      if (opts.flatten) lines.push(`#### ${text}`);
+      else {
+        lines.push(`[[유지: ${t} 블록]]`);
+        notes.add(`${t} 블록은 수정 대상에서 제외되고 보존됩니다`);
+      }
       break;
     case "bulleted_list_item":
       lines.push(`${ind}- ${text}`);
@@ -500,21 +515,57 @@ async function blockToMd(token, b, depth, notes, budget) {
     case "image": {
       const url = d.external?.url;
       if (url) lines.push(`![이미지](${url})`);
+      else if (opts.flatten) notes.add("업로드된 이미지는 가져오기에서 생략됩니다");
       else {
         lines.push(`[[유지: 업로드 이미지]]`);
         notes.add("업로드된 이미지는 수정 시 원래 자리(상단)에 보존됩니다");
       }
       break;
     }
-    case "child_page":
-      lines.push(`[[유지: 하위 페이지 「${d.title ?? ""}」]]`);
+    case "column_list":
+    case "column":
+    case "synced_block":
+      if (opts.flatten) {
+        lines.push(...(await child())); // 레이아웃 블록은 투과 — 내용만 읽는다
+      } else {
+        lines.push(`[[유지: ${t} 블록]]`);
+        notes.add(`${t} 블록은 수정 대상에서 제외되고 보존됩니다`);
+      }
       break;
+    case "child_page":
+      if (opts.pages) {
+        opts.pages.push({ id: b.id, title: d.title ?? "" });
+        lines.push(`${ind}- 📄 하위 기획서 「${d.title ?? ""}」 (본문은 아래에 수록)`);
+      } else if (opts.flatten) {
+        lines.push(`${ind}- 📄 하위 페이지 「${d.title ?? ""}」`);
+      } else {
+        lines.push(`[[유지: 하위 페이지 「${d.title ?? ""}」]]`);
+      }
+      break;
+    case "link_to_page": {
+      const pid = d.page_id;
+      if (opts.pages && pid) {
+        opts.pages.push({ id: pid, title: null });
+        lines.push(`${ind}- 📄 연결된 기획서 (본문은 아래에 수록)`);
+      } else if (opts.flatten) {
+        lines.push(`${ind}- 📄 연결된 페이지`);
+      } else {
+        lines.push(`[[유지: ${t} 블록]]`);
+        notes.add(`${t} 블록은 수정 대상에서 제외되고 보존됩니다`);
+      }
+      break;
+    }
     case "child_database":
-      lines.push(`[[유지: 데이터베이스 「${d.title ?? ""}」]]`);
+      if (opts.flatten) lines.push(`${ind}- 🗃️ 데이터베이스 「${d.title ?? ""}」`);
+      else lines.push(`[[유지: 데이터베이스 「${d.title ?? ""}」]]`);
       break;
     default:
-      lines.push(`[[유지: ${t} 블록]]`);
-      notes.add(`${t} 블록은 수정 대상에서 제외되고 보존됩니다`);
+      if (opts.flatten) {
+        notes.add(`${t} 블록은 가져오기에서 생략됩니다`);
+      } else {
+        lines.push(`[[유지: ${t} 블록]]`);
+        notes.add(`${t} 블록은 수정 대상에서 제외되고 보존됩니다`);
+      }
   }
   return lines;
 }
@@ -552,6 +603,64 @@ export async function fetchPageAsMd(pageUrlOrId) {
     complexCount,
     notes: [...notes],
     url: `https://www.notion.so/${pageId.replace(/-/g, "")}`,
+  };
+}
+
+/**
+ * 노션 페이지 딥 리드 — "기존 기획을 노션으로 시작"용.
+ * 허브 페이지는 컬럼·콜아웃 안에 내용과 하위 기획서 링크가 있으므로,
+ * 레이아웃 블록을 투과해 읽고(flatten) 하위 페이지·페이지 링크를 1단계 따라가 본문을 이어붙인다.
+ */
+export async function fetchPageDeepAsMd(pageUrlOrId, maxPages = 20) {
+  const cfg = loadCfg();
+  if (!cfg.token) throw new Error("노션 연동이 설정되지 않았습니다 — 📚 노션 연동에서 토큰을 먼저 등록하세요");
+  const rootId = parsePageId(pageUrlOrId);
+  if (!rootId) throw new Error("링크에서 페이지 id를 찾지 못했습니다");
+  const notes = new Set();
+  const SUB_MD_CAP = 8000; // 하위 기획서 1개당 분량 상한 (전체 폭주 방지)
+
+  const readOne = async (pageId, collect) => {
+    const title = await pageTitle(cfg.token, pageId);
+    const blocks = await listChildren(cfg.token, pageId);
+    const budget = { calls: 80 }; // 딥 리드는 컬럼 투과 때문에 여유 있게
+    const md = [];
+    for (const b of blocks) md.push(...(await blockToMd(cfg.token, b, 0, notes, budget, { flatten: true, pages: collect })));
+    return { title, md: md.join("\n") };
+  };
+
+  const collected = [];
+  const root = await readOne(rootId, collected);
+  const parts = [`# ${root.title}`, "", root.md];
+  const seen = new Set([rootId.replace(/-/g, "")]);
+  let count = 0;
+  for (const p of collected) {
+    const norm = String(p.id ?? "").replace(/-/g, "");
+    if (!norm || seen.has(norm)) continue;
+    seen.add(norm);
+    if (count >= maxPages) {
+      notes.add(`하위 페이지가 많아 ${maxPages}개까지만 읽었습니다`);
+      break;
+    }
+    try {
+      const sub = await readOne(p.id, null); // 하위의 하위까지는 내려가지 않는다 (1단계)
+      let body = sub.md;
+      if (body.length > SUB_MD_CAP) {
+        body = body.slice(0, SUB_MD_CAP) + "\n\n_(…분량이 길어 뒷부분 생략)_";
+        notes.add(`「${sub.title}」은 분량이 길어 앞 ${Math.round(SUB_MD_CAP / 1000)}천자만 수록했습니다`);
+      }
+      parts.push("", "---", "", `## 📄 ${sub.title}`, "", body);
+      count++;
+    } catch {
+      notes.add(`하위 페이지 「${p.title ?? p.id}」 읽기 실패 — 통합(Connections) 연결을 확인하세요`);
+    }
+  }
+  return {
+    pageId: rootId,
+    title: root.title,
+    md: parts.join("\n"),
+    pages: count + 1,
+    notes: [...notes],
+    url: `https://www.notion.so/${rootId.replace(/-/g, "")}`,
   };
 }
 

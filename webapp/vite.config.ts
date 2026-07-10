@@ -359,6 +359,14 @@ function notionApiPlugin(): Plugin {
               return;
             }
 
+            // 기존 기획을 노션으로 시작 — 딥 리드 (컬럼 투과 + 하위 기획서 1단계 추적)
+            if (sub === "/import" && req.method === "POST") {
+              const j = JSON.parse((await readBody(req)) || "{}");
+              const out = await m.fetchPageDeepAsMd(String(j.url ?? ""));
+              res.end(JSON.stringify({ ok: true, ...out }));
+              return;
+            }
+
             // 노션 편집실 — 수정안 반영 (원본 백업 + 복합 블록 보존)
             if (sub === "/edit" && req.method === "POST") {
               if (blockRemoteWrite(req, res)) return;

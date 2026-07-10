@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AGENT_MAP, SPECIALISTS } from "../lib/agents";
-import { uiAlert, uiConfirm } from "../lib/dialog";
+import { uiAlert, uiConfirm, uiPrompt } from "../lib/dialog";
+import { importNotionPage } from "../lib/notionSync";
 import { useVE, type FeedMsg } from "../store";
 import { Markdown } from "./Markdown";
 
@@ -145,10 +146,31 @@ export function OrchestrationView() {
       return;
     }
     void uiConfirm(`"${name}" (${(text.length / 1000).toFixed(1)}천자) 가져오기`, {
-      message: `${note ? `📷 ${note}\n\n` : ""}원문은 보고서함에 보관됩니다.\n\n[통합까지 진행] = PM 분배로 GDD에 통합 (기존 기획 유지·증분 반영)\n[보관만] = 보고서함에 저장만`,
+      message: `${note ? `${note}\n\n` : ""}원문은 보고서함에 보관됩니다.\n\n[통합까지 진행] = PM 분배로 GDD에 통합 (기존 기획 유지·증분 반영)\n[보관만] = 보고서함에 저장만`,
       confirmLabel: "통합까지 진행",
       cancelLabel: "보관만",
     }).then((integrate) => void importDocument(name.replace(/\.(md|txt|markdown|pdf)$/i, ""), text, integrate));
+  };
+  // 노션 기획으로 시작 — 링크를 주면 허브+하위 기획서를 따라 읽어 같은 가져오기 흐름으로
+  const [notionImporting, setNotionImporting] = useState(false);
+  const onImportNotion = async () => {
+    if (notionImporting) return;
+    const url = await uiPrompt("📓 노션 기획으로 시작", {
+      message:
+        "기획 허브(또는 기획서) 페이지 링크를 붙여넣으세요.\n하위 기획서 페이지까지 따라 읽어 한 문서로 정리합니다.\n⚠️ 그 페이지의 ⋯ 메뉴 → 연결(Connections)에 노션 통합이 추가되어 있어야 합니다.",
+      placeholder: "https://www.notion.so/… 또는 https://app.notion.com/p/…",
+    });
+    if (!url?.trim()) return;
+    setNotionImporting(true);
+    try {
+      const r = await importNotionPage(url.trim());
+      const note = `📓 노션에서 ${r.pages}개 페이지를 읽었습니다${r.notes.length ? `\n· ${r.notes.join("\n· ")}` : ""}`;
+      confirmImport(r.title || "노션 기획", r.md, note);
+    } catch (e: any) {
+      void uiAlert("노션 페이지를 읽지 못했습니다", String(e?.message ?? e));
+    } finally {
+      setNotionImporting(false);
+    }
   };
   const onImportFile = (f: File | undefined) => {
     if (!f) return;
@@ -163,7 +185,7 @@ export function OrchestrationView() {
         .then(async (r) => {
           const j = await r.json();
           if (!r.ok || !j.ok) throw new Error(j.error || "PDF 추출 실패");
-          confirmImport(f.name, String(j.text ?? ""), j.note);
+          confirmImport(f.name, String(j.text ?? ""), j.note ? `📷 ${j.note}` : undefined);
         })
         .catch((e) => void uiAlert(`PDF를 읽지 못했습니다: ${String(e?.message ?? e).slice(0, 120)}`))
         .finally(() => setImporting(false));
@@ -210,6 +232,15 @@ export function OrchestrationView() {
             이미 기획 문서가 있나요?{" "}
             <button className="btn small" onClick={() => fileRef.current?.click()} disabled={importing}>
               {importing ? "PDF 읽는 중…" : "📥 기존 기획(.pdf/.md/.txt)으로 시작"}
+            </button>{" "}
+            <button className="btn small" onClick={() => void onImportNotion()} disabled={notionImporting}>
+              {notionImporting ? (
+                <>
+                  <span className="spinner" /> 노션 읽는 중…
+                </>
+              ) : (
+                "📓 노션 기획으로 시작"
+              )}
             </button>{" "}
             — 팀이 문서를 학습해 GDD로 정리합니다
           </div>
@@ -352,6 +383,20 @@ export function OrchestrationView() {
                     </>
                   ) : (
                     "📥 기획 가져오기"
+                  )}
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => void onImportNotion()}
+                  disabled={notionImporting}
+                  title="노션 기획 페이지 링크를 주면 하위 기획서까지 따라 읽어 가져옵니다 — 원문은 보고서함에 보관되고, 원하면 PM 분배로 GDD에 통합됩니다"
+                >
+                  {notionImporting ? (
+                    <>
+                      <span className="spinner" /> 노션…
+                    </>
+                  ) : (
+                    "📓 노션 가져오기"
                   )}
                 </button>
                 <button

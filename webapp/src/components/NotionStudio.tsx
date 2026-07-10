@@ -16,6 +16,8 @@ export function NotionStudio({ onClose }: { onClose: () => void }) {
 
   const [url, setUrl] = useState("");
   const [request, setRequest] = useState("");
+  // 작업 종류 — "revise"(전문 수정→본문 교체) / "add"(새 콘텐츠만→끝에 추가). 반영 모드가 여기에 묶인다.
+  const [task, setTask] = useState<"revise" | "add">("revise");
   const [busy, setBusy] = useState<"" | "analyze" | "apply">("");
   const [page, setPage] = useState<NotionPageRead | null>(null);
   const [revised, setRevised] = useState("");
@@ -27,7 +29,7 @@ export function NotionStudio({ onClose }: { onClose: () => void }) {
     setPage(null);
     setRevised("");
     try {
-      const out = await analyzeNotionPage(url.trim(), request.trim());
+      const out = await analyzeNotionPage(url.trim(), request.trim(), task);
       setPage(out.page);
       setRevised(out.revised);
       setTab("revised");
@@ -40,12 +42,15 @@ export function NotionStudio({ onClose }: { onClose: () => void }) {
 
   const apply = async (mode: "replace" | "append") => {
     if (!page || !revised.trim() || busy) return;
+    // 수정안이 원본보다 크게 짧으면 모델이 전문을 돌려주지 않은 것 — 교체 시 내용 유실 경고
+    const shrunk = mode === "replace" && page.md.length > 400 && revised.length < page.md.length * 0.55;
     const ok = await uiConfirm(mode === "replace" ? "노션 본문 교체" : "노션 끝에 추가", {
       message:
         mode === "replace"
-          ? `「${page.title}」의 텍스트 본문을 수정안으로 교체합니다.\n· 하위 페이지·DB 등 ${page.complexCount}개 복합 블록은 삭제되지 않습니다\n· 원본은 자동 백업됩니다 (config/notion-edits/)`
+          ? `${shrunk ? `⚠️ 수정안(${(revised.length / 1000).toFixed(1)}천자)이 원본(${(page.md.length / 1000).toFixed(1)}천자)보다 크게 짧습니다 — 아키비스트가 일부만 돌려줬을 수 있어, 교체하면 나머지 내용이 사라집니다. [끝에 추가]나 [다시 만들기]를 권장합니다.\n\n` : ""}「${page.title}」의 텍스트 본문을 수정안으로 교체합니다.\n· 하위 페이지·DB 등 ${page.complexCount}개 복합 블록은 삭제되지 않습니다\n· 원본은 자동 백업됩니다 (config/notion-edits/)`
           : `「${page.title}」 끝에 수정안을 덧붙입니다 (기존 내용 유지).`,
       confirmLabel: mode === "replace" ? "✅ 교체 반영" : "➕ 추가 반영",
+      danger: shrunk,
     });
     if (!ok) return;
     setBusy("apply");
@@ -88,18 +93,43 @@ export function NotionStudio({ onClose }: { onClose: () => void }) {
             />
           </div>
           <div className="hire-row">
-            <label>수정 요구</label>
+            <label>작업 종류</label>
+            <div className="doc-tabs">
+              <button
+                className={`doc-tab ${task === "revise" ? "on" : ""}`}
+                onClick={() => setTask("revise")}
+                disabled={busy !== ""}
+                title="원문 전체를 요구대로 고쳐 텍스트 본문을 교체합니다 — 글 중심 페이지에 적합"
+              >
+                ✏️ 본문 수정 (교체)
+              </button>
+              <button
+                className={`doc-tab ${task === "add" ? "on" : ""}`}
+                onClick={() => setTask("add")}
+                disabled={busy !== ""}
+                title="새 섹션·내용만 만들어 페이지 끝에 덧붙입니다 — 기존 내용은 건드리지 않아 컬럼·콜아웃이 많은 허브 페이지에도 안전"
+              >
+                ➕ 내용 추가 (끝에 붙임)
+              </button>
+            </div>
+          </div>
+          <div className="hire-row">
+            <label>{task === "add" ? "추가 요구" : "수정 요구"}</label>
             <textarea
               value={request}
               onChange={(e) => setRequest(e.target.value)}
               rows={3}
-              placeholder={"예: 개요를 3줄로 압축하고, 일정 부분을 표로 정리해줘.\n예: 오타를 고치고 항목마다 볼드 리드를 붙여 읽기 쉽게 다듬어줘."}
+              placeholder={
+                task === "add"
+                  ? "예: '시장 시스템 기획' 섹션을 추가해줘 — 필수 재료 구매와 던전 연계 퀘스트 두 갈래로.\n예: 마일스톤 아래에 '리스크 목록' 섹션을 추가해줘."
+                  : "예: 개요를 3줄로 압축하고, 일정 부분을 표로 정리해줘.\n예: 오타를 고치고 항목마다 볼드 리드를 붙여 읽기 쉽게 다듬어줘."
+              }
               disabled={busy !== ""}
             />
           </div>
           <div className="hire-actions">
             <button className="btn primary" onClick={() => void analyze()} disabled={!url.trim() || !request.trim() || busy !== ""}>
-              {busy === "analyze" ? "📖 아키비스트가 읽고 고치는 중…" : "🔍 분석 & 수정안 만들기"}
+              {busy === "analyze" ? "📖 아키비스트가 읽고 고치는 중…" : task === "add" ? "🔍 분석 & 추가안 만들기" : "🔍 분석 & 수정안 만들기"}
             </button>
             {page && (
               <span className="dim" style={{ alignSelf: "center", fontSize: 12 }}>
@@ -125,13 +155,16 @@ export function NotionStudio({ onClose }: { onClose: () => void }) {
                 <div className="dim" style={{ fontSize: 11 }}>ℹ️ {page.notes.join(" · ")}</div>
               )}
               <div className="hire-actions">
-                <button className="btn primary" onClick={() => void apply("replace")} disabled={busy !== ""}>
-                  {busy === "apply" ? "반영 중…" : "✅ 본문 교체로 반영"}
-                </button>
-                <button className="btn" onClick={() => void apply("append")} disabled={busy !== ""}>
-                  ➕ 끝에 추가로 반영
-                </button>
-                <button className="btn" onClick={() => void analyze()} disabled={busy !== ""} title="같은 요구로 수정안을 다시 뽑습니다">
+                {task === "revise" ? (
+                  <button className="btn primary" onClick={() => void apply("replace")} disabled={busy !== ""}>
+                    {busy === "apply" ? "반영 중…" : "✅ 본문 교체로 반영"}
+                  </button>
+                ) : (
+                  <button className="btn primary" onClick={() => void apply("append")} disabled={busy !== ""}>
+                    {busy === "apply" ? "반영 중…" : "➕ 끝에 추가로 반영"}
+                  </button>
+                )}
+                <button className="btn" onClick={() => void analyze()} disabled={busy !== ""} title="같은 요구로 다시 뽑습니다">
                   🔄 다시 만들기
                 </button>
               </div>

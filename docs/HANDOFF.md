@@ -18,6 +18,7 @@
 | 보안 | Host 검증(DNS 리바인딩)·Origin 검증(CSRF)·CSP sandbox(에이전트 HTML)·dev-task 로컬 전용 | vite.config `securityGuardPlugin` |
 | 노션 발행 | 오너 레퍼런스 디자인(허브+개요표+섹션 자식페이지), 90초 디바운스 자동 발행 | `webapp/server/notion-publish.mjs`, `/api/notion` |
 | **노션 편집실(v3.8)** | 링크→읽기(블록→md 역변환)→아키비스트 수정안→오너 승인→반영. 원본 자동 백업(config/notion-edits/), 하위페이지·DB 등 복합 블록은 절대 삭제 안 함, "[[유지:…]]" 마커로 보존 | `fetchPageAsMd`/`updatePageContent`, `/api/notion/read·edit`, `NotionStudio.tsx`, store `analyzeNotionPage`/`applyNotionEdit` |
+| **노션 기획 가져오기(v3.9)** | "기존 기획을 노션으로 시작" — 딥 리드: 컬럼·콜아웃 투과(flatten) + 하위 기획서 1단계 추적(상한 20개, 페이지당 8천자). 원문은 보고서함, 선택 시 PM 통합(12천자까지 전달). 슬라임 김치 허브(하위 20개, 31천자)로 실측 검증 | `fetchPageDeepAsMd`, `/api/notion/import`, OrchestrationView `onImportNotion`(퀵스타트+회의 화면 📓 버튼) |
 | **자가 성장** | 작업→XP/레벨, QA반려→교훈, 레벨업 회고(LLM 1회)→작업 요령(스킬) 증류→모든 프롬프트에 주입 | `lib/growth.ts`, `/api/growth`, `store.recordGrowth` |
 | **직급 조직(v3.7)** | 5직급(대표/팀장/시니어/주니어/인턴), 29명. 계층 오케스트레이션: PM→팀장 하달→팀원 배분→주니어 기여→시니어 완성→팀장 취합→**대표 마지막**. rank/reportsTo. | `lib/agents.ts`(rank/헬퍼/계층프롬프트), `store.startOrch`, 로스터 조직도 |
 | 데스크톱 | NSIS 설치본, 바탕화면 바로가기 always | `desktop/` (v3.4.0) |
@@ -38,6 +39,10 @@
 9. 에이전트 산출물의 도구 호출 JSON 누수는 `sanitizeAgentOutput`이 이중 방어 중 — 로컬 모델 교체 시 재확인해라.
 10. **PM 에이전트(모델 kimi-k2.6)가 "[channels] failed to load bundled channel setup entry imessage" 오류로 실패할 수 있다** — 게이트웨이/모델 환경 이슈지 오케스트레이션 코드 문제가 아니다. 계층 흐름은 폴백으로 완주하지만 대표 최종 통합("1.개요")이 비어 실패로 뜬다. 처방: PM 모델을 nvidia qwen3-next-80b 등으로 바꾸거나(프로필 🧠) 게이트웨이 재설치. 팀장·시니어(nvidia qwen)는 정상.
 11. **openclaw.json/custom-agents.json을 PowerShell로 쓰지 마라** — PS 5.1 `ConvertTo-Json`이 최상위 배열을 `{value,Count}` 래퍼로 감싼다(v3.7에서 custom-agents.json 깨짐, node로 복구). 설정 JSON 쓰기는 node(`JSON.stringify`)로. 게이트웨이는 BOM 없는 UTF8만 파싱하므로 `[System.IO.File]::WriteAllText(...,UTF8Encoding($false))` 또는 node.
+12. **`webapp/server/*.mjs`를 고치면 dev 서버를 재시작해야 반영된다** — 플러그인이 동적 import로 모듈을 캐시한다. vite.config.ts 저장은 자동 재시작을 트리거하지만 .mjs 단독 수정은 아니다.
+13. **오너의 노션(app.notion.com)은 신형 API라 heading_4~6 블록이 실재한다** — 구식 가정(h1~3만)이면 헤딩 텍스트가 통째로 유실된다(슬라임 김치 기획서에 h4가 57줄). 가져오기(flatten)는 `####`로 살리고, 편집실은 마커로 보존한다.
+14. **에이전트 페르소나(AGENTS.md)는 게이트웨이 시작 시점에 로드된다** — 파일만 고치면 반영 안 됨, 게이트웨이 재시작 필요. 그리고 `schtasks /End "OpenClaw Gateway"`가 실제 node 프로세스를 못 죽이는 경우가 있다(이틀 묵은 PID가 포트를 계속 물고 있었음) — 재시작이 안 먹으면 18789 포트의 PID를 직접 Stop-Process 후 `/Run`. 진행 중인 회의가 있으면 재시작하지 마라(호출이 끊긴다).
+15. **아키비스트 산출물 길이 제한("20줄 이내")이 편집실 전문 반환과 충돌했었다** — 페르소나에 예외를 명시해 해결. 새 업무를 페르소나에 추가할 때 기존 산출물 규칙과 모순되지 않는지 확인해라. 또 qwen은 "## 헤딩으로 시작" 지시를 자주 무시한다 — store의 추가 모드 헤딩 자동 보정(요구의 따옴표 섹션명)이 이중 방어다.
 
 ## 3. 추천 로드맵 (다음 모델에게 — 우선순위순)
 
