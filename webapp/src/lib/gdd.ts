@@ -210,6 +210,81 @@ export function replaceSection(
   return `${before}\n\n${body}\n${after ? "\n" + after : ""}`;
 }
 
+/* ── 리플로우 — 개행이 유실된(한 줄로 뭉친) 마크다운을 구조로 복원 ──
+ * 일부 모델이 섹션 전체를 한 줄로 뱉는다. 그대로 두면 앱·노션 모두 벽글이 되고
+ * 표가 문자로 보인다. 서버(notion-publish.mjs reflowMd)와 같은 알고리즘 — 수정 시 함께.
+ */
+
+/** 한 줄에 인라인으로 뭉친 파이프 표를 행 단위 표로 복원 */
+function unflattenTableLine(line: string): string[] | null {
+  if (!/\|\s*:?-{2,}/.test(line)) return null;
+  if (/^\s*\|[\s:|-]+\|?\s*$/.test(line)) return null; // 이미 정상 구분자 줄
+  const first = line.indexOf("|");
+  const last = line.lastIndexOf("|");
+  if (first < 0 || last <= first) return null;
+  const before = line.slice(0, first).trim();
+  const after = line.slice(last + 1).trim();
+  const tokens = line
+    .slice(first + 1, last)
+    .split("|")
+    .map((c) => c.trim())
+    .filter((c) => c !== "");
+  let sepStart = -1;
+  let sepLen = 0;
+  for (let k = 0; k < tokens.length; k++) {
+    if (/^:?-{2,}:?$/.test(tokens[k])) {
+      if (sepStart < 0) sepStart = k;
+      sepLen++;
+    } else if (sepStart >= 0) break;
+  }
+  if (sepStart <= 0 || sepLen === 0 || sepStart < sepLen) return null;
+  const cols = sepLen;
+  const header = tokens.slice(sepStart - cols, sepStart);
+  const pre = tokens.slice(0, sepStart - cols).join(" ").trim();
+  const body = tokens.slice(sepStart + sepLen);
+  const outLines: string[] = [];
+  const lead = [before, pre].filter(Boolean).join(" ").trim();
+  if (lead) outLines.push(lead, "");
+  outLines.push(`| ${header.join(" | ")} |`);
+  outLines.push(`|${Array(cols).fill("---").join("|")}|`);
+  for (let k = 0; k < body.length; k += cols) {
+    const row = body.slice(k, k + cols);
+    while (row.length < cols) row.push("");
+    outLines.push(`| ${row.join(" | ")} |`);
+  }
+  if (after) outLines.push("", after);
+  return outLines;
+}
+
+/** 개행 유실 마크다운 복원 — 헤딩·표·번호목록·불릿을 제 줄로 */
+export function reflowMd(md: string): string {
+  const out: string[] = [];
+  for (const rawLine of String(md ?? "").split(/\r?\n/)) {
+    const pieces = rawLine.split(/\s+(?=#{2,4}\s)/);
+    for (let piece of pieces) {
+      const tbl = unflattenTableLine(piece);
+      if (tbl) {
+        for (const l of tbl) {
+          if (/^\|/.test(l) || l === "") out.push(l);
+          else out.push(...reflowMd(l).split("\n"));
+        }
+        continue;
+      }
+      const numHits = piece.match(/\s\*{0,2}\d{1,2}[.)]\s+(?=\*\*|[가-힣A-Za-z"'『「(\[])/g);
+      const startsWithItem = /^\s*\*{0,2}\d{1,2}[.)]\s/.test(piece);
+      if (numHits && numHits.length + (startsWithItem ? 1 : 0) >= 2) {
+        piece = piece.replace(/\s(\*{0,2}\d{1,2}[.)]\s+)(?=\*\*|[가-힣A-Za-z"'『「(\[])/g, "\n$1");
+      }
+      const bulHits = piece.match(/[^\d\s]\s+-\s+\S/g);
+      if (bulHits && bulHits.length >= 2) {
+        piece = piece.replace(/([^\d\s])\s+-\s+(?=\S)/g, "$1\n- ");
+      }
+      out.push(...piece.split("\n"));
+    }
+  }
+  return out.join("\n");
+}
+
 /** 에이전트 출력에서 GDD에 넣기 부적절한 잔여물(도구 JSON, 거대 base64 등)을 정리 */
 export function sanitizeAgentOutput(text: string): string {
   let t = text.trim();
@@ -234,5 +309,6 @@ export function sanitizeAgentOutput(text: string): string {
   t = t.replace(/[A-Za-z0-9+/=]{400,}/g, "(생략된 데이터)");
   // 모델이 첫 줄에 섹션 제목 헤딩을 반복하는 버릇 정리(GDD 섹션 헤딩과 중복 방지)
   t = t.replace(/^#{1,3}\s[^\n]*\n+/, "");
-  return t.trim();
+  // 개행 유실(한 줄 벽글) 복원 — 표·헤딩·목록을 제 줄로
+  return reflowMd(t.trim()).trim();
 }

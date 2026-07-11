@@ -16,7 +16,8 @@
 | 창의성(온도) | 게이트웨이가 temperature 미노출 → runAgent에서 지시문 주입 | `lib/tuning.ts`, `lib/gateway.ts` |
 | 비용 방어 | 클라 가드(10분 60회) + **서버 가드**(/api/agent 120회, dev-task 12회, IP당) | `lib/cost.ts`, vite.config `rateLimited` |
 | 보안 | Host 검증(DNS 리바인딩)·Origin 검증(CSRF)·CSP sandbox(에이전트 HTML)·dev-task 로컬 전용 | vite.config `securityGuardPlugin` |
-| 노션 발행 | 오너 레퍼런스 디자인(허브+개요표+섹션 자식페이지), 90초 디바운스 자동 발행 | `webapp/server/notion-publish.mjs`, `/api/notion` |
+| 노션 발행 | 오너 레퍼런스 디자인(허브+개요표+섹션 자식페이지), 90초 디바운스 자동 발행. **v3.10: reflowMd** — 모델이 한 줄로 뭉친 md(벽글·문자 표)를 발행/저장 전에 구조로 복원(결정적, 서버·클라 동일 알고리즘 2벌) | `webapp/server/notion-publish.mjs`(reflowMd), `lib/gdd.ts`(reflowMd·sanitize 훅) |
+| **회의록(v3.10)** | 3명 이상 회의는 **PM 통합 실패와 무관하게** 항상 저장 — 오너 지시·참여·타임라인(지시→초안→검토→수정→취합)·검토/QA 근거·대표 결론·산출물 요약. LLM 0회 | `store.startOrch` 끝부분(feedStart 슬라이스) |
 | **노션 편집실(v3.8)** | 링크→읽기(블록→md 역변환)→아키비스트 수정안→오너 승인→반영. 원본 자동 백업(config/notion-edits/), 하위페이지·DB 등 복합 블록은 절대 삭제 안 함, "[[유지:…]]" 마커로 보존 | `fetchPageAsMd`/`updatePageContent`, `/api/notion/read·edit`, `NotionStudio.tsx`, store `analyzeNotionPage`/`applyNotionEdit` |
 | **노션 기획 가져오기(v3.9)** | "기존 기획을 노션으로 시작" — 딥 리드: 컬럼·콜아웃 투과(flatten) + 하위 기획서 1단계 추적(상한 20개, 페이지당 8천자). 원문은 보고서함, 선택 시 PM 통합(12천자까지 전달). 슬라임 김치 허브(하위 20개, 31천자)로 실측 검증 | `fetchPageDeepAsMd`, `/api/notion/import`, OrchestrationView `onImportNotion`(퀵스타트+회의 화면 📓 버튼) |
 | **자가 성장** | 작업→XP/레벨, QA반려→교훈, 레벨업 회고(LLM 1회)→작업 요령(스킬) 증류→모든 프롬프트에 주입 | `lib/growth.ts`, `/api/growth`, `store.recordGrowth` |
@@ -37,12 +38,13 @@
 7. **QA/테스트가 workspace 실데이터를 오염시킨다** (feed.json, 채팅, GDD). 테스트 후 `git checkout -- workspace/...` 또는 생성물 삭제. 채용 테스트는 반드시 퇴사로 원복.
 8. **NVIDIA 키는 이미지 함수권한이 없다**("Function not found for account") — env `VE_NVIDIA_IMAGE_URL`로 우회 가능. GitHub Models 무료 티어는 4,000토큰 제한.
 9. 에이전트 산출물의 도구 호출 JSON 누수는 `sanitizeAgentOutput`이 이중 방어 중 — 로컬 모델 교체 시 재확인해라.
-10. ~~PM kimi-k2.6 channels 오류~~ **해결(2026-07-11): PM을 nvidia/qwen/qwen3.5-122b-a10b로 교체** (백업: openclaw.json.bak-v39). 추가 발견: **qwen3.5-397b는 게이트웨이 경유 시 첫 토큰이 120초를 넘겨 idle 워치독에 잘린다**(직접 API는 5초에 응답 — 게이트웨이의 대형 프롬프트+툴 정의에서만 스톨). PM/팀장급엔 397b 쓰지 마라. 신규 모델 5종(qwen3.5 122b/397b, deepseek-v4-pro, glm-5.2, minimax-m3)을 프로필 🧠에서 선택 가능하게 등록해둠.
+10. ~~PM kimi-k2.6 channels 오류~~ **해결(2026-07-11): PM을 nvidia/qwen/qwen3.5-122b-a10b로 교체** (백업: openclaw.json.bak-v39). 모델 비교 실측(같은 날): **직원은 next-80b 유지가 답** — 122b는 생성 3배 빠르지만(9s vs 29s) 콜드 스타트가 17~50초로 널뛰어(무료 티어 큐) 29명이 수십 콜 하는 회의에선 편차가 더 아프다. next-80b는 0.4~4초로 안정. PM은 호출이 적어 122b(신세대 품질) 유지. **397b는 게이트웨이 경유 시 첫 토큰 120초+로 idle 워치독에 잘림** — 에이전트용 금지. 신규 모델 5종은 프로필 🧠에서 선택 가능.
 11. **openclaw.json/custom-agents.json을 PowerShell로 쓰지 마라** — PS 5.1 `ConvertTo-Json`이 최상위 배열을 `{value,Count}` 래퍼로 감싼다(v3.7에서 custom-agents.json 깨짐, node로 복구). 설정 JSON 쓰기는 node(`JSON.stringify`)로. 게이트웨이는 BOM 없는 UTF8만 파싱하므로 `[System.IO.File]::WriteAllText(...,UTF8Encoding($false))` 또는 node.
 12. **`webapp/server/*.mjs`를 고치면 dev 서버를 재시작해야 반영된다** — 플러그인이 동적 import로 모듈을 캐시한다. vite.config.ts 저장은 자동 재시작을 트리거하지만 .mjs 단독 수정은 아니다.
 13. **오너의 노션(app.notion.com)은 신형 API라 heading_4~6 블록이 실재한다** — 구식 가정(h1~3만)이면 헤딩 텍스트가 통째로 유실된다(슬라임 김치 기획서에 h4가 57줄). 가져오기(flatten)는 `####`로 살리고, 편집실은 마커로 보존한다.
 14. **에이전트 페르소나(AGENTS.md)는 게이트웨이 시작 시점에 로드된다** — 파일만 고치면 반영 안 됨, 게이트웨이 재시작 필요. 그리고 `schtasks /End "OpenClaw Gateway"`가 실제 node 프로세스를 못 죽이는 경우가 있다(이틀 묵은 PID가 포트를 계속 물고 있었음) — 재시작이 안 먹으면 18789 포트의 PID를 직접 Stop-Process 후 `/Run`. 진행 중인 회의가 있으면 재시작하지 마라(호출이 끊긴다).
 15. **아키비스트 산출물 길이 제한("20줄 이내")이 편집실 전문 반환과 충돌했었다** — 페르소나에 예외를 명시해 해결. 새 업무를 페르소나에 추가할 때 기존 산출물 규칙과 모순되지 않는지 확인해라. 또 qwen은 "## 헤딩으로 시작" 지시를 자주 무시한다 — store의 추가 모드 헤딩 자동 보정(요구의 따옴표 섹션명)이 이중 방어다.
+16. **reflowMd는 서버(notion-publish.mjs)와 클라(lib/gdd.ts)에 같은 알고리즘이 2벌 있다** — 한쪽만 고치면 발행본과 앱 표시가 어긋난다. 수정 시 반드시 함께. 기존 GDD는 2026-07-11에 일괄 리플로우 마이그레이션됨(각 프로젝트에 GDD.md.bak-reflow 백업).
 
 ## 3. 추천 로드맵 (다음 모델에게 — 우선순위순)
 

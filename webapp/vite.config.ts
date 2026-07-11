@@ -317,6 +317,8 @@ function notionApiPlugin(): Plugin {
     mod = await import("./server/notion-publish.mjs");
     return mod;
   };
+  // 딥 리드(가져오기) 진행률 — pageId → {done,total,title}. 클라이언트가 폴링한다.
+  const importProgress = new Map<string, { done: number; total: number; title?: string; ts: number }>();
   return {
     name: "vision-engine-notion-api",
     configureServer(server: ViteDevServer) {
@@ -327,6 +329,13 @@ function notionApiPlugin(): Plugin {
             const m = await load();
             const url = new URL(req.url ?? "/", "http://local");
             const sub = url.pathname.replace(/\/+$/, "");
+
+            // 가져오기 진행률 폴링 (일반 GET보다 먼저 처리)
+            if (sub === "/import-progress" && req.method === "GET") {
+              const key = m.parsePageId(url.searchParams.get("url") ?? "") || "last";
+              res.end(JSON.stringify({ ok: true, progress: importProgress.get(key) ?? null }));
+              return;
+            }
 
             if (req.method === "GET") {
               const cfg = m.loadCfg();
@@ -362,8 +371,16 @@ function notionApiPlugin(): Plugin {
             // 기존 기획을 노션으로 시작 — 딥 리드 (컬럼 투과 + 하위 기획서 1단계 추적)
             if (sub === "/import" && req.method === "POST") {
               const j = JSON.parse((await readBody(req)) || "{}");
-              const out = await m.fetchPageDeepAsMd(String(j.url ?? ""));
-              res.end(JSON.stringify({ ok: true, ...out }));
+              const target = String(j.url ?? "");
+              const key = m.parsePageId(target) || "last";
+              try {
+                const out = await m.fetchPageDeepAsMd(target, 20, (p: any) =>
+                  importProgress.set(key, { ...p, ts: Date.now() })
+                );
+                res.end(JSON.stringify({ ok: true, ...out }));
+              } finally {
+                importProgress.delete(key);
+              }
               return;
             }
 
@@ -1234,10 +1251,23 @@ function isLocalReq(req: any): boolean {
 
 /** 예약작업으로 게이트웨이 재시작 — 설정 변경(키/모델) 반영용 */
 function restartGateway(): void {
-  spawn("schtasks", ["/End", "/TN", "OpenClaw Gateway"], { shell: false, windowsHide: true }).on("close", () => {
-    setTimeout(() => {
-      spawn("schtasks", ["/Run", "/TN", "OpenClaw Gateway"], { shell: false, windowsHide: true });
-    }, 1500);
+  // schtasks /End만으로는 실제 node 프로세스가 안 죽는 경우가 실측됨(이틀 묵은 PID가 포트 점유)
+  // → 게이트웨이 포트를 물고 있는 프로세스를 직접 종료한 뒤 태스크를 재기동한다.
+  const killPort = spawn(
+    "powershell",
+    [
+      "-NoProfile",
+      "-Command",
+      "Get-NetTCPConnection -LocalPort 18789 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }",
+    ],
+    { shell: false, windowsHide: true }
+  );
+  killPort.on("close", () => {
+    spawn("schtasks", ["/End", "/TN", "OpenClaw Gateway"], { shell: false, windowsHide: true }).on("close", () => {
+      setTimeout(() => {
+        spawn("schtasks", ["/Run", "/TN", "OpenClaw Gateway"], { shell: false, windowsHide: true });
+      }, 1500);
+    });
   });
 }
 

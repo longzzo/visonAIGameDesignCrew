@@ -109,10 +109,89 @@ function rich(text, extra = {}) {
 
 const strip = (s) => s.replace(/\s+$/, "").replace(/\\([~*_`])/g, "$1");
 
+/* ── 리플로우 — 개행이 유실된(한 줄로 뭉친) 마크다운을 구조로 복원 ──
+ * 일부 모델이 섹션 전체를 한 줄로 뱉는다: "### 제목 ... | a | b | |---|---| | c | d | ..."
+ * 그대로 노션에 올리면 벽글이 되고 표가 문자로 보인다. LLM 없이 결정적으로 되살린다.
+ */
+
+/** 한 줄에 인라인으로 뭉친 파이프 표를 행 단위 표로 복원 */
+function unflattenTableLine(line) {
+  if (!/\|\s*:?-{2,}/.test(line)) return null; // 표 구분자(---)가 없으면 대상 아님
+  if (/^\s*\|[\s:|-]+\|?\s*$/.test(line)) return null; // 이미 정상적인 구분자 줄은 그대로
+  const first = line.indexOf("|");
+  const last = line.lastIndexOf("|");
+  if (first < 0 || last <= first) return null;
+  const before = line.slice(0, first).trim();
+  const after = line.slice(last + 1).trim();
+  const tokens = line
+    .slice(first + 1, last)
+    .split("|")
+    .map((c) => c.trim())
+    .filter((c) => c !== ""); // 행 경계 "| |"가 만든 빈 토큰 제거 (빈 셀은 희생)
+  let sepStart = -1;
+  let sepLen = 0;
+  for (let k = 0; k < tokens.length; k++) {
+    if (/^:?-{2,}:?$/.test(tokens[k])) {
+      if (sepStart < 0) sepStart = k;
+      sepLen++;
+    } else if (sepStart >= 0) break;
+  }
+  if (sepStart <= 0 || sepLen === 0 || sepStart < sepLen) return null;
+  const cols = sepLen;
+  const header = tokens.slice(sepStart - cols, sepStart);
+  const pre = tokens.slice(0, sepStart - cols).join(" ").trim(); // 헤더 앞 잔여 텍스트
+  const body = tokens.slice(sepStart + sepLen);
+  const outLines = [];
+  const lead = [before, pre].filter(Boolean).join(" ").trim();
+  if (lead) outLines.push(lead, "");
+  outLines.push(`| ${header.join(" | ")} |`);
+  outLines.push(`|${Array(cols).fill("---").join("|")}|`);
+  for (let k = 0; k < body.length; k += cols) {
+    const row = body.slice(k, k + cols);
+    while (row.length < cols) row.push("");
+    outLines.push(`| ${row.join(" | ")} |`);
+  }
+  if (after) outLines.push("", after);
+  return outLines;
+}
+
+/** 개행 유실 마크다운 복원 — 헤딩·표·번호목록·불릿을 제 줄로 */
+export function reflowMd(md) {
+  const out = [];
+  for (const rawLine of String(md ?? "").split(/\r?\n/)) {
+    // ① 줄 중간의 헤딩(### )을 경계로 분할
+    const pieces = rawLine.split(/\s+(?=#{2,4}\s)/);
+    for (let piece of pieces) {
+      // ② 인라인으로 뭉친 표 복원
+      const tbl = unflattenTableLine(piece);
+      if (tbl) {
+        for (const l of tbl) {
+          if (/^\|/.test(l) || l === "") out.push(l);
+          else out.push(...reflowMd(l).split("\n")); // 표 앞뒤 텍스트도 재귀 복원
+        }
+        continue;
+      }
+      // ③ 번호 목록 — " 1. …" 패턴이 2회 이상(줄 시작 항목 포함)이면 항목마다 줄바꿈
+      const numHits = piece.match(/\s\*{0,2}\d{1,2}[.)]\s+(?=\*\*|[가-힣A-Za-z"'『「(\[])/g);
+      const startsWithItem = /^\s*\*{0,2}\d{1,2}[.)]\s/.test(piece);
+      if (numHits && numHits.length + (startsWithItem ? 1 : 0) >= 2) {
+        piece = piece.replace(/\s(\*{0,2}\d{1,2}[.)]\s+)(?=\*\*|[가-힣A-Za-z"'『「(\[])/g, "\n$1");
+      }
+      // ④ 불릿 — " - …"가 2회 이상이면 항목마다 줄바꿈 (숫자 범위 "1 - 2"는 제외)
+      const bulHits = piece.match(/[^\d\s]\s+-\s+\S/g);
+      if (bulHits && bulHits.length >= 2) {
+        piece = piece.replace(/([^\d\s])\s+-\s+(?=\S)/g, "$1\n- ");
+      }
+      out.push(...piece.split("\n"));
+    }
+  }
+  return out.join("\n");
+}
+
 /** 마크다운 본문 → 노션 블록 배열 (헤딩/불릿/번호/인용/코드/표/구분선/이미지) */
 export function mdToBlocks(md) {
   const blocks = [];
-  const lines = String(md ?? "").split(/\r?\n/);
+  const lines = reflowMd(String(md ?? "")).split(/\r?\n/);
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
@@ -611,7 +690,7 @@ export async function fetchPageAsMd(pageUrlOrId) {
  * 허브 페이지는 컬럼·콜아웃 안에 내용과 하위 기획서 링크가 있으므로,
  * 레이아웃 블록을 투과해 읽고(flatten) 하위 페이지·페이지 링크를 1단계 따라가 본문을 이어붙인다.
  */
-export async function fetchPageDeepAsMd(pageUrlOrId, maxPages = 20) {
+export async function fetchPageDeepAsMd(pageUrlOrId, maxPages = 20, onProgress) {
   const cfg = loadCfg();
   if (!cfg.token) throw new Error("노션 연동이 설정되지 않았습니다 — 📚 노션 연동에서 토큰을 먼저 등록하세요");
   const rootId = parsePageId(pageUrlOrId);
@@ -629,18 +708,25 @@ export async function fetchPageDeepAsMd(pageUrlOrId, maxPages = 20) {
   };
 
   const collected = [];
+  onProgress?.({ done: 0, total: 1, title: "허브 페이지 읽는 중" });
   const root = await readOne(rootId, collected);
   const parts = [`# ${root.title}`, "", root.md];
+  // 중복 제거 후 상한 적용 — 진행률(total)을 먼저 확정해 UI에 알린다
   const seen = new Set([rootId.replace(/-/g, "")]);
-  let count = 0;
+  const unique = [];
   for (const p of collected) {
     const norm = String(p.id ?? "").replace(/-/g, "");
     if (!norm || seen.has(norm)) continue;
     seen.add(norm);
-    if (count >= maxPages) {
-      notes.add(`하위 페이지가 많아 ${maxPages}개까지만 읽었습니다`);
-      break;
-    }
+    unique.push(p);
+  }
+  if (unique.length > maxPages) notes.add(`하위 페이지가 많아 ${maxPages}개까지만 읽었습니다`);
+  const queue = unique.slice(0, maxPages);
+  const total = queue.length + 1;
+  onProgress?.({ done: 1, total, title: root.title });
+  let count = 0; // 성공적으로 수록한 하위 페이지 수
+  let done = 1; // 진행률 (허브 포함)
+  for (const p of queue) {
     try {
       const sub = await readOne(p.id, null); // 하위의 하위까지는 내려가지 않는다 (1단계)
       let body = sub.md;
@@ -650,7 +736,11 @@ export async function fetchPageDeepAsMd(pageUrlOrId, maxPages = 20) {
       }
       parts.push("", "---", "", `## 📄 ${sub.title}`, "", body);
       count++;
+      done++;
+      onProgress?.({ done, total, title: sub.title });
     } catch {
+      done++;
+      onProgress?.({ done, total, title: p.title ?? "" });
       notes.add(`하위 페이지 「${p.title ?? p.id}」 읽기 실패 — 통합(Connections) 연결을 확인하세요`);
     }
   }

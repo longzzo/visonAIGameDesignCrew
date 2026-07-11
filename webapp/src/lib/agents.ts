@@ -1039,11 +1039,19 @@ export function parseQaScore(text: string): QaVerdict | null {
   const cats = ["완결성", "구체성", "일관성", "구현가능성"];
   const scores: Record<string, number> = {};
   for (const c of cats) {
-    const m = new RegExp(`${c}\\s*[:：]\\s*\\**\\s*(10|[1-9])`, "m").exec(text);
-    if (!m) return null;
-    scores[c] = Number(m[1]);
+    // 관대한 매칭 — "완결성: 9", "완결성 9", "완결성(9)", "| 완결성 | 9 |" 전부 허용
+    const m = new RegExp(`${c}[^0-9\\n]{0,12}(10|[1-9])(?!\\d)`).exec(text);
+    if (m) scores[c] = Number(m[1]);
   }
-  const vals = cats.map((c) => scores[c]);
+  let vals = Object.values(scores);
+  if (vals.length < 2) {
+    // 폴백 — 항목 점수를 못 건졌으면 "평균 8.5" 또는 "8.5/10"에서 종합 점수라도 건진다
+    const avgM =
+      /평균[^0-9\n]{0,6}(10|\d(?:\.\d+)?)/.exec(text) ?? /(10|\d(?:\.\d+)?)\s*\/\s*10/.exec(text);
+    if (!avgM) return null;
+    scores["종합"] = Number(avgM[1]);
+    vals = [scores["종합"]];
+  }
   const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
   const min = Math.min(...vals);
   const summary = /총평\s*[:：]\s*(.+)/.exec(text)?.[1]?.trim() ?? "";

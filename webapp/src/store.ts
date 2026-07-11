@@ -1220,6 +1220,7 @@ export const useVE = create<VEState>()((set, get) => {
         // 지시를 접수했으면 입력창을 비운다 — 요청 원문은 아래 피드에 남는다
         orchRequest: "",
       });
+      const feedStart = get().feed.length; // 회의록 — 이 회의의 피드 구간 시작점
       pushFeed({ from: "user", kind: "request", text: req });
 
       // 웹 리서치 수준 — 검색 키가 없으면 web_fetch 전용으로 강등 (web_search 오류 방지)
@@ -1552,34 +1553,6 @@ export const useVE = create<VEState>()((set, get) => {
             updateCard("pm", { reflected: true });
             pushFeed({ from: "system", kind: "status", text: `📄 마스터 GDD "개요" 섹션이 갱신되었습니다. 오케스트레이션 완료.` });
           }
-          // 회의록 자동 저장 — 3명 이상 참여한 회의는 기록을 남긴다 (결정론적 취합, 추가 호출 없음)
-          if (results.length >= 3) {
-            const now = new Date();
-            const minutes = [
-              `# 회의록 — ${now.toLocaleString("ko-KR", { hour12: false })}`,
-              ``,
-              `## 오너 지시`,
-              req,
-              ``,
-              `## 참여 (${results.length}명)`,
-              results.map(({ agent }) => `- ${agent.emoji} ${agent.name} — "${agent.sectionTitle}" 담당`).join("\n"),
-              ``,
-              `## PM 통합 결론`,
-              get().cards["pm"]?.output ?? clean,
-              ``,
-              `## 확정 산출물 요약`,
-              ...results.map(
-                ({ agent, text }) => `### ${agent.emoji} ${agent.sectionTitle} (${agent.name})\n${text.slice(0, 600)}${text.length > 600 ? "\n…(전문은 GDD 참조)" : ""}\n`
-              ),
-            ].join("\n");
-            try {
-              await saveReport(project, "pm", `회의록 — ${req.slice(0, 30)}${req.length > 30 ? "…" : ""}`, minutes);
-              await get().loadReports();
-              pushFeed({ from: "system", kind: "status", text: "📋 회의록이 보고서함에 저장되었습니다." });
-            } catch {
-              /* 회의록 저장 실패는 치명적이지 않음 */
-            }
-          }
           // 결정사항 원장 적립 — 조직의 기억 (백그라운드, 실패해도 회의에 영향 없음)
           void (async () => {
             try {
@@ -1608,6 +1581,69 @@ export const useVE = create<VEState>()((set, get) => {
           pushFeed({ from: "system", kind: "error", text: `⚠️ PM 통합 실패: ${String(e?.message ?? e).slice(0, 120)}` });
         }
       }
+
+      // 회의록 자동 저장 — PM 통합 성공 여부와 무관하게 항상 남긴다 (결정론적 취합, 추가 호출 없음).
+      // 오너가 "어떤 근거로 이 결론이 나왔는지"를 볼 수 있게 지시→초안→검토→수정→취합 흐름을 담는다.
+      if (results.length >= 3) {
+        const now = new Date();
+        const meetingFeed = get().feed.slice(feedStart);
+        const hhmm = (ts: number) =>
+          new Date(ts).toLocaleTimeString("ko-KR", { hour12: false, hour: "2-digit", minute: "2-digit" });
+        const nameOf = (id?: string) =>
+          !id ? "" : id === "user" ? "오너" : id === "system" ? "시스템" : AGENT_MAP[id]?.name ?? id;
+        const KIND_MIN: Record<string, string> = {
+          instruction: "지시",
+          draft: "초안",
+          review: "검토",
+          revision: "수정",
+          summary: "취합·통합",
+        };
+        const one = (s: string, n: number) => {
+          const flat = s.replace(/\s*\n+\s*/g, " ").trim();
+          return flat.length > n ? flat.slice(0, n) + "…" : flat;
+        };
+        const timeline = meetingFeed
+          .filter((m) => KIND_MIN[m.kind] || (m.kind === "status" && /갱신|반려|통과|배정|상신|통합/.test(m.text)))
+          .slice(0, 90)
+          .map((m) => `- ${hhmm(m.ts)} **${nameOf(m.from)}${m.to ? ` → ${nameOf(m.to)}` : ""}** [${KIND_MIN[m.kind] ?? "상태"}] ${one(m.text, 110)}`);
+        const evidence = meetingFeed
+          .filter((m) => m.kind === "review")
+          .slice(0, 14)
+          .map((m) => `**${nameOf(m.from)} → ${nameOf(m.to)}**\n> ${one(m.text, 340)}`);
+        const pmOut = get().cards["pm"]?.output?.trim();
+        const minutes = [
+          `# 회의록 — ${now.toLocaleString("ko-KR", { hour12: false })}`,
+          ``,
+          `## 오너 지시`,
+          `> ${one(req, 600)}`,
+          ``,
+          `## 참여 (${results.length}명)`,
+          results.map(({ agent }) => `- ${agent.emoji} ${agent.name} — "${agent.sectionTitle}" 담당`).join("\n"),
+          ``,
+          `## 진행 경과 — 지시 → 초안 → 검토 → 수정 → 취합`,
+          ...(timeline.length ? timeline : ["- (기록 없음)"]),
+          ``,
+          `## 검토·QA 근거 (결론이 이렇게 다듬어졌습니다)`,
+          ...(evidence.length ? evidence : ["- (검토 기록 없음)"]),
+          ``,
+          `## 대표 통합 결론`,
+          pmOut || "_(대표 통합 단계가 실패해 섹션별 확정본이 GDD에 직접 반영되었습니다 — 아래 요약 참조)_",
+          ``,
+          `## 확정 산출물 요약`,
+          ...results.map(
+            ({ agent, text }) =>
+              `### ${agent.emoji} ${agent.sectionTitle} (${agent.name})\n${text.slice(0, 600)}${text.length > 600 ? "\n…(전문은 GDD 참조)" : ""}\n`
+          ),
+        ].join("\n");
+        try {
+          await saveReport(project, "pm", `회의록 — ${req.slice(0, 30)}${req.length > 30 ? "…" : ""}`, minutes);
+          await get().loadReports();
+          pushFeed({ from: "system", kind: "status", text: "📋 회의록이 보고서함에 저장되었습니다 (근거·검토 흐름 포함)." });
+        } catch {
+          /* 회의록 저장 실패는 치명적이지 않음 */
+        }
+      }
+
       set({ orchRunning: false });
       if (results.length > 0) void notify("🎪 회의 완료", `${req.slice(0, 60)} — 산출물 ${results.length}건이 반영되었습니다`);
     },

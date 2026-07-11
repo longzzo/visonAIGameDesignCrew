@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AGENT_MAP, SPECIALISTS } from "../lib/agents";
 import { uiAlert, uiConfirm, uiPrompt } from "../lib/dialog";
-import { importNotionPage } from "../lib/notionSync";
+import { getImportProgress, importNotionPage } from "../lib/notionSync";
 import { useVE, type FeedMsg } from "../store";
 import { Markdown } from "./Markdown";
 
@@ -153,6 +153,7 @@ export function OrchestrationView() {
   };
   // 노션 기획으로 시작 — 링크를 주면 허브+하위 기획서를 따라 읽어 같은 가져오기 흐름으로
   const [notionImporting, setNotionImporting] = useState(false);
+  const [notionProgress, setNotionProgress] = useState("");
   const onImportNotion = async () => {
     if (notionImporting) return;
     const url = await uiPrompt("📓 노션 기획으로 시작", {
@@ -162,6 +163,13 @@ export function OrchestrationView() {
     });
     if (!url?.trim()) return;
     setNotionImporting(true);
+    setNotionProgress("");
+    // 딥 리드가 도는 동안 진행률 폴링 — "허브 3/21 · 씬 시스템"
+    const poll = setInterval(() => {
+      void getImportProgress(url.trim()).then((p) => {
+        if (p) setNotionProgress(`${p.done}/${p.total}${p.title ? ` · ${p.title.slice(0, 14)}` : ""}`);
+      });
+    }, 2000);
     try {
       const r = await importNotionPage(url.trim());
       const note = `📓 노션에서 ${r.pages}개 페이지를 읽었습니다${r.notes.length ? `\n· ${r.notes.join("\n· ")}` : ""}`;
@@ -169,7 +177,9 @@ export function OrchestrationView() {
     } catch (e: any) {
       void uiAlert("노션 페이지를 읽지 못했습니다", String(e?.message ?? e));
     } finally {
+      clearInterval(poll);
       setNotionImporting(false);
+      setNotionProgress("");
     }
   };
   const onImportFile = (f: File | undefined) => {
@@ -236,7 +246,7 @@ export function OrchestrationView() {
             <button className="btn small" onClick={() => void onImportNotion()} disabled={notionImporting}>
               {notionImporting ? (
                 <>
-                  <span className="spinner" /> 노션 읽는 중…
+                  <span className="spinner" /> 노션 읽는 중{notionProgress ? ` ${notionProgress}` : "…"}
                 </>
               ) : (
                 "📓 노션 기획으로 시작"
@@ -393,7 +403,7 @@ export function OrchestrationView() {
                 >
                   {notionImporting ? (
                     <>
-                      <span className="spinner" /> 노션…
+                      <span className="spinner" /> 노션 {notionProgress || "…"}
                     </>
                   ) : (
                     "📓 노션 가져오기"

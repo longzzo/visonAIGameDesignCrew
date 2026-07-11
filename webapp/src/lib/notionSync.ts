@@ -89,6 +89,23 @@ export async function importNotionPage(url: string): Promise<NotionPageImport> {
   return j as NotionPageImport;
 }
 
+/** 가져오기 진행률 폴링 — 딥 리드가 도는 동안 "3/21" 진행을 보여주기 위해 */
+export interface NotionImportProgress {
+  done: number;
+  total: number;
+  title?: string;
+}
+
+export async function getImportProgress(url: string): Promise<NotionImportProgress | null> {
+  try {
+    const r = await fetch(`/api/notion/import-progress?url=${encodeURIComponent(url)}`);
+    const j = await r.json();
+    return j?.progress ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function editNotionPage(
   url: string,
   markdown: string,
