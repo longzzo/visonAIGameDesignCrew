@@ -30,6 +30,7 @@ export function DocViewer() {
     setArtStudioOpen,
     removeArt,
     attachArtToGdd,
+    publishNotionStyled,
   } = useVE();
   const [attached, setAttached] = useState<number[]>([]);
   // 노션 발행 — 아키비스트(📚)가 GDD·보고서를 오너 노션에 레퍼런스 디자인으로 발행
@@ -37,6 +38,8 @@ export function DocViewer() {
   const [publishing, setPublishing] = useState(false);
   // 노션 편집실 — 링크를 주면 읽고 분석해 요구대로 수정
   const [notionStudio, setNotionStudio] = useState(false);
+  // 보고서함 필터 — 회의록만 따로 본다
+  const [repFilter, setRepFilter] = useState<"all" | "minutes">("all");
   useEffect(() => {
     if (tab) void getNotionStatus().then(setNotion).catch(() => setNotion(null));
   }, [tab]);
@@ -64,12 +67,20 @@ export function DocViewer() {
 
   const onNotionPublish = async () => {
     if (!activeProject || publishing) return;
+    // 발행 방식 선택 — ✨ 다듬어 발행(섹션당 LLM 1회, GDD 원본 불변) vs 그대로 발행
+    const filledCount =
+      (gdd.match(/^## /gm)?.length ?? 0) - (gdd.match(/아직 작성되지 않음/g)?.length ?? 0);
+    const polish = await uiConfirm("📚 노션 발행", {
+      message: `✨ 다듬어 발행 — 아키비스트가 채워진 섹션(약 ${Math.max(filledCount, 0)}개)을 오너 스타일(숫자 소제목 · 볼드 리드 · 개조식 · 표)로 재포맷한 뒤 발행합니다. 섹션당 LLM 1회, 몇 분 소요. GDD 원본은 그대로 둡니다.\n\n그대로 발행 — 지금 GDD를 즉시 발행합니다.`,
+      confirmLabel: "✨ 다듬어 발행",
+      cancelLabel: "그대로 발행",
+    });
     setPublishing(true);
     try {
-      const url = await publishNotion(activeProject);
+      const url = polish ? await publishNotionStyled() : await publishNotion(activeProject);
       setNotion(await getNotionStatus());
       const open = await uiConfirm("📚 노션 발행 완료", {
-        message: "허브 페이지(개요 표 + 섹션별 기획서 + 보고서함)로 발행했습니다. 노션에서 열어볼까요?",
+        message: `${polish ? "아키비스트가 다듬은 " : ""}허브 페이지(개요 표 + 섹션별 기획서 + 보고서함)로 발행했습니다. 노션에서 열어볼까요?`,
         confirmLabel: "🔗 노션에서 열기",
       });
       if (open) window.open(url, "_blank", "noopener");
@@ -185,6 +196,18 @@ export function DocViewer() {
         {tab === "reports" && (
           <div className="doc-split">
             <div className="doc-list">
+              <div style={{ display: "flex", gap: 4, padding: "6px 8px" }}>
+                <button className={`btn tiny ${repFilter === "all" ? "primary" : ""}`} onClick={() => setRepFilter("all")}>
+                  전체 ({reports.length})
+                </button>
+                <button
+                  className={`btn tiny ${repFilter === "minutes" ? "primary" : ""}`}
+                  onClick={() => setRepFilter("minutes")}
+                  title="회의가 끝날 때마다 자동 저장되는 회의록만 봅니다 — 지시·검토·QA 근거와 도출 과정 포함"
+                >
+                  📋 회의록 ({reports.filter((r) => r.title.startsWith("회의록")).length})
+                </button>
+              </div>
               {reports.length === 0 && (
                 <div className="dim" style={{ padding: 12 }}>
                   아직 보고서가 없습니다.
@@ -192,7 +215,7 @@ export function DocViewer() {
                   에이전트 1:1 대화의 <b>📋 보고서</b> 버튼으로 요청해 보세요.
                 </div>
               )}
-              {reports.map((r) => {
+              {(repFilter === "minutes" ? reports.filter((r) => r.title.startsWith("회의록")) : reports).map((r) => {
                 const a = AGENT_MAP[r.agent];
                 return (
                   <button

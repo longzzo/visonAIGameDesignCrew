@@ -13,11 +13,12 @@ import { Markdown } from "./Markdown";
 export function NotionStudio({ onClose }: { onClose: () => void }) {
   const analyzeNotionPage = useVE((s) => s.analyzeNotionPage);
   const applyNotionEdit = useVE((s) => s.applyNotionEdit);
+  const applyNotionSubpage = useVE((s) => s.applyNotionSubpage);
 
   const [url, setUrl] = useState("");
   const [request, setRequest] = useState("");
-  // 작업 종류 — "revise"(전문 수정→본문 교체) / "add"(새 콘텐츠만→끝에 추가). 반영 모드가 여기에 묶인다.
-  const [task, setTask] = useState<"revise" | "add">("revise");
+  // 작업 종류 — revise(전문 수정→교체) / add(새 콘텐츠→끝에 추가) / subpage(새 하위 기획서 생성)
+  const [task, setTask] = useState<"revise" | "add" | "subpage">("revise");
   const [busy, setBusy] = useState<"" | "analyze" | "apply">("");
   const [page, setPage] = useState<NotionPageRead | null>(null);
   const [revised, setRevised] = useState("");
@@ -69,6 +70,30 @@ export function NotionStudio({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const applySubpage = async () => {
+    if (!page || !revised.trim() || busy) return;
+    const firstLine = revised.trim().split("\n")[0].replace(/^#\s*/, "");
+    const ok = await uiConfirm("노션 하위 기획서 생성", {
+      message: `「${page.title}」 아래에 새 기획서 페이지 「${firstLine.slice(0, 40)}」를 만듭니다.\n기존 페이지 내용은 일절 바뀌지 않습니다.`,
+      confirmLabel: "🗂️ 생성",
+    });
+    if (!ok) return;
+    setBusy("apply");
+    try {
+      const link = await applyNotionSubpage(page.url, page.title, revised);
+      const open = await uiConfirm("📚 생성 완료", {
+        message: "하위 기획서를 만들었습니다. 노션에서 열어볼까요?",
+        confirmLabel: "🔗 노션에서 열기",
+      });
+      if (open) window.open(link, "_blank", "noopener");
+      onClose();
+    } catch (e: any) {
+      void uiAlert("생성 실패", String(e?.message ?? e));
+    } finally {
+      setBusy("");
+    }
+  };
+
   return (
     <div className="doc-viewer" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="doc-window notion-studio">
@@ -111,10 +136,18 @@ export function NotionStudio({ onClose }: { onClose: () => void }) {
               >
                 ➕ 내용 추가 (끝에 붙임)
               </button>
+              <button
+                className={`doc-tab ${task === "subpage" ? "on" : ""}`}
+                onClick={() => setTask("subpage")}
+                disabled={busy !== ""}
+                title="새 하위 기획서 페이지를 만들어 이 페이지 아래에 넣습니다 — 오너 스타일(이모지 아이콘·숫자 헤딩·볼드 리드), 기존 페이지 무변경"
+              >
+                🗂️ 하위 기획서 생성
+              </button>
             </div>
           </div>
           <div className="hire-row">
-            <label>{task === "add" ? "추가 요구" : "수정 요구"}</label>
+            <label>{task === "add" ? "추가 요구" : task === "subpage" ? "기획서 요구" : "수정 요구"}</label>
             <textarea
               value={request}
               onChange={(e) => setRequest(e.target.value)}
@@ -122,14 +155,22 @@ export function NotionStudio({ onClose }: { onClose: () => void }) {
               placeholder={
                 task === "add"
                   ? "예: '시장 시스템 기획' 섹션을 추가해줘 — 필수 재료 구매와 던전 연계 퀘스트 두 갈래로.\n예: 마일스톤 아래에 '리스크 목록' 섹션을 추가해줘."
-                  : "예: 개요를 3줄로 압축하고, 일정 부분을 표로 정리해줘.\n예: 오타를 고치고 항목마다 볼드 리드를 붙여 읽기 쉽게 다듬어줘."
+                  : task === "subpage"
+                    ? "예: '시장 시스템' 하위 기획서를 만들어줘 — 필수 재료 구매, 던전 연계 퀘스트, 가격 변동 세 파트로.\n(허브 페이지 링크를 주면 그 아래에 새 기획서 페이지가 생깁니다)"
+                    : "예: 개요를 3줄로 압축하고, 일정 부분을 표로 정리해줘.\n예: 오타를 고치고 항목마다 볼드 리드를 붙여 읽기 쉽게 다듬어줘."
               }
               disabled={busy !== ""}
             />
           </div>
           <div className="hire-actions">
             <button className="btn primary" onClick={() => void analyze()} disabled={!url.trim() || !request.trim() || busy !== ""}>
-              {busy === "analyze" ? "📖 아키비스트가 읽고 고치는 중…" : task === "add" ? "🔍 분석 & 추가안 만들기" : "🔍 분석 & 수정안 만들기"}
+              {busy === "analyze"
+                ? "📖 아키비스트가 읽고 고치는 중…"
+                : task === "add"
+                  ? "🔍 분석 & 추가안 만들기"
+                  : task === "subpage"
+                    ? "🔍 분석 & 기획서 초안 만들기"
+                    : "🔍 분석 & 수정안 만들기"}
             </button>
             {page && (
               <span className="dim" style={{ alignSelf: "center", fontSize: 12 }}>
@@ -159,9 +200,13 @@ export function NotionStudio({ onClose }: { onClose: () => void }) {
                   <button className="btn primary" onClick={() => void apply("replace")} disabled={busy !== ""}>
                     {busy === "apply" ? "반영 중…" : "✅ 본문 교체로 반영"}
                   </button>
-                ) : (
+                ) : task === "add" ? (
                   <button className="btn primary" onClick={() => void apply("append")} disabled={busy !== ""}>
                     {busy === "apply" ? "반영 중…" : "➕ 끝에 추가로 반영"}
+                  </button>
+                ) : (
+                  <button className="btn primary" onClick={() => void applySubpage()} disabled={busy !== ""}>
+                    {busy === "apply" ? "생성 중…" : "🗂️ 하위 기획서로 생성"}
                   </button>
                 )}
                 <button className="btn" onClick={() => void analyze()} disabled={busy !== ""} title="같은 요구로 다시 뽑습니다">

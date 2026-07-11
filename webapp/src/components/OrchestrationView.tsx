@@ -131,6 +131,9 @@ export function OrchestrationView() {
     devKitLog,
     kitFiles,
     activeProject,
+    reports,
+    openDocViewer,
+    openReport,
   } = useVE();
   const bottomRef = useRef<HTMLDivElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
@@ -546,6 +549,24 @@ export function OrchestrationView() {
           <button className="btn tiny" onClick={clearFeed} title="이 프로젝트의 대화 기록을 지웁니다">
             🧹 피드 비우기
           </button>
+          {(() => {
+            // 최신 회의록 바로 열기 — 회의가 어떤 근거로 결론에 도달했는지 기록
+            const minutes = reports.filter((r) => r.title.startsWith("회의록"));
+            if (minutes.length === 0) return null;
+            const latest = minutes.reduce((a, b) => (a.ts > b.ts ? a : b));
+            return (
+              <button
+                className="btn tiny"
+                onClick={() => {
+                  openDocViewer("reports");
+                  void openReport(latest.ts);
+                }}
+                title="가장 최근 회의록을 엽니다 — 지시→초안→검토→수정 흐름과 QA 근거가 담겨 있습니다"
+              >
+                📋 회의록 보기{minutes.length > 1 ? ` (${minutes.length})` : ""}
+              </button>
+            );
+          })()}
           {orchBaseline !== null && orchBaseline !== gdd && (
             <button
               className="btn tiny primary"

@@ -51,6 +51,7 @@ import {
   janitorFeedPrompt,
   janitorChatPrompt,
   notionEditPrompt,
+  notionPolishPrompt,
   retrospectPrompt,
   parseRetrospect,
   DEFAULT_REPORT_TOPIC,
@@ -61,7 +62,7 @@ import {
 } from "./lib/agents";
 import { fetchGrowth, postGrowth, setGrowthCache, XP_RULES, type GrowthMap } from "./lib/growth";
 import { listHires, hireAgentApi, fireAgentApi, type HireRequest } from "./lib/hire";
-import { readNotionPage, editNotionPage, type NotionPageRead } from "./lib/notionSync";
+import { readNotionPage, editNotionPage, createNotionSubpage, publishNotion, type NotionPageRead } from "./lib/notionSync";
 import {
   listKnowledge,
   saveKnowledge,
@@ -293,10 +294,14 @@ interface VEState {
   analyzeNotionPage: (
     url: string,
     request: string,
-    task?: "revise" | "add"
+    task?: "revise" | "add" | "subpage"
   ) => Promise<{ page: NotionPageRead; revised: string }>;
   /** 노션 편집실 ② — 오너 승인 후 수정안을 노션에 반영 (원본 자동 백업) */
   applyNotionEdit: (url: string, title: string, markdown: string, mode: "replace" | "append") => Promise<string>;
+  /** 노션 편집실 ③ — 부모 페이지 아래 새 하위 기획서 생성 (기존 페이지 무변경) */
+  applyNotionSubpage: (parentUrl: string, parentTitle: string, markdown: string) => Promise<string>;
+  /** 노션 발행(다듬기) — 아키비스트가 섹션을 오너 스타일로 재포맷 후 발행 (섹션당 LLM 1회, GDD 원본 불변) */
+  publishNotionStyled: () => Promise<string>;
   /** 직원 채용 — 서버가 페르소나 생성 + OpenClaw 설정 추가 + 게이트웨이 재시작(~10초) */
   hireAgentAction: (req: HireRequest) => Promise<void>;
   /** 채용 직원 퇴사 처리 (기본 로스터는 불가) */
@@ -2187,6 +2192,11 @@ export const useVE = create<VEState>()((set, get) => {
           const named = /['"「]([^'"「」]{2,40})['"」]/.exec(request);
           if (named) revised = `## ${named[1].trim()}\n\n${revised.trim()}`;
         }
+        // 하위 페이지 모드 보정 — 첫 줄이 "# 제목"이 아니면 요구의 따옴표 이름(또는 기본명)으로 붙인다
+        if (task === "subpage" && !/^#\s/.test(revised.trim())) {
+          const named = /['"「]([^'"「」]{2,40})['"」]/.exec(request);
+          revised = `# 📄 ${named?.[1]?.trim() ?? "새 기획서"}\n\n${revised.trim()}`;
+        }
         setAgentStatus("archivist", "done");
         return { page, revised };
       } catch (e) {
@@ -2204,6 +2214,71 @@ export const useVE = create<VEState>()((set, get) => {
       });
       get().recordGrowth("archivist", "draft");
       return out.url;
+    },
+
+    applyNotionSubpage: async (parentUrl, parentTitle, markdown) => {
+      // 첫 줄 "# <이모지> <제목>"에서 제목·아이콘을 분리 — 나머지가 본문
+      const lines = markdown.trim().split(/\r?\n/);
+      const head = /^#\s+(\p{Extended_Pictographic}️?)?\s*(.+)$/u.exec(lines[0]?.trim() ?? "");
+      const icon = head?.[1] ?? "📄";
+      const title = (head?.[2] ?? lines[0] ?? "새 기획서").trim();
+      const body = head ? lines.slice(1).join("\n").trim() : markdown.trim();
+      const pageUrl = await createNotionSubpage(parentUrl, title, body, icon);
+      pushFeed({
+        from: "archivist",
+        kind: "summary",
+        text: `📚 노션 「${parentTitle}」 아래에 하위 기획서 「${icon} ${title}」를 만들었습니다 — 기존 페이지는 건드리지 않았습니다.`,
+      });
+      get().recordGrowth("archivist", "draft");
+      return pageUrl;
+    },
+
+    publishNotionStyled: async () => {
+      // 발행 전 다듬기 — 아키비스트가 채워진 섹션을 오너 스타일로 재포맷(내용 불변) 후 발행.
+      // GDD.md 원본은 그대로 두고 발행본만 다듬는다. 섹션당 LLM 1회.
+      const project = get().activeProject;
+      const gdd = get().gdd;
+      if (!project || !gdd.trim()) throw new Error("발행할 GDD가 없습니다");
+      const parts = gdd.split(/^(?=## )/m); // 헤더(## …)로 시작하는 조각들 + 머리말
+      const filled = parts.filter((p) => /^## /.test(p) && !p.includes("아직 작성되지 않음") && p.trim().split("\n").length > 1);
+      let done = 0;
+      setAgentStatus("archivist", "running");
+      pushFeed({ from: "archivist", kind: "status", text: `✨ 발행 전 다듬기 시작 — 채워진 섹션 ${filled.length}개를 오너 스타일로 재포맷합니다 (섹션당 호출 1회).` });
+      const polished = [] as string[];
+      try {
+        for (const p of parts) {
+          if (!/^## /.test(p) || p.includes("아직 작성되지 않음") || p.trim().split("\n").length <= 1) {
+            polished.push(p);
+            continue;
+          }
+          const nl = p.indexOf("\n");
+          const header = p.slice(0, nl).trim(); // "## 3. 게임플레이"
+          const body = p.slice(nl + 1).trim();
+          try {
+            const r = await gateway.runAgent(
+              "archivist",
+              notionPolishPrompt(header.replace(/^##\s*/, ""), body),
+              `polish-${project}-${Date.now().toString(36)}`
+            );
+            const clean = sanitizeAgentOutput(r.text);
+            addUsage(r.usage, clean);
+            // 다듬은 결과가 원문 대비 지나치게 짧으면(내용 유실 의심) 원문 유지
+            polished.push(clean.length >= body.length * 0.5 ? `${header}\n\n${clean}\n\n` : p);
+          } catch {
+            polished.push(p); // 개별 실패는 원문 유지
+          }
+          done++;
+          pushFeed({ from: "archivist", kind: "status", text: `✨ 다듬는 중 ${done}/${filled.length} — ${header.replace(/^##\s*/, "")}` });
+        }
+        const url = await publishNotion(project, polished.join(""));
+        setAgentStatus("archivist", "done");
+        pushFeed({ from: "archivist", kind: "summary", text: `📚 아키비스트 다듬기 발행 완료 — 섹션 ${done}개를 오너 스타일로 재포맷해 노션에 올렸습니다 (GDD 원본은 그대로).` });
+        get().recordGrowth("archivist", "conclusion");
+        return url;
+      } catch (e) {
+        setAgentStatus("archivist", "error");
+        throw e;
+      }
     },
 
     /* ── 직원 채용/퇴사 (동적 로스터) ──────────────────── */

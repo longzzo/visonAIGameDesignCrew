@@ -755,6 +755,24 @@ export async function fetchPageDeepAsMd(pageUrlOrId, maxPages = 20, onProgress) 
 }
 
 /**
+ * 편집실 — 임의 페이지 아래 새 하위 기획서 페이지 생성 (오너 스타일: 이모지 아이콘 + 본문).
+ * 기존 페이지는 일절 건드리지 않으므로 가장 안전한 반영 방식이다.
+ */
+export async function createSubpage(parentUrlOrId, title, markdown, icon = "📄") {
+  const cfg = loadCfg();
+  if (!cfg.token) throw new Error("노션 연동이 설정되지 않았습니다");
+  const parentId = parsePageId(parentUrlOrId);
+  if (!parentId) throw new Error("링크에서 페이지 id를 찾지 못했습니다");
+  if (!String(title ?? "").trim()) throw new Error("하위 페이지 제목이 비어 있습니다");
+  const clean = String(markdown ?? "")
+    .split(/\r?\n/)
+    .filter((l) => !/^\s*\[\[유지:.*\]\]\s*$/.test(l))
+    .join("\n");
+  const page = await createChildPage(cfg.token, parentId, title.trim(), icon, mdToBlocks(clean));
+  return { ok: true, pageId: page.id, url: `https://www.notion.so/${String(page.id).replace(/-/g, "")}` };
+}
+
+/**
  * 수정안 반영 — mode "replace"는 텍스트 계열 블록만 지우고(복합 블록 보존) 새 내용을 붙인다.
  * mode "append"는 기존 내용 아래에 덧붙이기만 한다. 반영 전 원본 마크다운을 백업한다.
  */

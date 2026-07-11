@@ -54,3 +54,12 @@ export declare function updatePageContent(
   markdown: string,
   mode?: "replace" | "append"
 ): Promise<{ ok: boolean; pageId: string; url: string; preserved: number; backup: string }>;
+
+export declare function createSubpage(
+  parentUrlOrId: string,
+  title: string,
+  markdown: string,
+  icon?: string
+): Promise<{ ok: boolean; pageId: string; url: string }>;
+
+export declare function reflowMd(md: string): string;

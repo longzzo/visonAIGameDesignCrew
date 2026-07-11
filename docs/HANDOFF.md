@@ -17,7 +17,9 @@
 | 비용 방어 | 클라 가드(10분 60회) + **서버 가드**(/api/agent 120회, dev-task 12회, IP당) | `lib/cost.ts`, vite.config `rateLimited` |
 | 보안 | Host 검증(DNS 리바인딩)·Origin 검증(CSRF)·CSP sandbox(에이전트 HTML)·dev-task 로컬 전용 | vite.config `securityGuardPlugin` |
 | 노션 발행 | 오너 레퍼런스 디자인(허브+개요표+섹션 자식페이지), 90초 디바운스 자동 발행. **v3.10: reflowMd** — 모델이 한 줄로 뭉친 md(벽글·문자 표)를 발행/저장 전에 구조로 복원(결정적, 서버·클라 동일 알고리즘 2벌) | `webapp/server/notion-publish.mjs`(reflowMd), `lib/gdd.ts`(reflowMd·sanitize 훅) |
-| **회의록(v3.10)** | 3명 이상 회의는 **PM 통합 실패와 무관하게** 항상 저장 — 오너 지시·참여·타임라인(지시→초안→검토→수정→취합)·검토/QA 근거·대표 결론·산출물 요약. LLM 0회 | `store.startOrch` 끝부분(feedStart 슬라이스) |
+| **회의록(v3.10)** | 3명 이상 회의는 **PM 통합 실패와 무관하게** 항상 저장 — 오너 지시·참여·타임라인(지시→초안→검토→수정→취합)·검토/QA 근거·대표 결론·산출물 요약. LLM 0회. 회의 화면 "📋 회의록 보기" + 보고서함 회의록 필터 | `store.startOrch` 끝부분(feedStart 슬라이스), OrchestrationView feed-foot, DocViewer repFilter |
+| **다듬어 발행(v3.11)** | 📚 발행 시 선택 — 아키비스트가 채워진 섹션을 오너 스타일(숫자 소제목·볼드 리드·개조식·표)로 재포맷 후 발행. 섹션당 LLM 1회, **GDD 원본 불변**(발행본만). 결과가 원문 절반 미만이면 원문 유지(유실 방어) | `store.publishNotionStyled`, `notionPolishPrompt`, `/api/notion/publish`(gddMd override) |
+| **하위 기획서 생성(v3.11)** | 편집실 3번째 모드 🗂️ — 부모 페이지 링크+요구 → 아키비스트가 "# 이모지 제목" 문서 작성 → 승인 시 하위 페이지로 생성(기존 페이지 무변경, 가장 안전한 반영) | `createSubpage`, `/api/notion/subpage`, NotionStudio task="subpage", store `applyNotionSubpage` |
 | **노션 편집실(v3.8)** | 링크→읽기(블록→md 역변환)→아키비스트 수정안→오너 승인→반영. 원본 자동 백업(config/notion-edits/), 하위페이지·DB 등 복합 블록은 절대 삭제 안 함, "[[유지:…]]" 마커로 보존 | `fetchPageAsMd`/`updatePageContent`, `/api/notion/read·edit`, `NotionStudio.tsx`, store `analyzeNotionPage`/`applyNotionEdit` |
 | **노션 기획 가져오기(v3.9)** | "기존 기획을 노션으로 시작" — 딥 리드: 컬럼·콜아웃 투과(flatten) + 하위 기획서 1단계 추적(상한 20개, 페이지당 8천자). 원문은 보고서함, 선택 시 PM 통합(12천자까지 전달). 슬라임 김치 허브(하위 20개, 31천자)로 실측 검증 | `fetchPageDeepAsMd`, `/api/notion/import`, OrchestrationView `onImportNotion`(퀵스타트+회의 화면 📓 버튼) |
 | **자가 성장** | 작업→XP/레벨, QA반려→교훈, 레벨업 회고(LLM 1회)→작업 요령(스킬) 증류→모든 프롬프트에 주입 | `lib/growth.ts`, `/api/growth`, `store.recordGrowth` |

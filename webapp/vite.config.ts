@@ -355,7 +355,23 @@ function notionApiPlugin(): Plugin {
                 return;
               }
               const payload = await notionPayload(project)();
+              // 아키비스트가 다듬은 GDD로 발행 (원본 GDD.md는 그대로 — 발행본만 예쁘게)
+              if (typeof j.gddMd === "string" && j.gddMd.trim().length > 100) payload.gddMd = j.gddMd;
               const out = await m.publishProject(payload);
+              res.end(JSON.stringify(out));
+              return;
+            }
+
+            // 편집실 — 새 하위 기획서 페이지 생성 (기존 페이지 무변경, 가장 안전)
+            if (sub === "/subpage" && req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
+              const j = JSON.parse((await readBody(req)) || "{}");
+              const out = await m.createSubpage(
+                String(j.url ?? ""),
+                String(j.title ?? ""),
+                String(j.markdown ?? ""),
+                String(j.icon ?? "📄") || "📄"
+              );
               res.end(JSON.stringify(out));
               return;
             }

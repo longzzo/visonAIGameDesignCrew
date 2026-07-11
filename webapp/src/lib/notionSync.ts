@@ -34,14 +34,31 @@ export async function setNotionAuto(auto: boolean): Promise<void> {
   if (!r.ok || !j?.ok) throw new Error(j?.error || "설정 실패");
 }
 
-export async function publishNotion(project: string): Promise<string> {
+export async function publishNotion(project: string, gddMd?: string): Promise<string> {
   const r = await fetch("/api/notion/publish", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ project }),
+    body: JSON.stringify(gddMd ? { project, gddMd } : { project }),
   });
   const j = await r.json().catch(() => null);
   if (!r.ok || !j?.ok) throw new Error(j?.error || `발행 실패 (HTTP ${r.status})`);
+  return String(j.url ?? "");
+}
+
+/** 편집실 — 새 하위 기획서 페이지 생성 (기존 페이지 무변경) */
+export async function createNotionSubpage(
+  url: string,
+  title: string,
+  markdown: string,
+  icon?: string
+): Promise<string> {
+  const r = await fetch("/api/notion/subpage", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, title, markdown, icon }),
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok || !j?.ok) throw new Error(j?.error || `하위 페이지 생성 실패 (HTTP ${r.status})`);
   return String(j.url ?? "");
 }
 
