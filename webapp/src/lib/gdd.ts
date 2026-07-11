@@ -292,7 +292,7 @@ export function isGatewayErrorText(text: string): boolean {
     /^LLM request timed out/i.test(head) ||
     /^The model did not produce a response/i.test(head) ||
     /\[channels\] failed to load/i.test(head) ||
-    /^메모리 인덱스가 손상되어/.test(head) ||
+    /(메모리|MEMORY 검색) 인덱스가 손상되어/i.test(head) ||
     /^openclaw (memory|gateway)/i.test(head)
   );
 }
