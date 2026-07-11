@@ -117,6 +117,7 @@ import {
   replaceSection,
   getSectionBody,
   sanitizeAgentOutput,
+  isGatewayErrorText,
   listProjects,
   createProject,
   renameProject,
@@ -1321,7 +1322,10 @@ export const useVE = create<VEState>()((set, get) => {
               const rev = await gateway.runAgent(agent.id, revisePrompt(agent, reviewer, review), runTag, signal);
               const revised = sanitizeAgentOutput(rev.text);
               addUsage(rev.usage, revised);
-              if (revised && revised.length > 30) final = revised;
+              // 게이트웨이 오류 문자열(타임아웃 등)이 수정본으로 들어오면 버리고 초안 유지 (GDD 오염 방지)
+              if (revised && revised.length > 30 && !isGatewayErrorText(revised)) final = revised;
+              else if (revised && isGatewayErrorText(revised))
+                pushFeed({ from: "system", kind: "status", text: `⚠️ ${agent.name} 수정본이 게이트웨이 오류 응답이라 폐기 — 초안을 유지합니다.` });
               pushFeed({ from: agent.id, to: boss, kind: "revision", text: final });
             } catch (e: any) {
               setAgentStatus(reviewerId, "error");
@@ -1340,10 +1344,16 @@ export const useVE = create<VEState>()((set, get) => {
               setAgentStatus("qa", "running");
               const qres = await gateway.runAgent("qa", qaScorePrompt(agent, final, panorama, req), `${runTag}-qa`, signal);
               addUsage(qres.usage, qres.text);
-              const verdict = parseQaScore(sanitizeAgentOutput(qres.text));
+              const qaText = sanitizeAgentOutput(qres.text);
+              const verdict = parseQaScore(qaText);
               setAgentStatus("qa", "done");
               if (!verdict) {
-                pushFeed({ from: "system", kind: "status", text: `⚠️ QA 채점 결과를 해석하지 못해 통과 처리합니다 (${agent.name}).` });
+                // 원문 조각을 남겨 파서 개선의 근거로 삼는다 (2026-07-11 회의에서 원인 추적 불가였던 문제)
+                pushFeed({
+                  from: "system",
+                  kind: "status",
+                  text: `⚠️ QA 채점 결과를 해석하지 못해 통과 처리합니다 (${agent.name}) — QA 원문: "${qaText.replace(/\s+/g, " ").slice(0, 160)}${qaText.length > 160 ? "…" : ""}"`,
+                });
               } else {
                 const scoreLine = Object.entries(verdict.scores).map(([k, v]) => `${k} ${v}`).join(" · ");
                 if (verdict.pass) {
@@ -1357,7 +1367,7 @@ export const useVE = create<VEState>()((set, get) => {
                   const rr = await gateway.runAgent(agent.id, qaRevisePrompt(agent, verdict), runTag, signal);
                   const rewritten = sanitizeAgentOutput(rr.text);
                   addUsage(rr.usage, rewritten);
-                  if (rewritten && rewritten.length > 30) final = rewritten;
+                  if (rewritten && rewritten.length > 30 && !isGatewayErrorText(rewritten)) final = rewritten;
                   pushFeed({ from: agent.id, to: "qa", kind: "revision", text: final });
                 }
               }
@@ -2875,6 +2885,11 @@ export const useVE = create<VEState>()((set, get) => {
       const agent = AGENT_MAP[agentId];
       const project = get().activeProject;
       if (!agent || !project) return;
+      // 최후 방어선 — 게이트웨이 오류 문자열은 GDD에 절대 반영하지 않는다
+      if (isGatewayErrorText(text)) {
+        pushFeed({ from: "system", kind: "status", text: `⚠️ ${agent.name}의 산출물이 게이트웨이 오류 응답이라 GDD 반영을 건너뜁니다 — 기존 내용 유지.` });
+        return;
+      }
       gddQueue = gddQueue.then(async () => {
         try {
           const cur = await fetchGdd(project);

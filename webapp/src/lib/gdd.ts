@@ -285,6 +285,18 @@ export function reflowMd(md: string): string {
   return out.join("\n");
 }
 
+/** 게이트웨이 오류 문자열 감지 — 이게 산출물로 저장되면 GDD·회의가 오염된다 (2026-07-11 실측: 타임아웃 문구가 GDD 섹션에 반영됨) */
+export function isGatewayErrorText(text: string): boolean {
+  const head = text.trim().slice(0, 300);
+  return (
+    /^LLM request timed out/i.test(head) ||
+    /^The model did not produce a response/i.test(head) ||
+    /\[channels\] failed to load/i.test(head) ||
+    /^메모리 인덱스가 손상되어/.test(head) ||
+    /^openclaw (memory|gateway)/i.test(head)
+  );
+}
+
 /** 에이전트 출력에서 GDD에 넣기 부적절한 잔여물(도구 JSON, 거대 base64 등)을 정리 */
 export function sanitizeAgentOutput(text: string): string {
   let t = text.trim();
