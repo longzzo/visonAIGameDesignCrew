@@ -289,6 +289,8 @@ export function reflowMd(md: string): string {
 export function isGatewayErrorText(text: string): boolean {
   const head = text.trim().slice(0, 300);
   return (
+    head.length === 0 ||
+    /^\(빈 응답\)/.test(head) || // 게이트웨이가 빈 스트림을 반환한 경우 (2026-07-13 실측: uiux 목업·사업 취합에서 발생 — 재시도 대상)
     /^LLM request timed out/i.test(head) ||
     /^The model did not produce a response/i.test(head) ||
     /\[channels\] failed to load/i.test(head) ||

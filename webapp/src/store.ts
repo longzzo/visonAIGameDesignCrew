@@ -3021,7 +3021,16 @@ export const useVE = create<VEState>()((set, get) => {
         setAgentStatus("uiux", "running");
         const r = await runAgentSafe("uiux", uiMockupPrompt(buildGddPanorama(baseMd), uiSection), `mockup-${project}-${Date.now().toString(36)}`);
         addUsage(r.usage, r.text);
-        const html = extractHtml(sanitizeAgentOutput(r.text));
+        // HTML은 reflow(sanitize)를 거치면 깨질 수 있어 원문에서 직접 추출
+        let html = extractHtml(r.text);
+        if (!html) {
+          // 모델이 <html> 없이 조각(div들)만 낸 경우 — 최소 셸로 감싸 살린다
+          const fence = /```(?:html)?\s*([\s\S]*?)```/i.exec(r.text);
+          const inner = (fence ? fence[1] : r.text).trim();
+          if (/<(div|section|main|body|style)[\s>]/i.test(inner)) {
+            html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>UI 목업</title></head><body style="margin:0;padding:16px;background:#14161d;color:#e6e9f0;font-family:system-ui,sans-serif">${inner.replace(/<\/?(html|head|body)[^>]*>/gi, "")}</body></html>`;
+          }
+        }
         setAgentStatus("uiux", "done");
         if (html && html.length > 300) {
           await savePrototype(project, "UI·맵 목업 — 화면·건물 배치 와이어프레임", html);
@@ -3029,7 +3038,12 @@ export const useVE = create<VEState>()((set, get) => {
           pushFeed({ from: "uiux", kind: "summary", text: "🗺️ UI·맵 목업 완성 — 🧪 프로토타입 스튜디오에서 열어보세요 (화면별 버튼 배치 + 시장 거리 평면도)." });
           void notify("🗺️ UI·맵 목업 완성", "프로토타입 스튜디오에서 확인");
         } else {
-          pushFeed({ from: "system", kind: "error", text: "⚠️ 목업 HTML을 해석하지 못했습니다 — 다시 시도해 주세요." });
+          // 원문 조각을 남겨 원인 추적 (QA 파서 개선 때와 같은 패턴)
+          pushFeed({
+            from: "system",
+            kind: "error",
+            text: `⚠️ 목업 HTML을 해석하지 못했습니다 — 응답 앞부분: "${r.text.replace(/\s+/g, " ").slice(0, 200)}${r.text.length > 200 ? "…" : ""}"`,
+          });
         }
       } catch (e: any) {
         setAgentStatus("uiux", "error");
