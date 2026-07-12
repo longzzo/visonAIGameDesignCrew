@@ -13,6 +13,7 @@ import { DialogHost } from "./components/DialogHost";
 import { DiffViewer } from "./components/DiffViewer";
 import { DocViewer } from "./components/DocViewer";
 import { ArtStudio } from "./components/ArtStudio";
+import { ApprovalPanel } from "./components/ApprovalPanel";
 
 export default function App() {
   const {
@@ -31,6 +32,7 @@ export default function App() {
     docViewer,
     artStudioOpen,
     setArtStudioOpen,
+    approvalsOpen,
   } = useVE();
 
   const [onboard, setOnboard] = useState(false);
@@ -67,7 +69,8 @@ export default function App() {
           </button>
         </div>
       )}
-      <div className={`app-body panel-${mobilePanel} ${view === "office" || view === "studio" ? "office-full" : ""}`}>
+      {/* 마스터 GDD는 사이드 상주 대신 📄 GDD 탭에서만 — 오너 가독성 요청 (사이드 3번째 컬럼 제거) */}
+      <div className={`app-body no-side-gdd panel-${mobilePanel} ${view === "office" || view === "studio" ? "office-full" : ""}`}>
         <Sidebar />
         <main className="main-panel">
           {view === "orch" ? (
@@ -77,16 +80,18 @@ export default function App() {
             <OfficeView />
           ) : view === "data" ? (
             <DataPanel />
+          ) : view === "gdd" ? (
+            <GddPanel full />
           ) : (
             <ChatPanel />
           )}
         </main>
-        <GddPanel />
       </div>
       {profileAgent && <AgentProfile />}
       {meetingDiffOpen && <DiffViewer />}
       {docViewer && <DocViewer />}
       {artStudioOpen && <ArtStudio onClose={() => setArtStudioOpen(false)} />}
+      {approvalsOpen && <ApprovalPanel />}
       <DialogHost />
       {/* 모바일 전용 하단 탭 (900px 이하에서만 표시) */}
       <nav className="mobile-tabs">
@@ -96,7 +101,7 @@ export default function App() {
         <button className={mobilePanel === "work" ? "active" : ""} onClick={() => setMobilePanel("work")}>
           💼 작업
         </button>
-        <button className={mobilePanel === "gdd" ? "active" : ""} onClick={() => setMobilePanel("gdd")}>
+        <button className={view === "gdd" ? "active" : ""} onClick={() => { useVE.getState().setView("gdd"); setMobilePanel("work"); }}>
           📄 GDD
         </button>
       </nav>

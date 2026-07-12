@@ -11,7 +11,8 @@ function fmtTs(ts: number): string {
   return d.toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 }
 
-export function GddPanel() {
+/** full = 📄 GDD 탭(메인 영역) 모드 — 접기 없이 항상 펼침, 전폭 렌더 */
+export function GddPanel({ full = false }: { full?: boolean } = {}) {
   const {
     gdd,
     gddMtime,
@@ -44,7 +45,7 @@ export function GddPanel() {
   const [showVersions, setShowVersions] = useState(false);
   const [showReports, setShowReports] = useState(false);
   const [reportQuery, setReportQuery] = useState("");
-  const [collapsed, setCollapsed] = useState<boolean>(() => {
+  const [collapsedRaw, setCollapsed] = useState<boolean>(() => {
     // 기본 접힘 — 오너 요청: 마스터 GDD는 화면에서 접어두고 필요할 때만 펼친다 ("0"으로 펼침을 저장한 경우만 예외)
     try {
       return localStorage.getItem("ve-gdd-collapsed") !== "0";
@@ -52,6 +53,7 @@ export function GddPanel() {
       return true;
     }
   });
+  const collapsed = full ? false : collapsedRaw; // 📄 GDD 탭에서는 항상 펼침
   const toggleCollapsed = () => {
     setCollapsed((c) => {
       const n = !c;
@@ -107,7 +109,7 @@ export function GddPanel() {
 
   return (
     <aside
-      className={`gdd-panel ${dragOver ? "drag-over" : ""}`}
+      className={`gdd-panel ${full ? "gdd-main" : ""} ${dragOver ? "drag-over" : ""}`}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes("application/x-ve-agent")) {
           e.preventDefault();
@@ -137,7 +139,7 @@ export function GddPanel() {
           </div>
         </div>
         <div className="gdd-tools">
-          {!gddEditing && (
+          {!gddEditing && !full && (
             <button
               className={`btn tiny ${collapsed ? "primary" : ""}`}
               onClick={toggleCollapsed}

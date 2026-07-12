@@ -58,6 +58,51 @@ export async function appendDecisions(project: string, items: string[], source: 
   });
 }
 
+/* ── 승인 대기 큐 (오너 에스컬레이션) ── */
+
+export interface ApprovalItem {
+  id: string;
+  ts: number;
+  title: string;
+  detail?: string;
+  source?: string;
+  status: "pending" | "approved" | "rejected";
+  decidedTs?: number;
+  note?: string;
+}
+
+export async function listApprovals(project: string): Promise<ApprovalItem[]> {
+  try {
+    const r = await fetch(`/api/approvals?project=${encodeURIComponent(project)}`);
+    if (!r.ok) return [];
+    return (await r.json()).items ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function addApprovalApi(project: string, title: string, detail = "", source = ""): Promise<boolean> {
+  const r = await fetch(`/api/approvals?project=${encodeURIComponent(project)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ add: { title, detail, source } }),
+  });
+  const j = await r.json();
+  if (!r.ok || !j.ok) throw new Error(j.error || "안건 등록 실패");
+  return j.added > 0;
+}
+
+export async function decideApprovalApi(project: string, id: string, status: "approved" | "rejected", note = ""): Promise<ApprovalItem> {
+  const r = await fetch(`/api/approvals?project=${encodeURIComponent(project)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ decide: { id, status, note } }),
+  });
+  const j = await r.json();
+  if (!r.ok || !j.ok) throw new Error(j.error || "결재 실패");
+  return j.item as ApprovalItem;
+}
+
 /** 최근 결정사항을 프롬프트 주입용 불릿 텍스트로 (최신 우선 최대 n개) */
 export function decisionsBlock(items: DecisionItem[], n = 12): string {
   return items

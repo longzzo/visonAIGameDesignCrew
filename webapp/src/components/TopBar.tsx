@@ -130,7 +130,10 @@ export function TopBar() {
     orchRunning,
     health,
     restartGatewayAction,
+    approvals,
+    setApprovalsOpen,
   } = useVE();
+  const pendingApprovals = approvals.filter((a) => a.status === "pending").length;
   const price = priceFor(modelName);
   const costLabel =
     price.inPrice === 0 && price.outPrice === 0
@@ -200,7 +203,7 @@ export function TopBar() {
     });
     if (ok) void deleteProjectAction(current.id);
   };
-  const switchView = (v: "orch" | "chat" | "office" | "data") => {
+  const switchView = (v: "orch" | "chat" | "office" | "data" | "gdd") => {
     setView(v);
     setMobilePanel("work");
   };
@@ -242,8 +245,18 @@ export function TopBar() {
         <button className={view === "data" ? "active" : ""} onClick={() => switchView("data")} title="게임 데이터 파일(JSON/CSV) — 방치형 등 데이터 주도 게임의 밸런스·경제 테이블을 모아 편집">
           🧮 데이터
         </button>
+        <button className={view === "gdd" ? "active" : ""} onClick={() => switchView("gdd")} title="마스터 GDD — 팀이 작성하는 기획서 (사이드 상주 대신 전용 탭)">
+          📄 GDD
+        </button>
       </nav>
       <div className="topbar-right">
+        <button
+          className={`badge approval-badge ${pendingApprovals > 0 ? "hot" : ""}`}
+          onClick={() => setApprovalsOpen(true)}
+          title="승인 대기 — PM이 상신한 초중대 사항 결재함"
+        >
+          🔔{pendingApprovals > 0 ? ` ${pendingApprovals}` : ""}
+        </button>
         <span className="badge model-badge" title="현재 모델">
           🧠 {modelName}
         </span>

@@ -936,8 +936,8 @@ function stripInternalUrls(s: string): string {
 }
 
 /** 볼트의 .md 파일 순회 — .obsidian/휴지통/산출물 폴더는 건너뛴다 */
-function walkVaultMd(root: string): string[] {
-  const skip = new Set([".obsidian", ".trash", ".git", "node_modules", OBSIDIAN_EXPORT_DIR]);
+function walkVaultMd(root: string, includeExport = false): string[] {
+  const skip = new Set([".obsidian", ".trash", ".git", "node_modules", ...(includeExport ? [] : [OBSIDIAN_EXPORT_DIR])]);
   const out: string[] = [];
   const stack = [root];
   let guard = 0;
@@ -1648,6 +1648,59 @@ function obsidianApiPlugin(): Plugin {
               return;
             }
 
+            // 📚 사서 — 볼트 전문 검색 (제목·본문, 상위 12건 + 스니펫)
+            if (sub === "/search" && req.method === "GET") {
+              const q = (url.searchParams.get("q") ?? "").trim().slice(0, 120);
+              if (q.length < 2) {
+                res.end(JSON.stringify({ ok: true, results: [] }));
+                return;
+              }
+              const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+              const results: any[] = [];
+              // 사서 검색은 VE 산출물 보관함(VisionEngine/)까지 포함 — 학습 스캔(/learn)과 달리 전체가 대상
+              for (const file of walkVaultMd(vault, true)) {
+                let stat: fs.Stats;
+                try {
+                  stat = fs.statSync(file);
+                } catch {
+                  continue;
+                }
+                if (stat.size > 300_000) continue;
+                let md: string;
+                try {
+                  md = fs.readFileSync(file, "utf-8");
+                } catch {
+                  continue;
+                }
+                const title = path.basename(file, ".md");
+                const hay = (title + "\n" + md).toLowerCase();
+                if (!terms.every((t) => hay.includes(t))) continue;
+                // 첫 매치 주변 스니펫
+                const idx = hay.indexOf(terms[0]);
+                const snippet = md
+                  .slice(Math.max(0, idx - 60), idx + 180)
+                  .replace(/\s+/g, " ")
+                  .trim();
+                const rel = path.relative(vault, file).replace(/\\/g, "/");
+                results.push({
+                  path: rel,
+                  title,
+                  snippet: snippet.slice(0, 220),
+                  mtime: Math.floor(stat.mtimeMs),
+                  fromExport: rel.startsWith(`${OBSIDIAN_EXPORT_DIR}/`),
+                });
+                if (results.length >= 12) break;
+              }
+              // 제목 매치 우선, 다음 최신순
+              results.sort((a, b) => {
+                const at = terms.some((t) => a.title.toLowerCase().includes(t)) ? 1 : 0;
+                const bt = terms.some((t) => b.title.toLowerCase().includes(t)) ? 1 : 0;
+                return bt - at || b.mtime - a.mtime;
+              });
+              res.end(JSON.stringify({ ok: true, results }));
+              return;
+            }
+
             if (sub === "/note" && req.method === "GET") {
               const rel = url.searchParams.get("path") ?? "";
               const abs = path.resolve(vault, rel);
@@ -1663,8 +1716,10 @@ function obsidianApiPlugin(): Plugin {
                 return;
               }
               const md = fs.readFileSync(abs, "utf-8");
-              // 태그가 달린 노트만 서빙 — path 파라미터로 임의 노트를 여는 것을 막는다
-              if (!hasLearnTag(md)) {
+              // 태그가 달린 노트만 서빙 — path 파라미터로 임의 노트를 여는 것을 막는다.
+              // 예외: 사서 검색 경유(from=search)는 PC 로컬 요청에 한해 태그 없이도 허용 — "볼트 전체가 두뇌" (오너 요청)
+              const fromSearch = url.searchParams.get("from") === "search" && isLocalReq(req);
+              if (!hasLearnTag(md) && !fromSearch) {
                 res.statusCode = 403;
                 res.end(JSON.stringify({ ok: false, error: `#${OBSIDIAN_LEARN_TAG} 태그가 없는 노트입니다` }));
                 return;
@@ -2176,6 +2231,99 @@ function decisionsApiPlugin(): Plugin {
               // 원장은 최근 200개까지 유지
               fs.writeFileSync(f, JSON.stringify(items.slice(-200), null, 1), "utf-8");
               res.end(JSON.stringify({ ok: true, added: texts.length }));
+              return;
+            }
+            res.statusCode = 405;
+            res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 300) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
+/* ── 플러그인: 승인 대기 큐 (오너 에스컬레이션) ── */
+
+/**
+ * PM에게 총 결정권이 있지만, 방향을 바꾸는 초중대 사항은 오너 승인 큐에 쌓인다.
+ * 회의 산출물의 "[오너 승인 필요] …" 마커가 자동 수집되고, 오너가 승인하면 결정 원장에 적립된다.
+ * 저장: projects/<id>/approvals.json
+ */
+function approvalsApiPlugin(): Plugin {
+  const file = (id: string) => path.join(projectDir(id), "approvals.json");
+  return {
+    name: "vision-engine-approvals-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/approvals", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            const url = new URL(req.url ?? "/", "http://local");
+            const project = url.searchParams.get("project") ?? "";
+            if (!isSafeId(project) || !fs.existsSync(projectDir(project))) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: "project 확인 필요" }));
+              return;
+            }
+            const f = file(project);
+            const load = (): any[] => {
+              try {
+                return JSON.parse(fs.readFileSync(f, "utf-8"));
+              } catch {
+                return [];
+              }
+            };
+            const save = (items: any[]) => fs.writeFileSync(f, JSON.stringify(items.slice(-100), null, 1), "utf-8");
+            if (req.method === "GET") {
+              res.end(JSON.stringify({ ok: true, items: load() }));
+              return;
+            }
+            if (req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
+              const j = JSON.parse((await readBody(req)) || "{}");
+              const items = load();
+              // 새 안건 등록 (중복 제목은 무시)
+              if (j.add) {
+                const title = String(j.add.title ?? "").slice(0, 160).trim();
+                const detail = String(j.add.detail ?? "").slice(0, 1200);
+                const source = String(j.add.source ?? "").slice(0, 80);
+                if (!title) {
+                  res.statusCode = 400;
+                  res.end(JSON.stringify({ ok: false, error: "제목이 비어 있습니다" }));
+                  return;
+                }
+                if (items.some((it) => it.title === title && it.status === "pending")) {
+                  res.end(JSON.stringify({ ok: true, added: 0, dup: true }));
+                  return;
+                }
+                const item = { id: `apv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, ts: Date.now(), title, detail, source, status: "pending" };
+                items.push(item);
+                save(items);
+                res.end(JSON.stringify({ ok: true, added: 1, item }));
+                return;
+              }
+              // 오너 결재 (승인/반려)
+              if (j.decide) {
+                const id = String(j.decide.id ?? "");
+                const status = j.decide.status === "approved" ? "approved" : j.decide.status === "rejected" ? "rejected" : "";
+                const it = items.find((x) => x.id === id);
+                if (!it || !status) {
+                  res.statusCode = 400;
+                  res.end(JSON.stringify({ ok: false, error: "안건을 찾지 못했습니다" }));
+                  return;
+                }
+                it.status = status;
+                it.decidedTs = Date.now();
+                if (j.decide.note) it.note = String(j.decide.note).slice(0, 300);
+                save(items);
+                res.end(JSON.stringify({ ok: true, item: it }));
+                return;
+              }
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: "add 또는 decide가 필요합니다" }));
               return;
             }
             res.statusCode = 405;
@@ -3065,6 +3213,7 @@ export default defineConfig({
     pdfTextApiPlugin(),
     protoApiPlugin(),
     decisionsApiPlugin(),
+    approvalsApiPlugin(),
     kitApiPlugin(),
     officeBgPlugin(),
     knowledgeApiPlugin(),

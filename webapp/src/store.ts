@@ -78,6 +78,7 @@ import {
   getObsidianStatus,
   listObsidianLearnNotes,
   fetchObsidianNote,
+  librarianBlock,
   type ObsidianStatus,
   type ObsidianNoteInfo,
 } from "./lib/obsidian";
@@ -108,6 +109,10 @@ import {
   listDecisions,
   appendDecisions,
   decisionsBlock,
+  listApprovals,
+  addApprovalApi,
+  decideApprovalApi,
+  type ApprovalItem,
   type KitFile,
   type DecisionItem,
 } from "./lib/kit";
@@ -137,7 +142,7 @@ import {
 } from "./lib/gdd";
 import { loadCommScopes, saveCommScopes, scopeMutual, zoneOf, AGENT_ZONE, type CommScope } from "./lib/zones";
 
-export type View = "studio" | "orch" | "chat" | "office" | "data";
+export type View = "studio" | "orch" | "chat" | "office" | "data" | "gdd";
 export type MobilePanel = "agents" | "work" | "gdd";
 export type AgentStatus = "idle" | "running" | "done" | "error";
 
@@ -357,6 +362,9 @@ interface VEState {
   qaGate: boolean;
   /** 결정사항 원장 — 회의 결론이 적립되어 다음 회의에 자동 주입되는 조직의 기억 */
   decisions: DecisionItem[];
+  /** 승인 대기 큐 — PM이 판단한 초중대 사항이 오너 결재를 기다린다 */
+  approvals: ApprovalItem[];
+  approvalsOpen: boolean;
   /** 개발 착수 킷 */
   kitFiles: KitFile[];
   devKitBusy: boolean;
@@ -500,6 +508,11 @@ interface VEState {
   setQaGate: (b: boolean) => void;
   /** 결정사항 원장 로드 */
   loadDecisions: () => Promise<void>;
+  /** 승인 대기 큐 */
+  loadApprovals: () => Promise<void>;
+  setApprovalsOpen: (b: boolean) => void;
+  addApproval: (title: string, detail?: string, source?: string) => Promise<void>;
+  decideApproval: (id: string, status: "approved" | "rejected", note?: string) => Promise<void>;
   /** 개발 착수 킷 — 유니티 문서·밸런스 CSV·에셋 매니페스트·스켈레톤·그레이박스를 체인으로 생성 */
   buildDevKit: () => Promise<void>;
   /** 밸런싱 수치 시트만 — 데이터 테이블(CSV)+근거 README를 생성해 데이터 탭에 저장 */
@@ -854,6 +867,8 @@ export const useVE = create<VEState>()((set, get) => {
       }
     })(),
     decisions: [],
+    approvals: [],
+    approvalsOpen: false,
     kitFiles: [],
     devKitBusy: false,
     devKitPhase: "",
@@ -904,6 +919,7 @@ export const useVE = create<VEState>()((set, get) => {
         void get().loadArt();
         void get().loadProto();
         void get().loadDecisions();
+        void get().loadApprovals();
         void get().loadKit();
       }
       void get().checkArtStatus();
@@ -1019,6 +1035,7 @@ export const useVE = create<VEState>()((set, get) => {
         artImages: [],
         protoList: [],
         decisions: [],
+        approvals: [],
         kitFiles: [],
         devKitLog: [],
       });
@@ -1030,6 +1047,7 @@ export const useVE = create<VEState>()((set, get) => {
       void get().loadArt();
       void get().loadProto();
       void get().loadDecisions();
+      void get().loadApprovals();
       void get().loadKit();
     },
 
@@ -1253,7 +1271,18 @@ export const useVE = create<VEState>()((set, get) => {
       const overview = getSectionBody(baseMd, "## 1.");
       // 전체 조감도(비-LLM 요약) + 결정사항 원장 — 에이전트가 조각이 아닌 전체 그림을 보고 쓴다
       const panorama = buildGddPanorama(baseMd);
-      const decisionsText = decisionsBlock(get().decisions);
+      // 📚 옵시디언 사서 — 오너 볼트에서 지시와 관련된 노트를 찾아 회의에 주입 (볼트 없거나 무관하면 빈 문자열)
+      let librarian = "";
+      try {
+        librarian = await librarianBlock(req);
+        if (librarian) {
+          const n = (librarian.match(/^--- 노트: /gm) ?? []).length;
+          pushFeed({ from: "system", kind: "status", text: `📚 옵시디언 사서: 볼트에서 관련 노트 ${n}건을 찾아 회의에 배포했습니다.` });
+        }
+      } catch {
+        /* 사서 실패는 회의를 막지 않는다 */
+      }
+      const decisionsText = [decisionsBlock(get().decisions), librarian].filter(Boolean).join("\n\n");
       // 회의 전 스냅샷 — 끝난 뒤 "🔍 변경 확인"(diff)과 "⏪ 되돌리기"의 기준이 된다
       set({ orchBaseline: baseMd, meetingDiffOpen: false });
 
@@ -1660,6 +1689,25 @@ export const useVE = create<VEState>()((set, get) => {
           pushFeed({ from: "system", kind: "status", text: "📋 회의록이 보고서함에 저장되었습니다 (근거·검토 흐름 포함)." });
         } catch {
           /* 회의록 저장 실패는 치명적이지 않음 */
+        }
+
+        // 🔔 오너 승인 요청 수집 — PM·에이전트가 "[오너 승인 필요] …"로 표시한 초중대 사항을 승인 대기 큐에 상신
+        try {
+          const markerRe = /\[오너 승인 필요\]\s*([^\n]{4,160})/g;
+          const seen = new Set<string>();
+          const texts = [get().cards["pm"]?.output ?? "", ...results.map((r) => r.text)];
+          let count = 0;
+          for (const t of texts) {
+            for (const m of t.matchAll(markerRe)) {
+              const title = m[1].trim().replace(/[*_`]+/g, "");
+              if (!title || seen.has(title) || count >= 5) continue;
+              seen.add(title);
+              count++;
+              await get().addApproval(title, `회의 "${req.slice(0, 60)}"에서 상신됨`, "meeting");
+            }
+          }
+        } catch {
+          /* 수집 실패는 회의를 막지 않는다 */
         }
       }
 
@@ -2739,6 +2787,51 @@ export const useVE = create<VEState>()((set, get) => {
       if (!project) return;
       const decisions = await listDecisions(project);
       if (get().activeProject === project) set({ decisions });
+    },
+
+    loadApprovals: async () => {
+      const project = get().activeProject;
+      if (!project) return;
+      const approvals = await listApprovals(project);
+      if (get().activeProject === project) set({ approvals });
+    },
+
+    setApprovalsOpen: (b) => set({ approvalsOpen: b }),
+
+    addApproval: async (title, detail = "", source = "") => {
+      const project = get().activeProject;
+      if (!project || !title.trim()) return;
+      try {
+        const added = await addApprovalApi(project, title.trim(), detail, source);
+        await get().loadApprovals();
+        if (added) {
+          pushFeed({ from: "pm", kind: "status", text: `🔔 오너 승인 요청 상신: ${title.trim().slice(0, 80)}` });
+          void notify("🔔 승인 대기 안건", title.slice(0, 60));
+        }
+      } catch (e: any) {
+        pushFeed({ from: "system", kind: "error", text: `⚠️ 승인 안건 등록 실패: ${String(e?.message ?? e).slice(0, 80)}` });
+      }
+    },
+
+    decideApproval: async (id, status, note = "") => {
+      const project = get().activeProject;
+      if (!project) return;
+      try {
+        const item = await decideApprovalApi(project, id, status, note);
+        await get().loadApprovals();
+        if (status === "approved") {
+          // 승인 = 결정 원장에 적립 → 다음 회의부터 모든 에이전트에게 자동 주입
+          await appendDecisions(project, [`(오너 승인) ${item.title}`], "approval");
+          await get().loadDecisions();
+        }
+        pushFeed({
+          from: "user",
+          kind: "status",
+          text: `${status === "approved" ? "✅ 오너 승인" : "❌ 오너 반려"}: ${item.title.slice(0, 80)}${note ? ` — ${note.slice(0, 60)}` : ""}`,
+        });
+      } catch (e: any) {
+        pushFeed({ from: "system", kind: "error", text: `⚠️ 결재 실패: ${String(e?.message ?? e).slice(0, 80)}` });
+      }
     },
 
     loadKit: async () => {

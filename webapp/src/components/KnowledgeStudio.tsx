@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AGENT_MAP } from "../lib/agents";
 import { uiConfirm } from "../lib/dialog";
+import { searchObsidian, type ObsidianSearchHit } from "../lib/obsidian";
 import { useVE } from "../store";
 import { Markdown } from "./Markdown";
 
@@ -27,6 +28,19 @@ export function KnowledgeStudio({ onClose }: { onClose: () => void }) {
   const [content, setContent] = useState("");
   const [query, setQuery] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  // 📚 사서 — 볼트 전문 검색
+  const [libQ, setLibQ] = useState("");
+  const [libHits, setLibHits] = useState<ObsidianSearchHit[] | null>(null);
+  const [libBusy, setLibBusy] = useState(false);
+  const runLibSearch = async () => {
+    if (!libQ.trim() || libBusy) return;
+    setLibBusy(true);
+    try {
+      setLibHits(await searchObsidian(libQ.trim()));
+    } finally {
+      setLibBusy(false);
+    }
+  };
 
   useEffect(() => {
     void loadKnowledge();
@@ -125,8 +139,35 @@ export function KnowledgeStudio({ onClose }: { onClose: () => void }) {
             <div className="dim obsidian-hint">
               볼트 노트에 <code>#{obsidian.learnTag}</code> 태그를 달면 여기 나타납니다 · frontmatter{" "}
               <code>agents: [bm, uiux]</code>로 대상 지정 가능 · 보고서·GDD는 볼트 <code>VisionEngine/</code>에 자동
-              보관됩니다
+              보관됩니다 · 회의 시작 시 📚 사서가 지시와 관련된 볼트 노트를 자동으로 찾아 팀에 배포합니다
             </div>
+            {/* 📚 사서 — 볼트 전문 검색 (태그 없이도 제목·본문 검색) */}
+            <div className="obsidian-search">
+              <input
+                value={libQ}
+                onChange={(e) => setLibQ(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && void runLibSearch()}
+                placeholder="📚 사서에게 볼트 검색 — 예: 김치 등급, 시장, 발효"
+              />
+              <button className="btn tiny" disabled={!libQ.trim() || libBusy} onClick={() => void runLibSearch()}>
+                {libBusy ? "검색 중…" : "🔎 검색"}
+              </button>
+            </div>
+            {libHits !== null && (
+              <div className="obsidian-hits">
+                {libHits.length === 0 && <div className="dim obsidian-empty">일치하는 노트가 없습니다.</div>}
+                {libHits.map((h) => (
+                  <div key={h.path} className="obsidian-hit">
+                    <div className="obsidian-hit-title" title={h.path}>
+                      {h.fromExport ? "🗂️ " : "📝 "}
+                      {h.title}
+                      <span className="dim"> · {new Date(h.mtime).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" })}</span>
+                    </div>
+                    <div className="obsidian-hit-snippet dim">{h.snippet}</div>
+                  </div>
+                ))}
+              </div>
+            )}
             {obsidianNotes.length === 0 ? (
               <div className="dim obsidian-empty">아직 #{obsidian.learnTag} 태그가 달린 노트가 없습니다.</div>
             ) : (
