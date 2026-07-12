@@ -126,6 +126,8 @@ export function OrchestrationView() {
     qaGate,
     setQaGate,
     buildDevKit,
+    buildUiMockup,
+    uiMockupBusy,
     devKitBusy,
     devKitPhase,
     devKitLog,
@@ -424,6 +426,20 @@ export function OrchestrationView() {
                     </>
                   ) : (
                     "📦 개발 킷"
+                  )}
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => void buildUiMockup()}
+                  disabled={uiMockupBusy}
+                  title="UIUX 디자이너가 화면별 버튼 배치 + 시장 거리 건물 배치를 와이어프레임으로 그립니다 — 🧪 프로토타입 스튜디오에서 열람"
+                >
+                  {uiMockupBusy ? (
+                    <>
+                      <span className="spinner" /> 목업…
+                    </>
+                  ) : (
+                    "🗺️ UI 목업"
                   )}
                 </button>
               </div>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Markdown } from "./Markdown";
 // (📈 차트 렌더러는 아래 CsvChart — 외부 라이브러리 없이 SVG로 그린다)
 import { useVE } from "../store";
 import { listKitFiles, saveKitFiles, kitFileUrl, type KitFile } from "../lib/kit";
@@ -168,7 +169,7 @@ function describeFile(path: string): string {
 }
 
 export function DataPanel() {
-  const { activeProject, buildDevKit, buildBalanceSheet, devKitBusy, devKitPhase } = useVE();
+  const { activeProject, buildDevKit, buildBalanceSheet, devKitBusy, devKitPhase, explainDataFile, dataExplain, dataExplainBusy } = useVE();
   const [files, setFiles] = useState<KitFile[]>([]);
   const [sel, setSel] = useState<string | null>(null);
   const [content, setContent] = useState("");
@@ -343,6 +344,25 @@ export function DataPanel() {
                   spellCheck={false}
                 />
               )}
+              {/* 🎓 데이터 도우미 — 파일은 안 건드리고 아래에서 "왜 이 값인지·장점"을 해설 */}
+              <div className="data-helper">
+                <div className="data-helper-head">
+                  <b>🎓 데이터 도우미</b>
+                  <span className="dim">이 표가 왜 이런 값인지, 근거와 장점을 밸런스 디자이너가 해설합니다 — 파일은 수정하지 않습니다</span>
+                  <button
+                    className="btn tiny primary"
+                    disabled={dataExplainBusy !== ""}
+                    onClick={() => void explainDataFile(sel, content)}
+                  >
+                    {dataExplainBusy === sel ? "해설 작성 중…" : dataExplain[sel] ? "🔄 다시 해설" : "🎓 해설 요청"}
+                  </button>
+                </div>
+                {dataExplain[sel] && (
+                  <div className="data-helper-body">
+                    <Markdown text={dataExplain[sel]} />
+                  </div>
+                )}
+              </div>
             </>
           )}
         </div>

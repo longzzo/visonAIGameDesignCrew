@@ -47,6 +47,10 @@ import {
   parseFileBlocks,
   balanceDataPrompt,
   balanceSheetPrompt,
+  bossReviewPrompt,
+  redoPrompt,
+  uiMockupPrompt,
+  dataExplainPrompt,
   assetManifestPrompt,
   unityKitPrompt,
   janitorFeedPrompt,
@@ -109,6 +113,7 @@ import {
   listDecisions,
   appendDecisions,
   decisionsBlock,
+  kitFileUrl,
   listApprovals,
   addApprovalApi,
   decideApprovalApi,
@@ -517,6 +522,13 @@ interface VEState {
   buildDevKit: () => Promise<void>;
   /** 밸런싱 수치 시트만 — 데이터 테이블(CSV)+근거 README를 생성해 데이터 탭에 저장 */
   buildBalanceSheet: () => Promise<void>;
+  /** 🗺️ UI·맵 목업 — UIUX가 화면·건물 배치 와이어프레임 HTML을 생성 (프로토타입 스튜디오에서 열람) */
+  buildUiMockup: () => Promise<void>;
+  uiMockupBusy: boolean;
+  /** 🎓 데이터 도우미 — 선택한 데이터 파일을 밸런스 디자이너가 해설 (파일 무변경) */
+  explainDataFile: (path: string, content: string) => Promise<void>;
+  dataExplain: Record<string, string>;
+  dataExplainBusy: string;
   loadKit: () => Promise<void>;
 
   reflectToGdd: (agentId: string, text: string) => Promise<void>;
@@ -785,6 +797,24 @@ export const useVE = create<VEState>()((set, get) => {
     return line ? line.trim().replace(/^[-*>#\s]+/, "").slice(0, 160) : "";
   };
 
+  /**
+   * 게이트웨이 호출 + 오류 문구 응답(타임아웃 등)이면 5초 뒤 1회 자동 재시도.
+   * 실측: idle timeout이 수정본·QA 채점에 오류 문자열로 들어와 검증이 뚫리는 사고 방지 (오너 요청).
+   */
+  const runAgentSafe = async (agentId: string, prompt: string, tag: string, signal?: AbortSignal) => {
+    let r = await gateway.runAgent(agentId, prompt, tag, signal);
+    if (isGatewayErrorText(sanitizeAgentOutput(r.text)) && !signal?.aborted) {
+      pushFeed({
+        from: "system",
+        kind: "status",
+        text: `⏳ ${AGENT_MAP[agentId]?.name ?? agentId}의 응답이 게이트웨이 오류(타임아웃 등)로 왔습니다 — 5초 후 1회 재시도합니다.`,
+      });
+      await new Promise((res) => setTimeout(res, 5000));
+      r = await gateway.runAgent(agentId, prompt, `${tag}-retry`, signal);
+    }
+    return r;
+  };
+
   return {
     view: ((): View => {
       try {
@@ -896,6 +926,9 @@ export const useVE = create<VEState>()((set, get) => {
     devKitBusy: false,
     devKitPhase: "",
     devKitLog: [],
+    uiMockupBusy: false,
+    dataExplain: {},
+    dataExplainBusy: "",
 
     gdd: "",
     gddMtime: 0,
@@ -1343,9 +1376,10 @@ export const useVE = create<VEState>()((set, get) => {
         setAgentStatus(agent.id, "running");
         pushFeed({ from: boss, to: agent.id, kind: "instruction", text: instruction });
         try {
-          const r = await gateway.runAgent(agent.id, instruction, runTag, signal);
+          const r = await runAgentSafe(agent.id, instruction, runTag, signal);
           const draft = sanitizeAgentOutput(r.text);
           addUsage(r.usage, draft);
+          if (isGatewayErrorText(draft)) throw new Error("게이트웨이 타임아웃이 재시도 후에도 계속됩니다 — 이 섹션은 건너뜁니다");
           pushFeed({ from: agent.id, to: boss, kind: "draft", text: draft });
 
           let final = draft;
@@ -1366,7 +1400,7 @@ export const useVE = create<VEState>()((set, get) => {
               updateCard(agent.id, { phase: `${reviewer.name} 검토 중` });
               setAgentStatus(reviewer.id, "running");
               pushFeed({ from: boss, to: reviewer.id, kind: "status", text: `${agent.name}의 "${agent.sectionTitle}" 초안 검토를 요청합니다.` });
-              const rv = await gateway.runAgent(reviewer.id, reviewPrompt(req, agent, reviewer, draft), `${runTag}-rv`, signal);
+              const rv = await runAgentSafe(reviewer.id, reviewPrompt(req, agent, reviewer, draft), `${runTag}-rv`, signal);
               const review = sanitizeAgentOutput(rv.text);
               addUsage(rv.usage, review);
               pushFeed({ from: reviewer.id, to: agent.id, kind: "review", text: review });
@@ -1375,7 +1409,7 @@ export const useVE = create<VEState>()((set, get) => {
 
               updateCard(agent.id, { phase: "검토 반영 수정 중" });
               setAgentStatus(agent.id, "running");
-              const rev = await gateway.runAgent(agent.id, revisePrompt(agent, reviewer, review), runTag, signal);
+              const rev = await runAgentSafe(agent.id, revisePrompt(agent, reviewer, review), runTag, signal);
               const revised = sanitizeAgentOutput(rev.text);
               addUsage(rev.usage, revised);
               // 게이트웨이 오류 문자열(타임아웃 등)이 수정본으로 들어오면 버리고 초안 유지 (GDD 오염 방지)
@@ -1398,7 +1432,7 @@ export const useVE = create<VEState>()((set, get) => {
             try {
               updateCard(agent.id, { phase: "QA 채점 중" });
               setAgentStatus("qa", "running");
-              const qres = await gateway.runAgent("qa", qaScorePrompt(agent, final, panorama, req), `${runTag}-qa`, signal);
+              const qres = await runAgentSafe("qa", qaScorePrompt(agent, final, panorama, req), `${runTag}-qa`, signal);
               addUsage(qres.usage, qres.text);
               const qaText = sanitizeAgentOutput(qres.text);
               const verdict = parseQaScore(qaText);
@@ -1420,7 +1454,7 @@ export const useVE = create<VEState>()((set, get) => {
                   pushFeed({ from: "qa", to: agent.id, kind: "review", text: `🔴 반려 (평균 ${verdict.avg.toFixed(1)}/10) — ${scoreLine}\n${verdict.notes || verdict.summary}` });
                   updateCard(agent.id, { phase: "QA 반려 — 재작성 중" });
                   setAgentStatus(agent.id, "running");
-                  const rr = await gateway.runAgent(agent.id, qaRevisePrompt(agent, verdict), runTag, signal);
+                  const rr = await runAgentSafe(agent.id, qaRevisePrompt(agent, verdict), runTag, signal);
                   const rewritten = sanitizeAgentOutput(rr.text);
                   addUsage(rr.usage, rewritten);
                   if (rewritten && rewritten.length > 30 && !isGatewayErrorText(rewritten)) final = rewritten;
@@ -1431,6 +1465,39 @@ export const useVE = create<VEState>()((set, get) => {
               setAgentStatus("qa", "idle");
               if (get().stopRequested) return;
               pushFeed({ from: "system", kind: "status", text: `⚠️ QA 게이트 실패 (${String(e?.message ?? e).slice(0, 80)}) — 채점 없이 진행합니다.` });
+            }
+          }
+
+          // 🎖️ 상사 평가 — 확정 직전, 팀장(또는 PM)이 점수·코멘트로 평가하고 미달이면 [재지시] 1회 (오너 요청: 유기적 소통·검증)
+          if (!get().stopRequested && boss !== agent.id) {
+            try {
+              const bossAgent = AGENT_MAP[boss] ?? AGENT_MAP["pm"];
+              updateCard(agent.id, { phase: `${bossAgent.name} 평가 중` });
+              setAgentStatus(boss, "running");
+              const ev = await runAgentSafe(boss, bossReviewPrompt(bossAgent, agent, req, final), `${runTag}-boss`, signal);
+              const evalText = sanitizeAgentOutput(ev.text);
+              addUsage(ev.usage, evalText);
+              setAgentStatus(boss, "done");
+              if (evalText && !isGatewayErrorText(evalText)) {
+                pushFeed({ from: boss, to: agent.id, kind: "review", text: `🎖️ 상사 평가\n${evalText}` });
+                const redo = /\[재지시\]\s*([^\n]{4,220})/.exec(evalText);
+                if (redo && !get().stopRequested) {
+                  pushFeed({ from: boss, to: agent.id, kind: "instruction", text: `🔁 재지시: ${redo[1].trim()}` });
+                  updateCard(agent.id, { phase: "재지시 반영 중" });
+                  setAgentStatus(agent.id, "running");
+                  const rr2 = await runAgentSafe(agent.id, redoPrompt(agent, redo[1], final), runTag, signal);
+                  const redone = sanitizeAgentOutput(rr2.text);
+                  addUsage(rr2.usage, redone);
+                  if (redone && redone.length > 30 && !isGatewayErrorText(redone)) {
+                    final = redone;
+                    pushFeed({ from: agent.id, to: boss, kind: "revision", text: final });
+                  } else {
+                    pushFeed({ from: "system", kind: "status", text: `⚠️ ${agent.name} 재지시 반영본이 비정상이라 직전 확정본을 유지합니다.` });
+                  }
+                }
+              }
+            } catch {
+              pushFeed({ from: "system", kind: "status", text: `⚠️ 상사 평가 단계를 건너뜁니다 (${agent.name}) — 산출물은 그대로 확정.` });
             }
           }
 
@@ -2934,6 +3001,75 @@ export const useVE = create<VEState>()((set, get) => {
       }
       await get().loadKit();
       set({ devKitBusy: false, devKitPhase: "" });
+    },
+
+    buildUiMockup: async () => {
+      const st = get();
+      if (st.uiMockupBusy || st.orchRunning) return; // 반복 호출 방지
+      const project = st.activeProject;
+      if (!project) return;
+      let baseMd = st.gdd;
+      try {
+        baseMd = (await fetchGdd(project)).markdown;
+      } catch {
+        /* 화면 상태 사용 */
+      }
+      const uiSection = getSectionBody(baseMd, "## 5.");
+      set({ uiMockupBusy: true });
+      pushFeed({ from: "user", kind: "request", text: "🗺️ UI·맵 목업 생성 — 버튼·건물 배치를 한눈에" });
+      try {
+        setAgentStatus("uiux", "running");
+        const r = await runAgentSafe("uiux", uiMockupPrompt(buildGddPanorama(baseMd), uiSection), `mockup-${project}-${Date.now().toString(36)}`);
+        addUsage(r.usage, r.text);
+        const html = extractHtml(sanitizeAgentOutput(r.text));
+        setAgentStatus("uiux", "done");
+        if (html && html.length > 300) {
+          await savePrototype(project, "UI·맵 목업 — 화면·건물 배치 와이어프레임", html);
+          await get().loadProto();
+          pushFeed({ from: "uiux", kind: "summary", text: "🗺️ UI·맵 목업 완성 — 🧪 프로토타입 스튜디오에서 열어보세요 (화면별 버튼 배치 + 시장 거리 평면도)." });
+          void notify("🗺️ UI·맵 목업 완성", "프로토타입 스튜디오에서 확인");
+        } else {
+          pushFeed({ from: "system", kind: "error", text: "⚠️ 목업 HTML을 해석하지 못했습니다 — 다시 시도해 주세요." });
+        }
+      } catch (e: any) {
+        setAgentStatus("uiux", "error");
+        pushFeed({ from: "system", kind: "error", text: `⚠️ UI 목업 실패: ${String(e?.message ?? e).slice(0, 120)}` });
+      }
+      set({ uiMockupBusy: false });
+    },
+
+    explainDataFile: async (path, content) => {
+      const st = get();
+      if (st.dataExplainBusy) return; // 반복 호출 방지
+      const project = st.activeProject;
+      if (!project || !content.trim()) return;
+      set({ dataExplainBusy: path });
+      try {
+        // README의 관련 섹션을 근거로 함께 제공 (결정론적 추출)
+        let readme = "";
+        try {
+          const r = await fetch(kitFileUrl(project, "data/README.md"));
+          if (r.ok) {
+            const md = await r.text();
+            const base = path.split("/").pop() ?? path;
+            const idx = md.indexOf(base);
+            readme = idx >= 0 ? md.slice(idx, idx + 1200) : md.slice(0, 800);
+          }
+        } catch {
+          /* README 없으면 파일만으로 설명 */
+        }
+        const r = await runAgentSafe("balance", dataExplainPrompt(path, content, readme), `explain-${project}-${Date.now().toString(36)}`);
+        const text = sanitizeAgentOutput(r.text);
+        addUsage(r.usage, text);
+        if (text && !isGatewayErrorText(text)) {
+          set((s) => ({ dataExplain: { ...s.dataExplain, [path]: text } }));
+        } else {
+          set((s) => ({ dataExplain: { ...s.dataExplain, [path]: "⚠️ 설명 생성에 실패했습니다 — 다시 시도해 주세요." } }));
+        }
+      } catch (e: any) {
+        set((s) => ({ dataExplain: { ...s.dataExplain, [path]: `⚠️ 설명 실패: ${String(e?.message ?? e).slice(0, 100)}` } }));
+      }
+      set({ dataExplainBusy: "" });
     },
 
     buildDevKit: async () => {

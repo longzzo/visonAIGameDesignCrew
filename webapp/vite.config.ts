@@ -2179,6 +2179,24 @@ function protoApiPlugin(): Plugin {
   };
 }
 
+/** 결정사항 원장을 볼트 VisionEngine/<프로젝트>/결정사항.md로 미러링 — 조직의 기억을 옵시디안에서도 본다 */
+function exportDecisionsToVault(projectId: string, items: any[]) {
+  try {
+    const vault = resolveVault();
+    if (!vault || !isSafeId(projectId)) return;
+    const pname = sanitizeFileName(listProjects().find((p) => p.id === projectId)?.name ?? projectId);
+    const base = path.join(vault, OBSIDIAN_EXPORT_DIR, pname);
+    fs.mkdirSync(base, { recursive: true });
+    const lines = items.map(
+      (it) => `- ${new Date(Number(it.ts) || Date.now()).toISOString().slice(0, 10)} — ${it.text}${it.source ? ` *(출처: ${it.source})*` : ""}`
+    );
+    const fm = `---\nsource: vision-engine\ntype: 결정사항\nproject: "${pname}"\nupdated: ${new Date().toISOString()}\ntags: [vision-engine]\n---\n\n> ⚠️ Vision Engine 결정사항 원장의 자동 사본입니다 — 여기서 수정해도 앱에 반영되지 않습니다.\n\n`;
+    fs.writeFileSync(path.join(base, "결정사항.md"), fm + lines.join("\n") + "\n", "utf-8");
+  } catch (e) {
+    console.warn("[obsidian] 결정사항 내보내기 실패:", e);
+  }
+}
+
 /* ── 플러그인: 결정사항 원장 (조직의 기억) ── */
 
 /**
@@ -2230,6 +2248,7 @@ function decisionsApiPlugin(): Plugin {
               }
               // 원장은 최근 200개까지 유지
               fs.writeFileSync(f, JSON.stringify(items.slice(-200), null, 1), "utf-8");
+              exportDecisionsToVault(project, items.slice(-200)); // 옵시디안 볼트 미러 (실패해도 무시)
               res.end(JSON.stringify({ ok: true, added: texts.length }));
               return;
             }
