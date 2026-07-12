@@ -75,7 +75,12 @@ export async function searchObsidian(q: string): Promise<ObsidianSearchHit[]> {
 
 /** 회의 주입용 사서 블록 — 요청과 관련된 볼트 노트 상위 n건을 발췌한다 (없으면 빈 문자열) */
 export async function librarianBlock(query: string, n = 3): Promise<string> {
-  const hits = (await searchObsidian(query)).filter((h) => !h.fromExport).slice(0, n);
+  const all = await searchObsidian(query);
+  // 오너 자필 노트 우선. VE 내보내기 사본 중 "가져온 문서"(오너 원본 기획 딥리드 전문)만 예외로 보충 —
+  // GDD·회의록 사본은 이미 프롬프트에 있는 내용이라 제외.
+  const own = all.filter((h) => !h.fromExport);
+  const imported = all.filter((h) => h.fromExport && h.title.includes("가져온 문서"));
+  const hits = [...own, ...imported].slice(0, n);
   if (hits.length === 0) return "";
   const parts: string[] = [`[📚 옵시디언 사서 — 오너 볼트에서 찾은 관련 노트 ${hits.length}건. 기존 기획·아이디어와 모순되지 않게 참고하라]`];
   for (const h of hits) {

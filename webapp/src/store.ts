@@ -762,6 +762,29 @@ export const useVE = create<VEState>()((set, get) => {
     }
   };
 
+  /** 📒 업무일지 — 에이전트 1:1 채팅에 자동 게시 (LLM 호출 없음). 회의·보고서가 끝나면 자기 입으로 정리해 둔다. */
+  const postWorkLog = async (agentId: string, lines: string[]) => {
+    try {
+      await ensureChatLoaded(agentId);
+      const msg: ChatMessage = {
+        id: `wl-${Date.now()}-${agentId}-${Math.random().toString(36).slice(2, 5)}`,
+        role: "assistant",
+        text: lines.filter(Boolean).join("\n"),
+        ts: Date.now(),
+      };
+      set((s) => ({ chats: { ...s.chats, [agentId]: [...(s.chats[agentId] ?? []), msg] } }));
+      persistChat(agentId);
+    } catch {
+      /* 업무일지 실패는 흐름을 막지 않는다 */
+    }
+  };
+
+  /** 산출물에서 추천·미결 한 줄 추출 (업무일지용) */
+  const pickRecommendation = (text: string): string => {
+    const line = text.split(/\r?\n/).find((l) => /(제안|추천|미결|승인 필요|검토 필요)/.test(l) && l.trim().length > 8);
+    return line ? line.trim().replace(/^[-*>#\s]+/, "").slice(0, 160) : "";
+  };
+
   return {
     view: ((): View => {
       try {
@@ -1709,6 +1732,19 @@ export const useVE = create<VEState>()((set, get) => {
         } catch {
           /* 수집 실패는 회의를 막지 않는다 */
         }
+
+        // 📒 업무일지 — 참여 에이전트 각자의 1:1 채팅에 "한 일·요약·추천"을 자동 게시 (LLM 호출 없음)
+        for (const { agent, text } of results) {
+          const rec = pickRecommendation(text);
+          await postWorkLog(agent.id, [
+            `📒 **업무일지** — ${new Date().toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })} 회의 자동 기록`,
+            ``,
+            `**한 일**: 회의 「${req.slice(0, 60)}${req.length > 60 ? "…" : ""}」에서 **${agent.sectionTitle}** 섹션을 작성하고 동료 검토·QA를 거쳐 확정했습니다.`,
+            `**요약**: ${text.replace(/\s+/g, " ").slice(0, 280)}…`,
+            rec ? `**추천·미결**: ${rec}` : "",
+            `**전체본**: 📄 GDD "${agent.sectionTitle}" 섹션 · 📋 회의록(보고서함)`,
+          ]);
+        }
       }
 
       set({ orchRunning: false });
@@ -1789,7 +1825,8 @@ export const useVE = create<VEState>()((set, get) => {
         await get().loadReports();
         setAgentStatus(agentId, "done");
         get().recordGrowth(agentId, "report");
-        // 채팅에 완료 안내 남기기 (해당 에이전트 대화방)
+        // 채팅에 완료 안내 + 요약본 남기기 (해당 에이전트 대화방) — 오너가 채팅만 봐도 내용 파악
+        const recLine = pickRecommendation(markdown);
         set((s) => ({
           chats: {
             ...s.chats,
@@ -1798,7 +1835,15 @@ export const useVE = create<VEState>()((set, get) => {
               {
                 id: `rp-${ts}`,
                 role: "assistant" as const,
-                text: `📋 보고서 **"${title}"** 작성 완료 (${markdown.length.toLocaleString()}자) — 오른쪽 GDD 패널의 📋 보고서함에서 열람·다운로드할 수 있습니다.`,
+                text: [
+                  `📋 보고서 **"${title}"** 작성 완료 (${markdown.length.toLocaleString()}자)`,
+                  ``,
+                  `**요약**: ${markdown.replace(/\s+/g, " ").slice(0, 300)}…`,
+                  recLine ? `**추천·미결**: ${recLine}` : ``,
+                  `전체본은 📋 보고서함에서 열람·다운로드할 수 있습니다.`,
+                ]
+                  .filter(Boolean)
+                  .join("\n"),
                 ts: Date.now(),
               },
             ],
