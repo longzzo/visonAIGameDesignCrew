@@ -319,6 +319,21 @@ function notionApiPlugin(): Plugin {
   };
   // 딥 리드(가져오기) 진행률 — pageId → {done,total,title}. 클라이언트가 폴링한다.
   const importProgress = new Map<string, { done: number; total: number; title?: string; ts: number }>();
+  // 반복 호출 가드 — 같은 대상에 대한 쓰기/딥리드가 겹치면 429. 더블클릭·탭 중복이 노션에 페이지를 두 번 만드는 사고 방지.
+  const inFlight = new Set<string>();
+  const withInFlight = async (res: any, key: string, fn: () => Promise<void>) => {
+    if (inFlight.has(key)) {
+      res.statusCode = 429;
+      res.end(JSON.stringify({ ok: false, error: "같은 작업이 이미 진행 중입니다 — 중복 호출을 막았습니다" }));
+      return;
+    }
+    inFlight.add(key);
+    try {
+      await fn();
+    } finally {
+      inFlight.delete(key);
+    }
+  };
   return {
     name: "vision-engine-notion-api",
     configureServer(server: ViteDevServer) {
@@ -354,11 +369,13 @@ function notionApiPlugin(): Plugin {
                 res.end(JSON.stringify({ ok: false, error: "project 확인 필요" }));
                 return;
               }
-              const payload = await notionPayload(project)();
-              // 아키비스트가 다듬은 GDD로 발행 (원본 GDD.md는 그대로 — 발행본만 예쁘게)
-              if (typeof j.gddMd === "string" && j.gddMd.trim().length > 100) payload.gddMd = j.gddMd;
-              const out = await m.publishProject(payload);
-              res.end(JSON.stringify(out));
+              await withInFlight(res, `publish:${project}`, async () => {
+                const payload = await notionPayload(project)();
+                // 아키비스트가 다듬은 GDD로 발행 (원본 GDD.md는 그대로 — 발행본만 예쁘게)
+                if (typeof j.gddMd === "string" && j.gddMd.trim().length > 100) payload.gddMd = j.gddMd;
+                const out = await m.publishProject(payload);
+                res.end(JSON.stringify(out));
+              });
               return;
             }
 
@@ -366,13 +383,15 @@ function notionApiPlugin(): Plugin {
             if (sub === "/subpage" && req.method === "POST") {
               if (blockRemoteWrite(req, res)) return;
               const j = JSON.parse((await readBody(req)) || "{}");
-              const out = await m.createSubpage(
-                String(j.url ?? ""),
-                String(j.title ?? ""),
-                String(j.markdown ?? ""),
-                String(j.icon ?? "📄") || "📄"
-              );
-              res.end(JSON.stringify(out));
+              await withInFlight(res, `subpage:${m.parsePageId(String(j.url ?? ""))}:${String(j.title ?? "")}`, async () => {
+                const out = await m.createSubpage(
+                  String(j.url ?? ""),
+                  String(j.title ?? ""),
+                  String(j.markdown ?? ""),
+                  String(j.icon ?? "📄") || "📄"
+                );
+                res.end(JSON.stringify(out));
+              });
               return;
             }
 
@@ -389,14 +408,16 @@ function notionApiPlugin(): Plugin {
               const j = JSON.parse((await readBody(req)) || "{}");
               const target = String(j.url ?? "");
               const key = m.parsePageId(target) || "last";
-              try {
-                const out = await m.fetchPageDeepAsMd(target, 20, (p: any) =>
-                  importProgress.set(key, { ...p, ts: Date.now() })
-                );
-                res.end(JSON.stringify({ ok: true, ...out }));
-              } finally {
-                importProgress.delete(key);
-              }
+              await withInFlight(res, `import:${key}`, async () => {
+                try {
+                  const out = await m.fetchPageDeepAsMd(target, 20, (p: any) =>
+                    importProgress.set(key, { ...p, ts: Date.now() })
+                  );
+                  res.end(JSON.stringify({ ok: true, ...out }));
+                } finally {
+                  importProgress.delete(key);
+                }
+              });
               return;
             }
 
@@ -411,8 +432,10 @@ function notionApiPlugin(): Plugin {
                 return;
               }
               const mode = j.mode === "append" ? "append" : "replace";
-              const out = await m.updatePageContent(String(j.url ?? ""), markdown, mode);
-              res.end(JSON.stringify(out));
+              await withInFlight(res, `edit:${m.parsePageId(String(j.url ?? ""))}`, async () => {
+                const out = await m.updatePageContent(String(j.url ?? ""), markdown, mode);
+                res.end(JSON.stringify(out));
+              });
               return;
             }
 

@@ -45,10 +45,11 @@ export function GddPanel() {
   const [showReports, setShowReports] = useState(false);
   const [reportQuery, setReportQuery] = useState("");
   const [collapsed, setCollapsed] = useState<boolean>(() => {
+    // 기본 접힘 — 오너 요청: 마스터 GDD는 화면에서 접어두고 필요할 때만 펼친다 ("0"으로 펼침을 저장한 경우만 예외)
     try {
-      return localStorage.getItem("ve-gdd-collapsed") === "1";
+      return localStorage.getItem("ve-gdd-collapsed") !== "0";
     } catch {
-      return false;
+      return true;
     }
   });
   const toggleCollapsed = () => {

@@ -46,6 +46,7 @@ import {
   parseDecisions,
   parseFileBlocks,
   balanceDataPrompt,
+  balanceSheetPrompt,
   assetManifestPrompt,
   unityKitPrompt,
   janitorFeedPrompt,
@@ -111,6 +112,7 @@ import {
   type DecisionItem,
 } from "./lib/kit";
 import { notify } from "./lib/notify";
+import balanceSkillMd from "./skills/balancing-sheet.md?raw";
 import {
   fetchGdd,
   saveGdd,
@@ -500,6 +502,8 @@ interface VEState {
   loadDecisions: () => Promise<void>;
   /** 개발 착수 킷 — 유니티 문서·밸런스 CSV·에셋 매니페스트·스켈레톤·그레이박스를 체인으로 생성 */
   buildDevKit: () => Promise<void>;
+  /** 밸런싱 수치 시트만 — 데이터 테이블(CSV)+근거 README를 생성해 데이터 탭에 저장 */
+  buildBalanceSheet: () => Promise<void>;
   loadKit: () => Promise<void>;
 
   reflectToGdd: (agentId: string, text: string) => Promise<void>;
@@ -2742,6 +2746,56 @@ export const useVE = create<VEState>()((set, get) => {
       if (!project) return;
       const kitFiles = await listKitFiles(project);
       if (get().activeProject === project) set({ kitFiles });
+    },
+
+    buildBalanceSheet: async () => {
+      const st = get();
+      if (st.devKitBusy || st.orchRunning) return; // 개발 킷과 같은 배타 락 — 동시 생성·반복 호출 방지
+      const project = st.activeProject;
+      if (!project) return;
+      let baseMd = st.gdd;
+      try {
+        baseMd = (await fetchGdd(project)).markdown;
+      } catch {
+        /* 화면 상태 사용 */
+      }
+      const panorama = buildGddPanorama(baseMd);
+      if (panorama.length < 150) {
+        pushFeed({ from: "system", kind: "error", text: "⚠️ 밸런싱 수치 시트는 기획(GDD)이 채워진 뒤에 만들 수 있습니다 — 먼저 회의를 진행하세요." });
+        return;
+      }
+      set({ devKitBusy: true, devKitPhase: "⚖️ 밸런스 디자이너 — 밸런싱 수치 시트 작성 중…", devKitLog: [] });
+      pushFeed({ from: "user", kind: "request", text: "⚖️ 밸런싱 수치 시트 생성" });
+      const tag = `balsheet-${project}-${Date.now().toString(36)}`;
+      try {
+        setAgentStatus("balance", "running");
+        const r = await gateway.runAgent("balance", balanceSheetPrompt(baseMd, decisionsBlock(get().decisions), balanceSkillMd), tag);
+        addUsage(r.usage, r.text);
+        const files = parseFileBlocks(sanitizeAgentOutput(r.text));
+        setAgentStatus("balance", "done");
+        if (files.length > 0) {
+          const saved = await saveKitFiles(project, files);
+          // 근거 README는 보고서함에도 — "어떤 근거로 이 수치인지"를 회의록처럼 열람
+          const readme = files.find((f) => /readme\.md$/i.test(f.path));
+          if (readme) {
+            await saveReport(project, "balance", "밸런싱 수치 시트 — 근거·공식", readme.content);
+            await get().loadReports();
+          }
+          pushFeed({
+            from: "balance",
+            kind: "summary",
+            text: `⚖️ 밸런싱 수치 시트 완성 — 파일 ${saved}개 (${files.map((f) => f.path.split("/").pop()).join(", ")}). 🧮 데이터 탭에서 바로 편집할 수 있습니다.`,
+          });
+          void notify("⚖️ 밸런싱 수치 시트 완성", `파일 ${saved}개 — 데이터 탭에서 확인`);
+        } else {
+          pushFeed({ from: "system", kind: "error", text: "⚠️ 밸런스 시트: FILE 블록을 해석하지 못했습니다 — 다시 시도해 주세요." });
+        }
+      } catch (e: any) {
+        setAgentStatus("balance", "error");
+        pushFeed({ from: "system", kind: "error", text: `⚠️ 밸런스 시트 실패: ${String(e?.message ?? e).slice(0, 120)}` });
+      }
+      await get().loadKit();
+      set({ devKitBusy: false, devKitPhase: "" });
     },
 
     buildDevKit: async () => {

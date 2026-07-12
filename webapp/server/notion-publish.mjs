@@ -761,15 +761,33 @@ export async function fetchPageDeepAsMd(pageUrlOrId, maxPages = 20, onProgress) 
 export async function createSubpage(parentUrlOrId, title, markdown, icon = "📄") {
   const cfg = loadCfg();
   if (!cfg.token) throw new Error("노션 연동이 설정되지 않았습니다");
-  const parentId = parsePageId(parentUrlOrId);
+  let parentId = parsePageId(parentUrlOrId);
   if (!parentId) throw new Error("링크에서 페이지 id를 찾지 못했습니다");
   if (!String(title ?? "").trim()) throw new Error("하위 페이지 제목이 비어 있습니다");
+  // 허브 홈잉 — 허브 직속으로 만들면 페이지 바닥에 쌓여 기존 기획서와 동떨어져 보인다.
+  // config.subpageHome이 설정돼 있으면: 실제 생성은 home.parent(VE 작업실) 아래,
+  // 노출은 home.linkCallout("작업 중인 기획서" 콜아웃)에 link_to_page로 — 오너 정리 방식과 일치.
+  const home = cfg.subpageHome ?? {};
+  let linkCalloutId = "";
+  if (home.parent && parentId === parsePageId(String(home.hub ?? ""))) {
+    parentId = parsePageId(String(home.parent));
+    linkCalloutId = parsePageId(String(home.linkCallout ?? ""));
+  }
   const clean = String(markdown ?? "")
     .split(/\r?\n/)
     .filter((l) => !/^\s*\[\[유지:.*\]\]\s*$/.test(l))
     .join("\n");
   const page = await createChildPage(cfg.token, parentId, title.trim(), icon, mdToBlocks(clean));
-  return { ok: true, pageId: page.id, url: `https://www.notion.so/${String(page.id).replace(/-/g, "")}` };
+  if (linkCalloutId) {
+    try {
+      await api(cfg.token, "PATCH", `/blocks/${linkCalloutId}/children`, {
+        children: [{ object: "block", type: "link_to_page", link_to_page: { type: "page_id", page_id: page.id } }],
+      });
+    } catch {
+      /* 링크 추가 실패는 페이지 생성 자체를 막지 않는다 */
+    }
+  }
+  return { ok: true, pageId: page.id, homed: !!linkCalloutId, url: `https://www.notion.so/${String(page.id).replace(/-/g, "")}` };
 }
 
 /**

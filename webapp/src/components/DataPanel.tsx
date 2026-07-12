@@ -27,7 +27,7 @@ function describeFile(path: string): string {
 }
 
 export function DataPanel() {
-  const { activeProject, buildDevKit, devKitBusy, devKitPhase } = useVE();
+  const { activeProject, buildDevKit, buildBalanceSheet, devKitBusy, devKitPhase } = useVE();
   const [files, setFiles] = useState<KitFile[]>([]);
   const [sel, setSel] = useState<string | null>(null);
   const [content, setContent] = useState("");
@@ -46,9 +46,10 @@ export function DataPanel() {
     setLoading(false);
   };
   useEffect(() => {
-    void load();
+    // devKitBusy가 false로 돌아온 직후에도 다시 로드 — 생성 완료된 파일이 목록에 바로 보이게 (버그 수정)
+    if (!devKitBusy) void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProject]);
+  }, [activeProject, devKitBusy]);
 
   const open = async (path: string) => {
     if (dirty && !confirm("저장하지 않은 변경이 있습니다. 버릴까요?")) return;
@@ -113,6 +114,14 @@ export function DataPanel() {
         <div className="data-head-actions">
           <button className="btn small" onClick={() => void newJson()} title="빈 데이터 파일 생성">
             ＋ 새 파일
+          </button>
+          <button
+            className="btn small primary"
+            onClick={() => void buildBalanceSheet()}
+            disabled={devKitBusy}
+            title="밸런스 디자이너가 기획의 확정 수치를 근거로 밸런싱 시트(CSV)+근거 README만 생성합니다 — 개발 킷 전체보다 빠름"
+          >
+            {devKitBusy ? "생성 중…" : "⚖️ 밸런스 시트 생성"}
           </button>
           <button
             className="btn small"

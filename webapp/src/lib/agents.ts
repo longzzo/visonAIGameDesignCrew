@@ -1181,6 +1181,39 @@ export function balanceDataPrompt(gddFull: string, decisions: string): string {
     .join("\n");
 }
 
+/**
+ * 밸런싱 수치 시트 전용 — 개발 킷 5단계 전체가 아니라 데이터 테이블+근거 README만 뽑는다.
+ * skill = src/skills/balancing-sheet.md 원문 (작성 규칙 주입).
+ */
+export function balanceSheetPrompt(gddFull: string, decisions: string, skill: string): string {
+  return [
+    `너는 밸런스 디자이너다. 아래 기획을 근거로 **밸런싱 수치 시트**(개발에서 바로 쓸 데이터 테이블 실파일)를 만들어라.`,
+    ``,
+    `[작성 스킬 — 반드시 준수]`,
+    skill.slice(0, 2600),
+    decisions.trim() ? `\n[확정된 결정사항 — 값 임의 변경 금지]\n${decisions.slice(0, 900)}` : ``,
+    ``,
+    `[마스터 GDD]`,
+    gddFull.slice(0, 11000),
+    ``,
+    `규칙:`,
+    `- 이 게임의 시스템을 근거로 CSV 테이블 3~6개 + data/globals.csv + data/README.md 를 만들어라.`,
+    `- 기획서에 이미 확정된 수치(가격·확률·제한·비율)는 절대 바꾸지 말고 그대로 옮겨라. 스스로 정한 값은 비고 열에 "가안"이라고 써라.`,
+    `- 각 파일은 아래 형식으로. 헤더 행 포함, 최소 8행 이상의 실데이터. 값은 전부 확정 수치 (범위·물음표 금지).`,
+    ``,
+    `FILE: data/<파일명>.csv`,
+    "```csv",
+    `<헤더>,...`,
+    `<데이터 행>...`,
+    "```",
+    ``,
+    `- data/README.md 에는 각 표의 용도·열 단위·계산 공식·근거(어느 기획서의 어느 확정 사항인지)를 기록해라.`,
+    `- 다른 설명·인사·도구 호출 금지. FILE 블록만 출력해라.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 /** 개발 착수 킷 — 아트 디렉터가 씬별 필요 에셋 목록(매니페스트)을 만든다 */
 export function assetManifestPrompt(gddFull: string): string {
   return [
