@@ -59,7 +59,8 @@
 26. **v3.14 3종**: ① DataPanel CSV는 기본 📈 차트(레벨×카테고리 스마트 감지, 수제 SVG — 외부 라이브러리 금지 유지) ② 회의 종료 시 참여자 채팅에 📒 업무일지 자동 게시(postWorkLog, LLM 0회 — 이 코드를 지우면 오너가 "채팅에 왜 아무것도 없냐"고 다시 묻는다) ③ PM 개요 통합이 **피치를 영어로 번역**하고 "의ebru" 같은 외국어 문자 누수를 낸 실사례(업그레이드 회의) — 대표 통합 후 개요의 한글 피치·깨진 문자를 반드시 대조하라.
 27. **v3.15 타임아웃 3중 대처**: ① `runAgentSafe`(store) — 오류 문구 응답이면 5초 후 1회 재시도, produceSection 5개 호출 전부 배선. 초안이 재시도 후에도 오류면 섹션을 명시적으로 실패시킨다(조용히 오염되는 것보다 낫다) ② openclaw.json `models.providers.*.timeoutSeconds`=300, `agents.defaults.timeoutSeconds`=300 (백업 openclaw.json.bak-timeout, 게이트웨이 재시작 필수) ③ 타임아웃으로 검토가 날아간 초안이 그대로 확정돼 **정본과 모순되는 곡선이 시스템 절에 실린 실사례**(수입 앵커 200/600/1200을 비용으로 오용) — 회의 후 밸런스·시스템 절의 수치 교차 대조는 여전히 사람(대리) 몫.
 28. **상사 평가 루프(v3.15)**: 섹션 확정 직전 팀장(escalationTarget)이 bossReviewPrompt로 평가(x/10) → "[재지시] …" 마커면 redoPrompt로 1회 재작성. 섹션당 +1콜(재지시 시 +2). 회의가 너무 느려지면 이 단계부터 끄는 옵션을 고려하라.
-29. **🎓 데이터 도우미 / 🗺️ UI 목업(v3.15)**: explainDataFile(파일 무변경, README 근거 자동 동봉), buildUiMockup(uiux가 인라인 CSS HTML 와이어프레임 → 프로토타입 스튜디오). 결정 원장은 볼트 `VisionEngine/<프로젝트>/결정사항.md`로 자동 미러링(decisions POST마다 전체 재작성).
+29. **🎓 데이터 도우미 / 🗺️ UI 목업(v3.15)**: explainDataFile(파일 무변경, README 근거 자동 동봉), buildUiMockup(uiux가 인라인 CSS HTML 와이어프레임 → 프로토타입 스튜디오, uiux 무응답 시 td 폴백). 결정 원장은 볼트 `VisionEngine/<프로젝트>/결정사항.md`로 자동 미러링(decisions POST마다 전체 재작성).
+30. **⚠️ 프롬프트에 ``` 백틱 코드펜스를 넣으면 게이트웨이가 "(빈 응답)"을 반환한다** (2026-07-13 실측 — 목업 4연속 실패로 확정, 같은 에이전트가 펜스 없는 프롬프트엔 정상 응답). 프롬프트에 GDD 섹션을 통째로 넣을 땐 `s.replace(/\`{3,}/g,"")` 정리 후 넣고, 출력 지시도 "코드블록 없이 그대로"로. `isGatewayErrorText`가 "(빈 응답)"·빈 문자열을 잡아 runAgentSafe가 1회 재시도한다.
 
 ## 3. 추천 로드맵 (다음 모델에게 — 우선순위순)
 

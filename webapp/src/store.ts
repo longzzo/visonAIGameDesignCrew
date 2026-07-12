@@ -3019,7 +3019,15 @@ export const useVE = create<VEState>()((set, get) => {
       pushFeed({ from: "user", kind: "request", text: "🗺️ UI·맵 목업 생성 — 버튼·건물 배치를 한눈에" });
       try {
         setAgentStatus("uiux", "running");
-        const r = await runAgentSafe("uiux", uiMockupPrompt(buildGddPanorama(baseMd), uiSection), `mockup-${project}-${Date.now().toString(36)}`);
+        let r = await runAgentSafe("uiux", uiMockupPrompt(buildGddPanorama(baseMd), uiSection), `mockup-${project}-${Date.now().toString(36)}`);
+        // uiux 세션이 빈 응답을 반복하면(실측: 2026-07-13) HTML 산출 실적이 검증된 선임 개발자가 대신 그린다
+        if (isGatewayErrorText(sanitizeAgentOutput(r.text))) {
+          pushFeed({ from: "system", kind: "status", text: "🛠️ UI/UX 디자이너 세션이 응답하지 않아 선임 개발자가 목업을 대신 그립니다." });
+          setAgentStatus("uiux", "idle");
+          setAgentStatus("td", "running");
+          r = await runAgentSafe("td", uiMockupPrompt(buildGddPanorama(baseMd), uiSection), `mockup-td-${project}-${Date.now().toString(36)}`);
+          setAgentStatus("td", "done");
+        }
         addUsage(r.usage, r.text);
         // HTML은 reflow(sanitize)를 거치면 깨질 수 있어 원문에서 직접 추출
         let html = extractHtml(r.text);

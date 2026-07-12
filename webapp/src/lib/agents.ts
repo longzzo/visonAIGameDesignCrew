@@ -1356,14 +1356,16 @@ export function redoPrompt(worker: AgentDef, directive: string, current: string)
  * 단일 HTML로 그린다 (박스+라벨, 외부 리소스 금지). 프로토타입 스튜디오에서 열람.
  */
 export function uiMockupPrompt(gddFull: string, uiSection: string): string {
+  // 주의: 프롬프트에서 백틱 코드펜스를 제거한다 — 펜스 포함 프롬프트에서 게이트웨이 빈 응답 실측 (2026-07-13)
+  const clean = (s: string) => s.replace(/`{3,}/g, "").replace(/`/g, "'");
   return [
     `너는 UIUX 디자이너다. 아래 기획의 화면들을 "버튼이 어디 붙고, 건물이 어디 놓이는지" 한눈에 보이는 **와이어프레임 목업 HTML 1개**로 그려라.`,
     ``,
     `[UI/UX 섹션]`,
-    uiSection.slice(0, 4000),
+    clean(uiSection).slice(0, 3500),
     ``,
     `[마스터 GDD 발췌]`,
-    gddFull.slice(0, 4000),
+    clean(gddFull).slice(0, 3500),
     ``,
     `규칙:`,
     `- 화면 4~6개(탑 선택 / 식재료의 탑 / 주막 준비 / 주막 영업 / 시장 거리 / 정산)를 한 페이지에 격자로 배치.`,
@@ -1372,7 +1374,7 @@ export function uiMockupPrompt(gddFull: string, uiSection: string): string {
     `- 인라인 CSS만 사용, 외부 리소스·자바스크립트 금지. 다크 배경(#14161d), 라벨 텍스트는 밝게.`,
     `- 실제 기획의 버튼 위치 서술(예: "장사 시작 — 중앙 하단, 크고 붉은색")을 그대로 반영해라.`,
     ``,
-    `출력: 완전한 HTML 문서 하나만 (\`\`\`html 코드블록으로). 다른 설명 금지.`,
+    `출력: <!DOCTYPE html>로 시작하는 완전한 HTML 문서 하나만, 코드블록 없이 그대로 출력해라. 다른 설명 금지.`,
   ].join("\n");
 }
 
