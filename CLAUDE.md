@@ -38,7 +38,7 @@ curl -X POST http://127.0.0.1:5199/api/health -d '{"restart":"gateway"}'
 - `webapp/src/lib/agents.ts` — 로스터(AgentDef: GDD 섹션 소유권, `phase: plan|dev`, `staff`)와 **모든 프롬프트 빌더**. 개발팀 7명은 `staff:true, phase:"dev"`로 기획 팬아웃에서 제외된다.
 - `~/.openclaw/openclaw.json` — 실제 게이트웨이(포트 18789) 에이전트 19명. **전원 write/edit/exec 도구가 deny**되어 있다 — 프롬프트의 "도구 호출 금지" 문구는 불충분하고 이 deny 목록이 진짜 강제 장치다. 배포용 키리스 템플릿은 `config/openclaw.json`(`{{API_KEY}}` 플레이스홀더).
 
-**LLM 라우팅(오너 방침, DESKTOP-PLAN.md):** 로컬(Ollama)이 최종 목표, 클라우드(NVIDIA NIM)는 과도기, 제공자는 스왑 가능해야 한다. OpenClaw는 걷어내지 않는다. 기획 에이전트는 OpenClaw 게이트웨이(WS) 경유, **개발팀은 `webapp/server/dev-provider.mjs`의 다이렉트 함수호출 루프**(NVIDIA OpenAI 호환, SSE 스트리밍, `/api/dev-task`·`/api/dev-meeting`)를 쓴다 — OpenClaw 보완이지 대체가 아님.
+**LLM 라우팅(오너 방침, docs/DESKTOP-PLAN.md):** 로컬(Ollama)이 최종 목표, 클라우드(NVIDIA NIM)는 과도기, 제공자는 스왑 가능해야 한다. OpenClaw는 걷어내지 않는다. 기획 에이전트는 OpenClaw 게이트웨이(WS) 경유, **개발팀은 `webapp/server/dev-provider.mjs`의 다이렉트 함수호출 루프**(NVIDIA OpenAI 호환, SSE 스트리밍, `/api/dev-task`·`/api/dev-meeting`)를 쓴다 — OpenClaw 보완이지 대체가 아님.
 
 **MCP:** `webapp/server/mcp-hub.mjs`가 클라이언트 허브. `config/mcp.json`에 서버 목록 + **에이전트별 도구 배정**(assignments; 예: td→unity-ankle, 구현팀→unity-coplay, QA→unity-hunt). 유니티 프로젝트는 `config/unity.local.json`(gitignored)에 경로만 등록하면 `unity-project` 파일시스템 서버가 자동 합성돼 개발팀 8명에게 배정된다. 가이드: `docs/UNITY-REVIEW.md`.
 
@@ -66,6 +66,6 @@ curl -X POST http://127.0.0.1:5199/api/health -d '{"restart":"gateway"}'
 
 ## 더 읽을 문서
 
-- `GETTING-STARTED.md` — 처음 쓰는 사람용 설치·사용 가이드 (키 없는 배포 절차 포함)
-- `DESKTOP-PLAN.md` — 아키텍처 결정 기록 + **오너 방침**(OpenClaw 유지, 로컬 최우선, 클라우드 과도기·스왑 가능)
+- `docs/GETTING-STARTED.md` — 처음 쓰는 사람용 설치·사용 가이드 (키 없는 배포 절차 포함)
+- `docs/DESKTOP-PLAN.md` — 아키텍처 결정 기록 + **오너 방침**(OpenClaw 유지, 로컬 최우선, 클라우드 과도기·스왑 가능)
 - `ROADMAP.md` — 버전별 진행 현황 / `docs/UNITY-REVIEW.md` — 기존 유니티 프로젝트 리뷰 셋업

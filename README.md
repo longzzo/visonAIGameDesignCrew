@@ -4,7 +4,19 @@
 
 기획팀이 회의해서 세계관·게임플레이·시스템·밸런스·UI·수익모델·아트를 설계하고, 팀장이 취합해 대표에게 올리면, 개발팀이 이어받아 **유니티 개발 문서 + 밸런스 CSV + 에셋 목록 + C# 스켈레톤 + 플레이 가능한 프로토타입**을 ZIP 하나로 만들어 냅니다. 전부 **로컬 모델 + 무료 클라우드 크레딧으로 무료** 구동 가능하며, API 키는 저장소에 없고 여러분 PC(`~/.openclaw`)에만 저장됩니다.
 
-> **처음이라면 → [GETTING-STARTED.md](GETTING-STARTED.md)** 에 15분 설치 walkthrough가 있습니다. 아래는 기능 요약과 빠른 설치입니다.
+> **처음이라면 → [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md)** 에 15분 설치 walkthrough가 있습니다. 아래는 기능 요약과 빠른 설치입니다.
+
+---
+
+## 📁 폴더 안내 — 무엇이 앱이고 무엇이 문서인가
+
+| 위치 | 내용 |
+|---|---|
+| **🚀·🖥️·🔒·🎨 바로가기(.lnk) / VisionEngine-*.bat** | **실행은 여기** — 더블클릭으로 시작 |
+| `webapp/` `desktop/` `scripts/` `bin/` `agents/` `templates/` | 앱 코드·실행 파일 (건드리지 않아도 됨) |
+| `config/` `workspace/` | 내 데이터 — 설정(노션 토큰 등)과 프로젝트 산출물 |
+| `docs/` | 개발·설계 문서(ROADMAP, HANDOFF, 아키텍처, 참고자료, 기획 사진) — 앱 실행과 무관 |
+| `CLAUDE.md`, `.claude/` | Claude Code(개발 세션) 규약 파일 — 규약상 루트에 있어야 함 |
 
 ---
 
@@ -88,14 +100,14 @@ npm install
 npm run dev        # http://127.0.0.1:5199
 ```
 
-> 자세한 단계별 안내(모델 키 등록, SD 연결, 원격 접속, 문제 해결)는 **[GETTING-STARTED.md](GETTING-STARTED.md)** 를 참고하세요.
+> 자세한 단계별 안내(모델 키 등록, SD 연결, 원격 접속, 문제 해결)는 **[docs/GETTING-STARTED.md](docs/GETTING-STARTED.md)** 를 참고하세요.
 
 ---
 
 ## 🧱 기술 스택 & 구조
 
 - **웹앱**: React 18 + Zustand + Vite (서버 로직은 `webapp/vite.config.ts`의 미들웨어 플러그인), 3D는 react-three-fiber + drei
-- **AI 게이트웨이**: [OpenClaw](README.openclaw.md) — 각 에이전트가 독립 세션에서 실행, 모델은 Ollama(로컬) / NVIDIA NIM / GitHub Models 전환
+- **AI 게이트웨이**: [OpenClaw](docs/README.openclaw.md) — 각 에이전트가 독립 세션에서 실행, 모델은 Ollama(로컬) / NVIDIA NIM / GitHub Models 전환
 - **데스크톱**: Electron + NSIS 설치본 (`desktop/`)
 - **에이전트 페르소나**: `agents/<id>/AGENTS.md` (직급·역할·산출물 형식·규칙)
 
@@ -112,10 +124,10 @@ vision-engine/
 ```
 
 - 개발자용 상세 지도(기능 맵·함정·로드맵): **[docs/HANDOFF.md](docs/HANDOFF.md)**
-- 최초 설계(Claude Code 서브에이전트 경로) 기록: **[README.openclaw.md](README.openclaw.md)**
+- 최초 설계(Claude Code 서브에이전트 경로) 기록: **[docs/README.openclaw.md](docs/README.openclaw.md)**
 
 ---
 
 ## 📄 참고
 
-개인 프로젝트입니다. API 키·토큰은 저장소에 포함되지 않으며 각자의 PC에만 저장됩니다. 로드맵은 [ROADMAP.md](ROADMAP.md), 개발 인수인계 문서는 [docs/HANDOFF.md](docs/HANDOFF.md)를 참고하세요.
+개인 프로젝트입니다. API 키·토큰은 저장소에 포함되지 않으며 각자의 PC에만 저장됩니다. 로드맵은 [docs/ROADMAP.md](docs/ROADMAP.md), 개발 인수인계 문서는 [docs/HANDOFF.md](docs/HANDOFF.md)를 참고하세요.
