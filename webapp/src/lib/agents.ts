@@ -1359,23 +1359,80 @@ export function uiMockupPrompt(gddFull: string, uiSection: string): string {
   // 주의: 프롬프트에서 백틱 코드펜스를 제거한다 — 펜스 포함 프롬프트에서 게이트웨이 빈 응답 실측 (2026-07-13)
   const clean = (s: string) => s.replace(/`{3,}/g, "").replace(/`/g, "'");
   return [
-    `너는 UIUX 디자이너다. 아래 기획의 화면들을 "버튼이 어디 붙고, 건물이 어디 놓이는지" 한눈에 보이는 **와이어프레임 목업 HTML 1개**로 그려라.`,
+    `너는 UIUX 디자이너다. 아래 기획의 화면들을 "버튼이 어디 붙고, 건물·오브젝트가 어디 놓이는지" 한눈에 보이는 **와이어프레임 목업 HTML 1개**로 그려라.`,
     ``,
-    `[UI/UX 섹션]`,
-    clean(uiSection).slice(0, 3500),
+    `[UI/UX 섹션 — 이 화면 목록을 그대로 사용]`,
+    clean(uiSection).slice(0, 2600),
     ``,
-    `[마스터 GDD 발췌]`,
-    clean(gddFull).slice(0, 3500),
+    `[마스터 GDD 발췌 — 맥락 참고용]`,
+    clean(gddFull).slice(0, 1400),
     ``,
     `규칙:`,
-    `- 화면 4~6개(탑 선택 / 식재료의 탑 / 주막 준비 / 주막 영업 / 시장 거리 / 정산)를 한 페이지에 격자로 배치.`,
-    `- 각 화면은 회색 박스 안에 버튼·바·팝업을 **테두리 박스+한국어 라벨**로만 표현 (그림·아이콘·이미지 금지, 이모지 1개씩은 허용).`,
-    `- 시장 거리는 건물/매대 배치를 위에서 본 평면도(박스 배치)로 — [주막 문]→[매대]→[뽑기]→[게시판] 동선 화살표 포함.`,
+    `- 위 UI/UX 섹션에 나온 화면 4~6개를 한 페이지에 격자로 배치한다 (섹션에 없는 화면을 지어내지 마라).`,
+    `- 각 화면은 회색 박스 안에 버튼·바·게이지·팝업을 **테두리 박스 + 한국어 라벨**로만 표현 (그림·아이콘·외부이미지 금지, 이모지 1개씩 허용).`,
+    `- 게임 플레이 화면 1개는 맵/건물 배치를 위에서 본 평면도(박스 배치 + 동선 화살표)로 그린다.`,
     `- 인라인 CSS만 사용, 외부 리소스·자바스크립트 금지. 다크 배경(#14161d), 라벨 텍스트는 밝게.`,
-    `- 실제 기획의 버튼 위치 서술(예: "장사 시작 — 중앙 하단, 크고 붉은색")을 그대로 반영해라.`,
+    `- 기획에 버튼 위치 서술이 있으면(예: "상단 좌측 체온 바") 그 위치를 그대로 반영해라.`,
     ``,
     `출력: <!DOCTYPE html>로 시작하는 완전한 HTML 문서 하나만, 코드블록 없이 그대로 출력해라. 다른 설명 금지.`,
   ].join("\n");
+}
+
+/**
+ * 결정론적 UI 목업 생성기 — LLM이 빈 응답/타임아웃으로 실패해도 GDD의 UI/UX 섹션을
+ * 파싱해 화면별 와이어프레임 HTML을 항상 만들어낸다 (게이트웨이 불안정 방어).
+ */
+export function staticUiMockup(uiSection: string, title: string): string {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  // "1. **화면명**: 요소, 요소, 요소" 패턴을 화면으로 파싱
+  const screens: { name: string; items: string[] }[] = [];
+  for (const raw of uiSection.split(/\r?\n/)) {
+    const m = /^\s*(?:\d+[.)]|[-*])\s*\*\*(.+?)\*\*\s*[:：]?\s*(.*)$/.exec(raw);
+    if (!m) continue;
+    const name = m[1].replace(/\*/g, "").trim();
+    const items = m[2]
+      .replace(/\([^)]*\)/g, "")
+      .split(/[,，、]/)
+      .map((s) => s.replace(/\*\*/g, "").trim())
+      .filter((s) => s.length > 0 && s.length < 40)
+      .slice(0, 6);
+    if (name) screens.push({ name, items });
+  }
+  if (screens.length === 0) screens.push({ name: "게임 화면", items: ["상단 HUD", "메인 뷰", "하단 액션 바"] });
+
+  const box = (label: string, i: number) =>
+    `<div style="border:1px solid #4a5570;border-radius:6px;padding:7px 9px;margin:5px 0;background:#1b1f2b;font-size:12px;color:#cdd6e6">${esc(label) || "요소 " + (i + 1)}</div>`;
+
+  const card = (s: { name: string; items: string[] }, idx: number) => `
+    <div style="background:#141824;border:1px solid #2c3448;border-radius:10px;padding:12px;min-height:190px;display:flex;flex-direction:column">
+      <div style="font-weight:700;color:#8fb7ff;margin-bottom:8px;font-size:13px;border-bottom:1px solid #2c3448;padding-bottom:6px">${idx + 1}. ${esc(s.name)}</div>
+      <div style="flex:1">${s.items.length ? s.items.map(box).join("") : box("(요소 미기재)", 0)}</div>
+    </div>`;
+
+  // 첫 화면은 맵/HUD 평면도 강조
+  const mapPane = `
+    <div style="grid-column:1/-1;background:#0f1420;border:1px dashed #3a4a66;border-radius:10px;padding:12px;margin-bottom:4px">
+      <div style="font-weight:700;color:#7fe0c0;margin-bottom:8px;font-size:13px">게임 화면 레이아웃 (평면 배치)</div>
+      <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:8px">
+        <span style="border:1px solid #4a5570;border-radius:5px;padding:5px 8px;font-size:11px;color:#cdd6e6">◀ 체온 바</span>
+        <span style="border:1px solid #4a5570;border-radius:5px;padding:5px 8px;font-size:11px;color:#ffd27f">D-카운트다운 ▲</span>
+        <span style="border:1px solid #4a5570;border-radius:5px;padding:5px 8px;font-size:11px;color:#cdd6e6">밀폐도 게이지 ▶</span>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:10px;height:78px;background:#161b28;border-radius:6px;color:#9aa5bb;font-size:12px">
+        [지하/석빙고] &nbsp;→&nbsp; [고양이 서리발톱] &nbsp;→&nbsp; [벽 타일] &nbsp;→&nbsp; [도깨비 스폰]
+      </div>
+      <div style="text-align:center;margin-top:6px;font-size:11px;color:#67718a">하단 고정: 제작·건설 팔레트 (핫바 8칸)</div>
+    </div>`;
+
+  return `<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title></head>
+<body style="margin:0;padding:18px;background:#0b0e16;color:#e6e9f0;font-family:system-ui,'Malgun Gothic',sans-serif">
+  <h2 style="margin:0 0 4px;font-size:18px">🗺️ ${esc(title)}</h2>
+  <p style="margin:0 0 14px;color:#8b96ad;font-size:12px">GDD UI/UX 섹션 기반 자동 와이어프레임 — 버튼·게이지·건물 배치를 한눈에</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
+    ${mapPane}
+    ${screens.map(card).join("")}
+  </div>
+</body></html>`;
 }
 
 /**

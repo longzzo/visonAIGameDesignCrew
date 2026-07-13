@@ -143,6 +143,30 @@ export async function saveFeedHistory(project: string, feed: any[]): Promise<voi
   }
 }
 
+/* ── 3D 사무실 실황 릴레이 (탭 간 회의 상태 공유) ── */
+
+export async function publishLive(project: string, data: unknown): Promise<void> {
+  try {
+    await fetch(`/api/live?project=${encodeURIComponent(project)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data }),
+    });
+  } catch {
+    /* noop */
+  }
+}
+
+export async function fetchLive(project: string): Promise<any | null> {
+  try {
+    const r = await fetch(`/api/live?project=${encodeURIComponent(project)}`);
+    if (!r.ok) return null;
+    return (await r.json()).live ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /* ── 마크다운 섹션 조작 ─────────────────────────────── */
 
 /** headingPrefix 섹션의 본문 텍스트만 추출 (없거나 미작성 플레이스홀더면 빈 문자열) */

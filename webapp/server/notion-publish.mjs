@@ -109,6 +109,29 @@ function rich(text, extra = {}) {
 
 const strip = (s) => s.replace(/\s+$/, "").replace(/\\([~*_`])/g, "$1");
 
+/* ── Notion 코드블록 언어 정규화 ──
+ * Notion API는 정해진 language 값만 받는다 — "text"·"txt" 같은 값이면 400
+ * (body.children[N].code.language should be `abap`...). 별칭을 매핑하고, 모르면 plain text로. */
+const NOTION_LANGS = new Set([
+  "abap","arduino","bash","basic","c","clojure","coffeescript","c++","c#","css","dart","diff","docker",
+  "elixir","elm","erlang","flow","fortran","f#","gherkin","glsl","go","graphql","groovy","haskell","html",
+  "java","javascript","json","julia","kotlin","latex","less","lisp","livescript","lua","makefile","markdown",
+  "markup","matlab","mermaid","nix","objective-c","ocaml","pascal","perl","php","plain text","powershell",
+  "prolog","protobuf","python","r","reason","ruby","rust","sass","scala","scheme","scss","shell","sql",
+  "swift","typescript","vb.net","verilog","vhdl","visual basic","webassembly","xml","yaml",
+]);
+const LANG_ALIAS = {
+  text: "plain text", txt: "plain text", plaintext: "plain text", none: "plain text", "": "plain text",
+  js: "javascript", ts: "typescript", jsx: "javascript", tsx: "typescript", py: "python", rb: "ruby",
+  sh: "shell", zsh: "shell", bat: "shell", cmd: "shell", ps1: "powershell", yml: "yaml", md: "markdown",
+  cs: "c#", "c++": "c++", cpp: "c++", h: "c", hpp: "c++", htm: "html", golang: "go",
+};
+function notionLang(raw) {
+  const k = (raw || "").trim().toLowerCase();
+  const a = LANG_ALIAS[k] ?? k;
+  return NOTION_LANGS.has(a) ? a : "plain text";
+}
+
 /* ── 리플로우 — 개행이 유실된(한 줄로 뭉친) 마크다운을 구조로 복원 ──
  * 일부 모델이 섹션 전체를 한 줄로 뱉는다: "### 제목 ... | a | b | |---|---| | c | d | ..."
  * 그대로 노션에 올리면 벽글이 되고 표가 문자로 보인다. LLM 없이 결정적으로 되살린다.
@@ -209,7 +232,7 @@ export function mdToBlocks(md) {
       i++;
       blocks.push({
         type: "code",
-        code: { rich_text: rich(buf.join("\n").slice(0, 1900)), language: fence[1] || "plain text" },
+        code: { rich_text: rich(buf.join("\n").slice(0, 1900)), language: notionLang(fence[1]) },
       });
       continue;
     }

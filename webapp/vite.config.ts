@@ -2357,6 +2357,52 @@ function approvalsApiPlugin(): Plugin {
   };
 }
 
+/* ── 플러그인: 3D 사무실 실황 릴레이 (탭 간 공유, 인메모리) ──
+ * 회의를 시작한 탭이 meetingMembers/agentStatus 스냅샷을 올리면,
+ * 다른 탭(오너가 연 창)이 폴링으로 받아 자기 사무실에 회의 집결을 반영한다.
+ * 상태는 프로젝트별 최신 1개만 메모리에 유지(디스크 저장 불필요 — 실황은 휘발성). */
+function liveApiPlugin(): Plugin {
+  const live = new Map<string, { ts: number; data: any }>();
+  return {
+    name: "vision-engine-live-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/live", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            const url = new URL(req.url ?? "/", "http://local");
+            const project = url.searchParams.get("project") ?? "";
+            if (!isSafeId(project)) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: "project 확인 필요" }));
+              return;
+            }
+            if (req.method === "GET") {
+              const cur = live.get(project);
+              // 12초 넘게 갱신 없으면 실황 종료로 간주 (회의 탭이 닫힘)
+              const fresh = cur && Date.now() - cur.ts < 12000 ? cur : null;
+              res.end(JSON.stringify({ ok: true, live: fresh?.data ?? null, ts: fresh?.ts ?? 0 }));
+              return;
+            }
+            if (req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
+              const j = JSON.parse((await readBody(req)) || "{}");
+              live.set(project, { ts: Date.now(), data: j.data ?? null });
+              res.end(JSON.stringify({ ok: true }));
+              return;
+            }
+            res.statusCode = 405;
+            res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 300) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
 /* ── 플러그인: 개발 착수 킷 (파일 저장소 + ZIP 내보내기) ── */
 
 /** CRC32 (ZIP 포맷용) */
@@ -3233,6 +3279,7 @@ export default defineConfig({
     protoApiPlugin(),
     decisionsApiPlugin(),
     approvalsApiPlugin(),
+    liveApiPlugin(),
     kitApiPlugin(),
     officeBgPlugin(),
     knowledgeApiPlugin(),

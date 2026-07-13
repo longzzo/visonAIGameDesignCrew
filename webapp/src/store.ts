@@ -50,6 +50,7 @@ import {
   bossReviewPrompt,
   redoPrompt,
   uiMockupPrompt,
+  staticUiMockup,
   dataExplainPrompt,
   assetManifestPrompt,
   unityKitPrompt,
@@ -141,6 +142,8 @@ import {
   saveChatHistory,
   loadFeedHistory,
   saveFeedHistory,
+  publishLive,
+  fetchLive,
   getBraveKeyStatus,
   type ProjectInfo,
   type GddVersion,
@@ -359,6 +362,8 @@ interface VEState {
 
   /** 지금 회의실에 모여 있는 에이전트 id들 (협업 세션·팀 리뷰 중 — 사무실 연출용) */
   meetingMembers: string[];
+  /** 다른 탭의 회의를 실황 미러 중인가 (이 탭이 직접 돌리는 게 아님) */
+  mirroredMeeting: boolean;
   /** 기존 기획 팀 리뷰 진행 상태 */
   planReviewBusy: boolean;
   planReviewPhase: string;
@@ -910,6 +915,7 @@ export const useVE = create<VEState>()((set, get) => {
     orchBaseline: null,
     meetingDiffOpen: false,
     meetingMembers: [],
+    mirroredMeeting: false,
     planReviewBusy: false,
     planReviewPhase: "",
     qaGate: ((): boolean => {
@@ -998,6 +1004,40 @@ export const useVE = create<VEState>()((set, get) => {
         const st = get();
         if (!st.gddEditing && !st.gddSaving && !st.gddPreview && st.activeProject) void st.loadGdd();
       }, 4000);
+      // 3D 사무실 실황 릴레이 — 회의 도는 탭은 발행, 나머지 탭은 미러 (탭 간 회의 집결 공유)
+      setInterval(() => {
+        const s = get();
+        const project = s.activeProject;
+        if (!project) return;
+        const iAmRunning = s.orchRunning || s.planReviewBusy || (s.meetingMembers.length > 0 && !s.mirroredMeeting);
+        if (iAmRunning) {
+          void publishLive(project, {
+            meetingMembers: s.meetingMembers,
+            agentStatus: s.agentStatus,
+          });
+        } else {
+          void fetchLive(project).then((live) => {
+            const cur = get();
+            if (cur.activeProject !== project) return;
+            // 그새 이 탭이 직접 회의를 시작했으면 미러하지 않는다
+            if (cur.orchRunning || cur.planReviewBusy || (cur.meetingMembers.length > 0 && !cur.mirroredMeeting)) return;
+            if (live && Array.isArray(live.meetingMembers) && live.meetingMembers.length > 0) {
+              set({
+                meetingMembers: live.meetingMembers,
+                mirroredMeeting: true,
+                agentStatus: { ...cur.agentStatus, ...(live.agentStatus ?? {}) },
+              });
+              // 미러 탭도 회의 발언 말풍선이 나오도록 피드를 따라 읽는다 (발행 탭이 디스크에 저장 중)
+              void loadFeedHistory(project).then((feed) => {
+                if (get().activeProject === project && get().mirroredMeeting && feed.length !== get().feed.length)
+                  set({ feed });
+              });
+            } else if (cur.mirroredMeeting) {
+              set({ meetingMembers: [], mirroredMeeting: false });
+            }
+          });
+        }
+      }, 3500);
       // 시스템 헬스 신호등 갱신
       setInterval(() => void get().loadHealth(), 20000);
       // 사무실 관리인 — 대화가 임계치를 넘으면 (회의 중이 아닐 때) 자동 정리
@@ -3043,19 +3083,23 @@ export const useVE = create<VEState>()((set, get) => {
           }
         }
         setAgentStatus("uiux", "done");
-        if (html && html.length > 300) {
-          await savePrototype(project, "UI·맵 목업 — 화면·건물 배치 와이어프레임", html);
-          await get().loadProto();
-          pushFeed({ from: "uiux", kind: "summary", text: "🗺️ UI·맵 목업 완성 — 🧪 프로토타입 스튜디오에서 열어보세요 (화면별 버튼 배치 + 시장 거리 평면도)." });
-          void notify("🗺️ UI·맵 목업 완성", "프로토타입 스튜디오에서 확인");
-        } else {
-          // 원문 조각을 남겨 원인 추적 (QA 파서 개선 때와 같은 패턴)
-          pushFeed({
-            from: "system",
-            kind: "error",
-            text: `⚠️ 목업 HTML을 해석하지 못했습니다 — 응답 앞부분: "${r.text.replace(/\s+/g, " ").slice(0, 200)}${r.text.length > 200 ? "…" : ""}"`,
-          });
+        // LLM 응답이 쓸 만한 HTML이 아니면(빈 응답·타임아웃 반복) 결정론적 정적 목업으로 대체 —
+        // 게이트웨이가 불안정해도 "대충이라도 UI가 보이게" 항상 산출물을 남긴다.
+        let usedStatic = false;
+        if (!html || html.length <= 300) {
+          html = staticUiMockup(uiSection, "UI·맵 목업 — 화면·건물 배치");
+          usedStatic = true;
         }
+        await savePrototype(project, "UI·맵 목업 — 화면·건물 배치 와이어프레임", html);
+        await get().loadProto();
+        pushFeed({
+          from: "uiux",
+          kind: "summary",
+          text: usedStatic
+            ? "🗺️ UI·맵 목업 완성 (게이트웨이 불안정으로 자동 와이어프레임 생성) — 🧪 프로토타입 스튜디오에서 열어보세요."
+            : "🗺️ UI·맵 목업 완성 — 🧪 프로토타입 스튜디오에서 열어보세요 (화면별 버튼 배치 + 맵 평면도).",
+        });
+        void notify("🗺️ UI·맵 목업 완성", "프로토타입 스튜디오에서 확인");
       } catch (e: any) {
         setAgentStatus("uiux", "error");
         pushFeed({ from: "system", kind: "error", text: `⚠️ UI 목업 실패: ${String(e?.message ?? e).slice(0, 120)}` });

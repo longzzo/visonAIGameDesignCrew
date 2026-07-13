@@ -243,6 +243,7 @@ function Person({
   selected,
   inMeeting,
   say,
+  workLabel,
 }: {
   id: string;
   targetsRef: React.MutableRefObject<Targets>;
@@ -250,6 +251,7 @@ function Person({
   selected: boolean;
   inMeeting?: boolean;
   say?: string;
+  workLabel?: string;
 }) {
   const a = AGENT_MAP[id];
   const ref = useRef<Group>(null);
@@ -304,8 +306,9 @@ function Person({
 
   const home = homeOf(id);
   const c = a?.color ?? "#8b7cf6";
-  const stLabel =
-    st === "running" ? (inMeeting ? "회의 중" : "작업 중") : walking ? "이동 중" : st === "done" ? "완료" : st === "error" ? "오류" : "";
+  const stLabel = workLabel
+    ? workLabel
+    : st === "running" ? (inMeeting ? "회의 중" : "작업 중") : walking ? "이동 중" : st === "done" ? "완료" : st === "error" ? "오류" : "";
   const body = "#f4f5f7";
   return (
     <group
@@ -1193,11 +1196,26 @@ function OfficeScene({
     if (m.to === "pm" && m.from && (m.kind === "draft" || m.kind === "revision" || m.kind === "summary")) lastReport[m.from] = m;
   }
   const meetingSay: Record<string, string> = {};
+  // 작업 현황 라벨 — 각 참석자의 피드 최근 활동을 "지금 뭐 하는지"로 요약 (이름 필에 표시)
+  const workPhase: Record<string, string> = {};
+  const PHASE_LABEL: Record<string, string> = {
+    instruction: "지시 분배",
+    draft: "초안 작성",
+    review: "검토 의견",
+    revision: "수정 반영",
+    summary: "취합·보고",
+    talk: "논의 중",
+    status: "진행 중",
+  };
   if (meetingMembers.length > 0) {
     for (const m of feed) {
-      if (m.from && meetingMembers.includes(m.from) && ["talk", "summary", "draft", "revision", "review"].includes(m.kind))
-        meetingSay[m.from] = m.text;
+      if (m.from && meetingMembers.includes(m.from)) {
+        if (["talk", "summary", "draft", "revision", "review"].includes(m.kind)) meetingSay[m.from] = m.text;
+        if (PHASE_LABEL[m.kind]) workPhase[m.from] = PHASE_LABEL[m.kind];
+      }
     }
+    // PM은 통상 마지막에 취합 — 발언이 없으면 "총괄 진행"
+    if (meetingMembers.includes("pm") && !workPhase["pm"]) workPhase["pm"] = "총괄 진행";
   }
   // 휴게실 잡담 대사 — 마주 앉은 둘이 번갈아 말한다 (걷는 시간만큼 지연 후 시작)
   const breakSay: Record<string, string> = {};
@@ -1275,6 +1293,7 @@ function OfficeScene({
           onSelect={onSelect}
           selected={selId === a.id}
           inMeeting={meetingMembers.includes(a.id)}
+          workLabel={meetingMembers.includes(a.id) ? workPhase[a.id] : undefined}
           say={
             meetingMembers.includes(a.id)
               ? meetingSay[a.id]
