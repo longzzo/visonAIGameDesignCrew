@@ -1,0 +1,6 @@
+id,name_ko,role,build_cost_ice,build_cost_steel,priority
+ice_core,얼음 저장고(코어),밀폐 판정 기준점,10,4,P0
+door,단열 문,출입+밀폐,4,2,P0
+insul_wall,차열벽,화염 차단,3,1,P0
+jangdok,장독 창고,자원 보관,5,0,P1
+roof,차열 지붕,상단 밀폐,6,2,P1
