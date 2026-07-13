@@ -3290,6 +3290,12 @@ export const useVE = create<VEState>()((set, get) => {
       gddQueue = gddQueue.then(async () => {
         try {
           const cur = await fetchGdd(project);
+          // 정본 보존 — 1장 개요에 정본 테이블(### 1-1 / "정본 테이블")이 있으면 회의 자동 통합이
+          // 덮어쓰지 못하게 건너뛴다. PM 개요 통합이 정본을 반복 유실시킨 실사례(2026-07-13) 방지.
+          if (agent.section === "## 1." && /###\s*1-1|정본\s*테이블/.test(getSectionBody(cur.markdown, "## 1."))) {
+            pushFeed({ from: "system", kind: "status", text: `🛡️ 1장 개요에 정본 테이블이 있어 자동 반영을 건너뜁니다 — 정본은 오너·메인 헤드가 관리합니다.` });
+            return;
+          }
           const md = replaceSection(cur.markdown, agent.section, agent.sectionTitle, text);
           const mtime = await saveGdd(project, md);
           set({ gdd: md, gddMtime: mtime });
