@@ -462,13 +462,36 @@ export async function publishProject({ projectId, projectName, gddMd, reports })
     await createChildPage(cfg.token, rootId, s.title, s.icon, mdToBlocks(s.body));
   }
 
-  // ③ 보고서함
-  const reps = (reports ?? []).slice(0, 20);
+  // ③ 명세서 (아트·개발 명세서, 개발 규칙 등) — 회의록과 분리된 전용 칸 (오너 지시 2026-07-14)
+  //    분류 규칙은 webapp/src/lib/reports.ts reportKind와 항상 동일하게 유지할 것.
+  const kindOf = (r) => {
+    if (r.kind === "spec" || r.kind === "minutes" || r.kind === "report") return r.kind;
+    const t = String(r.title ?? "");
+    if (t.startsWith("회의록")) return "minutes";
+    if (/명세서|규칙|스펙|사양/.test(t)) return "spec";
+    return "report";
+  };
+  const all = (reports ?? []).slice(0, 20);
+  const specs = all.filter((r) => kindOf(r) === "spec");
+  if (specs.length > 0) {
+    await appendBlocks(cfg.token, rootId, [
+      { type: "divider", divider: {} },
+      heading2("📐 명세서"),
+      callout("📐", rich(`정식 명세 문서 ${specs.length}건 — 아트·개발 명세서, 개발 규칙. 팀 배포 기준 문서.`), "blue_background"),
+    ]);
+    for (const r of specs) {
+      const d = new Date(r.ts).toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" });
+      await createChildPage(cfg.token, rootId, `${r.title} (${d})`, r.emoji || "📐", mdToBlocks(r.markdown ?? ""));
+    }
+  }
+
+  // ④ 보고서함 (회의록·일반 보고 — 명세서 제외)
+  const reps = all.filter((r) => kindOf(r) !== "spec");
   if (reps.length > 0) {
     await appendBlocks(cfg.token, rootId, [
       { type: "divider", divider: {} },
       heading2("📋 보고서함"),
-      callout("🗂️", rich(`최근 보고서 ${reps.length}건 — 회의록·명세서·협업 결론`), "gray_background"),
+      callout("🗂️", rich(`최근 보고서 ${reps.length}건 — 회의록·검증 보고·협업 결론`), "gray_background"),
     ]);
     for (const r of reps) {
       const d = new Date(r.ts).toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" });

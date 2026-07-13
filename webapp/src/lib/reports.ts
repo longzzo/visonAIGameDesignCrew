@@ -1,14 +1,26 @@
 // 프로젝트별 보고서(정식 명세서) 저장소 — /api/reports 입출력
 
+/** 보고서 분류 — spec(명세서·규칙), minutes(회의록), report(그 외 일반 보고) */
+export type ReportKind = "spec" | "minutes" | "report";
+
 export interface ReportInfo {
   ts: number;
   agent: string;
   title: string;
   size: number;
+  kind?: ReportKind;
 }
 
 export interface ReportDoc extends Omit<ReportInfo, "size"> {
   markdown: string;
+}
+
+/** kind 필드가 없는 옛 보고서는 제목으로 분류 — 노션 발행 측(notion-publish.mjs kindOf)과 규칙을 항상 동일하게 유지할 것 */
+export function reportKind(r: { kind?: string; title: string }): ReportKind {
+  if (r.kind === "spec" || r.kind === "minutes" || r.kind === "report") return r.kind;
+  if (r.title.startsWith("회의록")) return "minutes";
+  if (/명세서|규칙|스펙|사양/.test(r.title)) return "spec";
+  return "report";
 }
 
 export async function listReports(project: string): Promise<ReportInfo[]> {
@@ -27,11 +39,11 @@ export async function fetchReport(project: string, ts: number): Promise<ReportDo
   return (await r.json()) as ReportDoc;
 }
 
-export async function saveReport(project: string, agent: string, title: string, markdown: string): Promise<number> {
+export async function saveReport(project: string, agent: string, title: string, markdown: string, kind?: ReportKind): Promise<number> {
   const r = await fetch(`/api/reports?project=${encodeURIComponent(project)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ agent, title, markdown }),
+    body: JSON.stringify({ agent, title, markdown, kind }),
   });
   const j = await r.json();
   if (!r.ok || !j.ok) throw new Error(j.error || "보고서 저장 실패");

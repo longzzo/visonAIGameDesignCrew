@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { AGENT_MAP } from "../lib/agents";
-import { downloadReport } from "../lib/reports";
+import { downloadReport, reportKind } from "../lib/reports";
 import { artFileUrl } from "../lib/art";
 import { uiAlert, uiConfirm, uiPrompt } from "../lib/dialog";
 import { getNotionStatus, publishNotion, setupNotion, type NotionStatus } from "../lib/notionSync";
@@ -38,8 +38,8 @@ export function DocViewer() {
   const [publishing, setPublishing] = useState(false);
   // 노션 편집실 — 링크를 주면 읽고 분석해 요구대로 수정
   const [notionStudio, setNotionStudio] = useState(false);
-  // 보고서함 필터 — 회의록만 따로 본다
-  const [repFilter, setRepFilter] = useState<"all" | "minutes">("all");
+  // 보고서함 필터 — 명세서(아트·개발·규칙)와 회의록을 따로 본다
+  const [repFilter, setRepFilter] = useState<"all" | "spec" | "minutes">("all");
   useEffect(() => {
     if (tab) void getNotionStatus().then(setNotion).catch(() => setNotion(null));
   }, [tab]);
@@ -201,11 +201,18 @@ export function DocViewer() {
                   전체 ({reports.length})
                 </button>
                 <button
+                  className={`btn tiny ${repFilter === "spec" ? "primary" : ""}`}
+                  onClick={() => setRepFilter("spec")}
+                  title="아트 명세서·개발 명세서·개발 규칙 등 정식 명세 문서만 봅니다 — 노션에도 별도 '📐 명세서' 칸으로 발행"
+                >
+                  📐 명세서 ({reports.filter((r) => reportKind(r) === "spec").length})
+                </button>
+                <button
                   className={`btn tiny ${repFilter === "minutes" ? "primary" : ""}`}
                   onClick={() => setRepFilter("minutes")}
                   title="회의가 끝날 때마다 자동 저장되는 회의록만 봅니다 — 지시·검토·QA 근거와 도출 과정 포함"
                 >
-                  📋 회의록 ({reports.filter((r) => r.title.startsWith("회의록")).length})
+                  📋 회의록 ({reports.filter((r) => reportKind(r) === "minutes").length})
                 </button>
               </div>
               {reports.length === 0 && (
@@ -215,7 +222,7 @@ export function DocViewer() {
                   에이전트 1:1 대화의 <b>📋 보고서</b> 버튼으로 요청해 보세요.
                 </div>
               )}
-              {(repFilter === "minutes" ? reports.filter((r) => r.title.startsWith("회의록")) : reports).map((r) => {
+              {(repFilter === "all" ? reports : reports.filter((r) => reportKind(r) === repFilter)).map((r) => {
                 const a = AGENT_MAP[r.agent];
                 return (
                   <button

@@ -286,13 +286,13 @@ function notionPayload(projectId: string) {
     const gddMd = fs.existsSync(gddFile) ? fs.readFileSync(gddFile, "utf-8") : "";
     const projectName = listProjects().find((p) => p.id === projectId)?.name ?? projectId;
     const repDir = path.join(projectDir(projectId), "reports");
-    const reports: { ts: number; title: string; markdown: string }[] = [];
+    const reports: { ts: number; title: string; markdown: string; kind?: string }[] = [];
     if (fs.existsSync(repDir)) {
       const files = fs.readdirSync(repDir).filter((f) => /^\d+\.json$/.test(f)).sort().reverse().slice(0, 20);
       for (const f of files) {
         try {
           const r = JSON.parse(fs.readFileSync(path.join(repDir, f), "utf-8"));
-          reports.push({ ts: Number(r.ts) || 0, title: String(r.title ?? "보고서"), markdown: String(r.markdown ?? "") });
+          reports.push({ ts: Number(r.ts) || 0, title: String(r.title ?? "보고서"), markdown: String(r.markdown ?? ""), kind: r.kind });
         } catch {
           /* 손상 보고서 생략 */
         }
@@ -1406,7 +1406,7 @@ function reportsApiPlugin(): Plugin {
                 .map((f) => {
                   try {
                     const j = JSON.parse(fs.readFileSync(path.join(dir, f), "utf-8"));
-                    return { ts: j.ts, agent: j.agent, title: j.title, size: (j.markdown ?? "").length };
+                    return { ts: j.ts, agent: j.agent, title: j.title, size: (j.markdown ?? "").length, kind: j.kind };
                   } catch {
                     return null;
                   }
@@ -1423,6 +1423,8 @@ function reportsApiPlugin(): Plugin {
               const agent = String(j.agent ?? "");
               const title = String(j.title ?? "").trim().slice(0, 120);
               const markdown = String(j.markdown ?? "");
+              // 분류(선택) — spec(명세서)·minutes(회의록)·report. 미지정 시 발행·UI가 제목으로 분류한다.
+              const kind = ["spec", "minutes", "report"].includes(String(j.kind)) ? String(j.kind) : undefined;
               if (!safeAgent(agent) || !title || !markdown) {
                 res.statusCode = 400;
                 res.end(JSON.stringify({ ok: false, error: "agent/title/markdown 필요" }));
@@ -1432,7 +1434,7 @@ function reportsApiPlugin(): Plugin {
               const ts = Date.now();
               fs.writeFileSync(
                 path.join(dir, `${ts}.json`),
-                JSON.stringify({ ts, agent, title, markdown }, null, 0),
+                JSON.stringify({ ts, agent, title, markdown, ...(kind ? { kind } : {}) }, null, 0),
                 "utf-8"
               );
               exportToVault(project, "report", { agent, title, markdown });
