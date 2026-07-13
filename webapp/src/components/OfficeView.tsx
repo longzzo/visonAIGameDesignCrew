@@ -537,6 +537,77 @@ export function OfficeView() {
     });
   };
 
+  /**
+   * 공용 액션 바 — 2D·3D 사무실이 **똑같은** 글래스 아이콘 바를 공유한다.
+   * 같은 버튼·같은 순서·같은 스타일로, 뷰를 바꿔도 조작이 일관된다.
+   * (함수로 렌더 — 상태를 클로저로 잡아 리마운트 없이 재사용)
+   */
+  const officeActions = () => (
+    <div className="os-actions glass">
+      <span className="os-clock dim">
+        {new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false })}
+      </span>
+      {orchRunning && <span className="office-live">● 진행 중</span>}
+      <button className="os-abtn" onClick={() => setBoardOpen(true)} title="라이브 프로세스 — 전사 워크스트림 현황">
+        📋 보드
+      </button>
+      <button className="os-abtn" onClick={() => openDocViewer("gdd")} title="마스터 GDD를 큰 화면으로">
+        📄 GDD
+      </button>
+      <button className="os-abtn" onClick={() => openDocViewer("reports")} title="보고서함">
+        📑 보고서{reports.length > 0 ? ` ${reports.length}` : ""}
+      </button>
+      <button className="os-abtn" onClick={() => openDocViewer("art")} title="아트 보관함">
+        🖼️ 아트
+      </button>
+      <button className="os-abtn" onClick={() => setArtStudioOpen(true)} title="아트 인턴 — 컨셉 아트 생성">
+        🖌️ 인턴
+      </button>
+      <button className="os-abtn" onClick={() => setProtoStudioOpen(true)} title="시뮬레이터 — 플레이 가능한 그레이박스·와이어프레임 프로토타입">
+        🕹️ 시뮬
+      </button>
+      <button
+        className="os-abtn"
+        onClick={() => void dailyBriefing()}
+        disabled={briefingBusy || orchRunning}
+        title="PM 오늘의 브리핑 — 현황·추천 작업·리스크"
+      >
+        {briefingBusy ? "…" : "☀️"} 브리핑
+      </button>
+      <button
+        className="os-abtn"
+        onClick={() => void reviewExistingPlan()}
+        disabled={planReviewBusy || orchRunning}
+        title="기존 기획 팀 리뷰 — PM 분배로 전원 학습·평가"
+      >
+        {planReviewBusy ? "…" : "📥"} 기획리뷰
+      </button>
+      <button className="os-abtn" onClick={startUnityReview} title="유니티 프로젝트 리뷰 (개발 회의)">
+        🎮 유니티
+      </button>
+      {artStatus?.connected && (
+        <button
+          className="os-abtn"
+          onClick={onNewBg}
+          disabled={officeBgBusy}
+          title="아트 인턴에게 새 사무실 배경을 그리게 합니다 (아트 디렉터가 게임 분위기 반영)"
+        >
+          {officeBgBusy ? "…" : "🌄"} 배경
+        </button>
+      )}
+      <button
+        className="os-abtn"
+        onClick={() => setOfficeTheme(officeTheme === "day" ? "night" : officeTheme === "night" ? "auto" : "day")}
+        title={`테마: ${officeTheme === "day" ? "낮" : officeTheme === "night" ? "밤" : "자동(시간)"} — 클릭해 전환`}
+      >
+        {officeTheme === "day" ? "☀" : officeTheme === "night" ? "🌙" : "🌗"} 테마
+      </button>
+      <button className="os-abtn" onClick={toggleMode3d} title={mode3d ? "2D 사무실로 전환" : "3D 사무실로 전환"}>
+        {mode3d ? "🟦 2D" : "🧊 3D"}
+      </button>
+    </div>
+  );
+
   /* ── 3D 풀스크린 스튜디오 (Sample 추구미 — 도시 오피스 위 유리 패널) ── */
   if (mode3d) {
     const cardVals = Object.values(cards);
@@ -565,63 +636,7 @@ export function OfficeView() {
               </button>
             ))}
           </div>
-          <div className="os-actions glass">
-            <span className="os-clock dim">
-              {new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false })}
-            </span>
-            {orchRunning && <span className="office-live">● 진행 중</span>}
-            <button className="os-abtn" onClick={() => setBoardOpen(true)} title="라이브 프로세스 — 전사 워크스트림 현황">
-              📋 보드
-            </button>
-            <button className="os-abtn" onClick={() => openDocViewer("gdd")} title="마스터 GDD를 큰 화면으로">
-              📄 GDD
-            </button>
-            <button className="os-abtn" onClick={() => openDocViewer("reports")} title="보고서함">
-              📑{reports.length > 0 ? ` ${reports.length}` : ""}
-            </button>
-            <button className="os-abtn" onClick={() => openDocViewer("art")} title="아트 보관함">
-              🖼️
-            </button>
-            <button className="os-abtn" onClick={() => setArtStudioOpen(true)} title="아트 인턴 — 컨셉 아트 생성">
-              🖌️
-            </button>
-            <button
-              className="os-abtn"
-              onClick={() => setProtoStudioOpen(true)}
-              title="시뮬레이터 — 개발 인턴의 플레이 가능한 그레이박스·와이어프레임 프로토타입"
-            >
-              🕹️
-            </button>
-            <button
-              className="os-abtn"
-              onClick={() => void dailyBriefing()}
-              disabled={briefingBusy || orchRunning}
-              title="PM 오늘의 브리핑 — 현황·추천 작업·리스크"
-            >
-              {briefingBusy ? "…" : "☀️"}
-            </button>
-            <button
-              className="os-abtn"
-              onClick={() => void reviewExistingPlan()}
-              disabled={planReviewBusy || orchRunning}
-              title="기존 기획 팀 리뷰 — PM 분배로 전원 학습·평가"
-            >
-              {planReviewBusy ? "…" : "📥"}
-            </button>
-            <button className="os-abtn" onClick={startUnityReview} title="유니티 프로젝트 리뷰 (개발 회의)">
-              🎮
-            </button>
-            <button
-              className="os-abtn"
-              onClick={() => setOfficeTheme(officeTheme === "day" ? "night" : officeTheme === "night" ? "auto" : "day")}
-              title={`테마: ${officeTheme === "day" ? "낮" : officeTheme === "night" ? "밤" : "자동(시간)"} — 클릭해 전환`}
-            >
-              {officeTheme === "day" ? "☀" : officeTheme === "night" ? "🌙" : "🌗"}
-            </button>
-            <button className="os-abtn" onClick={toggleMode3d} title="2D 사무실로 전환">
-              🟦 2D
-            </button>
-          </div>
+          {officeActions()}
         </div>
 
         {/* 좌측 — 인력 현황 로스터 */}
@@ -800,82 +815,8 @@ export function OfficeView() {
       <div className="office-header">
         <span className="office-sign">🏢 Vision Engine 스튜디오</span>
         <span className="office-project">{projectName}</span>
-        {orchRunning && <span className="office-live">● 회의 진행 중</span>}
-        <button
-          className={`btn small ${mode3d ? "primary" : ""}`}
-          onClick={toggleMode3d}
-          title="3D 사무실 — 에이전트가 실제로 걸어다니며 보고·회의하는 입체 뷰"
-        >
-          {mode3d ? "🟦 2D 사무실" : "🧊 3D 사무실"}
-        </button>
-        <select
-          className="model-select mini office-theme"
-          value={officeTheme}
-          onChange={(e) => setOfficeTheme(e.target.value)}
-          title="사무실 배경 테마 — 아트 인턴이 그린 픽셀아트"
-        >
-          {BG_THEMES.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.label}
-            </option>
-          ))}
-          {officeBg && <option value="custom">🖼️ 커스텀 (인턴 신작)</option>}
-        </select>
-        {artStatus?.connected && (
-          <button
-            className="btn small"
-            onClick={onNewBg}
-            disabled={officeBgBusy}
-            title="아트 인턴에게 새 사무실 배경을 그리게 합니다 (아트 디렉터가 게임 분위기 반영)"
-          >
-            {officeBgBusy ? (
-              <>
-                <span className="spinner" /> 그리는 중…
-              </>
-            ) : (
-              "🖌️ 새 배경"
-            )}
-          </button>
-        )}
-        <button
-          className="btn small"
-          onClick={() => void dailyBriefing()}
-          disabled={briefingBusy || orchRunning}
-          title="PM이 현황·오늘 추천 작업·리스크를 정리해 대화방으로 보고합니다 — 매일 아침 한 번"
-        >
-          {briefingBusy ? (
-            <>
-              <span className="spinner" /> 브리핑…
-            </>
-          ) : (
-            "☀️ 오늘의 브리핑"
-          )}
-        </button>
-        <button
-          className="btn small"
-          onClick={() => void reviewExistingPlan()}
-          disabled={planReviewBusy || orchRunning}
-          title="PM이 기존 기획(GDD) 전체를 읽고 역할별 브리핑을 넘겨, 각자 학습 후 보완점·평가를 회의실에서 취합합니다"
-        >
-          {planReviewBusy ? (
-            <>
-              <span className="spinner" /> 팀 리뷰…
-            </>
-          ) : (
-            "📥 기존 기획 리뷰"
-          )}
-        </button>
-        <span className="office-doc-tabs">
-          <button className="btn small" onClick={() => openDocViewer("gdd")} title="마스터 GDD를 큰 화면으로">
-            📄 GDD
-          </button>
-          <button className="btn small" onClick={() => openDocViewer("reports")} title="보고서함을 큰 화면으로">
-            📋 보고서{reports.length > 0 ? ` ${reports.length}` : ""}
-          </button>
-          <button className="btn small" onClick={() => openDocViewer("art")} title="아트 보관함을 큰 화면으로">
-            🖼️ 아트
-          </button>
-        </span>
+        {/* 3D와 동일한 공용 글래스 액션 바 — 뷰를 바꿔도 버튼이 일관된다 */}
+        {officeActions()}
       </div>
       {officeBgPhase && <div className="office-bg-phase dim">{officeBgPhase}</div>}
       {planReviewPhase && <div className="office-bg-phase dim">{planReviewPhase}</div>}
@@ -986,6 +927,7 @@ export function OfficeView() {
             : "회의실 — 회의가 시작되면 참가자가 모입니다"}
       </div>
 
+      {boardOpen && <WorkstreamBoard onClose={() => setBoardOpen(false)} />}
       {protoStudioOpen && <PrototypeStudio onClose={() => setProtoStudioOpen(false)} />}
       {devTaskAgent && (
         <DevTaskPanel
