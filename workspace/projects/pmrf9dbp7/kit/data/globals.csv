@@ -1,0 +1,10 @@
+id,unit,value,note
+gacha_pull_cost_gold,Gold,50,확정 — 레시피 뽑기 시스템 문서
+gacha_pity_threshold,회,50,확정 — 천장(50회 내 비밀 미출현 시 확정 지급)
+market_price_variation_pct,percent,20,확정 — 기준가 대비 ±20% 일일 시세 (시장 시스템 2.3)
+rotation_slots_per_day,개,3,확정 — 상위 재료 로테이션 매대 일일 품목 수 (시장 시스템 2.5)
+rotation_buy_limit_per_item,회,1,확정 — 로테이션 품목당 1일 구매 제한
+gacha_buy_limit_per_day,회,10,확정(7/13 오너 승인) — 뽑기 일일 구매 제한
+boss_drop_rate_pct,percent,100,확정 — 스토리 보스 특수 재료 (스토리 차단 방지)
+gold_per_day_base,Gold,50,확정(7/13 오너 승인) — 레벨 1 일일 골드 수입
+day_length_min_realtime,분,12,확정(7/13 오너 승인) — 한 세션(1일) 실제 시간

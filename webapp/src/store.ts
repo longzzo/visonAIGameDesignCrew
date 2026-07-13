@@ -1301,6 +1301,9 @@ export const useVE = create<VEState>()((set, get) => {
         orchRunning: true,
         stopRequested: false,
         cards: { pm: { agentId: "pm", state: "pending", output: "" } },
+        // 회의 소집 — 참여 담당자 전원 + PM을 회의실로 모은다. 3D 아바타가 회의실로 걸어가고,
+        // 카메라가 회의실로 이동하며(OfficeView), 2D 회의실이 채워진다. 종료 시 아래 3개 출구에서 해제.
+        meetingMembers: ["pm", ...pool.map((a) => a.id)],
         // 지시를 접수했으면 입력창을 비운다 — 요청 원문은 아래 피드에 남는다
         orchRequest: "",
       });
@@ -1547,7 +1550,7 @@ export const useVE = create<VEState>()((set, get) => {
             } catch (e: any) {
               if (!get().stopRequested) pushFeed({ from: "system", kind: "error", text: `⚠️ 협업 실패: ${String(e?.message ?? e).slice(0, 120)}` });
             }
-            set({ orchRunning: false });
+            set({ orchRunning: false, meetingMembers: [] });
             return;
           }
           const parsed = parseDeptPlan(routeText, zonesForRouting);
@@ -1670,7 +1673,7 @@ export const useVE = create<VEState>()((set, get) => {
 
       if (get().stopRequested) {
         pushFeed({ from: "system", kind: "status", text: "사용자 요청으로 오케스트레이션이 중단되었습니다." });
-        set({ orchRunning: false });
+        set({ orchRunning: false, meetingMembers: [] });
         return;
       }
 
@@ -1814,7 +1817,7 @@ export const useVE = create<VEState>()((set, get) => {
         }
       }
 
-      set({ orchRunning: false });
+      set({ orchRunning: false, meetingMembers: [] });
       if (results.length > 0) void notify("🎪 회의 완료", `${req.slice(0, 60)} — 산출물 ${results.length}건이 반영되었습니다`);
     },
 

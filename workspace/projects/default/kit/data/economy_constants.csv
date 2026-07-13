@@ -1,0 +1,9 @@
+Constant,Value,Unit,Description
+BaseGoldPerMinute,120,gold,Base gold earned per minute at level 1
+GoldScalingFactor,1.07,,Gold earned per minute scales exponentially with level
+DrinkBasePrice,50,gold,Base price of a standard magic drink
+DrinkPriceMultiplier,1.06,,Drink price scales with level
+MaxInventorySlots,12,,Maximum number of items a player can carry
+ItemSellRate,0.6,,Percentage of item purchase price returned on sell
+DailyLoginBonus,150,gold,Fixed bonus for daily login
+DailyLoginBonusScaling,1.04,,Daily bonus scales with level

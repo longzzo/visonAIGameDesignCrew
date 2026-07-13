@@ -730,6 +730,15 @@ button { font-family: inherit; }
   animation: idle-bob 3s ease-in-out infinite;
 }
 .mtg-seat-name { font-size: 10px; color: var(--text-dim); background: rgba(13, 17, 24, 0.8); border-radius: 6px; padding: 0 5px; }
+/* 좌석 실시간 상태 — 지금 누가 작업(발언) 중인지 한눈에 */
+.mtg-seat.st-running .mtg-seat-av { border-color: #34d399 !important; box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.28); animation: mtg-pulse 1.1s ease-in-out infinite; }
+.mtg-seat.st-done .mtg-seat-av { opacity: 0.78; }
+@keyframes mtg-pulse { 0%, 100% { box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18); } 50% { box-shadow: 0 0 0 6px rgba(52, 211, 153, 0.42); } }
+.mtg-seat-badge {
+  position: absolute; top: -7px; right: -7px; font-size: 12px; line-height: 1;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6));
+}
+.mtg-seat-badge.work { animation: idle-bob 0.9s ease-in-out infinite; }
 .mtg-bubble {
   position: absolute; bottom: 100%; margin-bottom: 4px; white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis;
   font-size: 10px; color: #dfe6f0; background: rgba(20, 25, 34, 0.94); border: 1px solid #8b7cf655;

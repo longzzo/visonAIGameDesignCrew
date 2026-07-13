@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>슬라임 김치 UI 와이어프레임</title>
+  <style>
+    body {
+      background-color: #14161d;
+      color: #f0f0f0;
+      font-family: 'Segoe UI', sans-serif;
+      margin: 0;
+      padding: 20px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(2, auto);
+      gap: 20px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .screen {
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 15px;
+      background-color: #1e2026;
+      position: relative;
+    }
+    .label {
+      font-weight: bold;
+      margin-bottom: 10px;
+      color: #ffffff;
+    }
+    .button {
+      display: block;
+      width: 100%;
+      padding: 12px;
+      margin-top: 10px;
+      border: none;
+      border-radius: 6px;
+      font-weight: bold;
+      text-align: center;
+      cursor: pointer;
+    }
+    .button.red { background-color: #ff4d4d; color: white; }
+    .button.gold { background-color: #ffd700; color: #14161d; }
+    .button.white-border { background-color: transparent; color: white; border: 1px solid white; }
+    .bar {
+      height: 12px;
+      background-color: #333;
+      border-radius: 6px;
+      margin: 10px 0;
+      position: relative;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 6px;
+      position: absolute;
+      top: 0;
+    }
+    .bar-fill.water { background-color: #a0e0ff; }
+    .bar-fill.ferment { background-color: #ff8c00; }
+    .text {
+      font-size: 14px;
+      margin: 8px 0;
+    }
+    .text.red { color: #ff4d4d; }
+    .text.gold { color: #ffd700; }
+    .text.grey { color: #888; }
+    .popup {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: rgba(0, 0, 0, 0.8);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 14px;
+      border: 1px solid #ff4d4d;
+    }
+    .tip {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      background-color: rgba(255, 255, 255, 0.3);
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: white;
+    }
+    .market-layout {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 15px;
+    }
+    .market-stall {
+      border: 1px solid #555;
+      padding: 10px;
+      text-align: center;
+      border-radius: 6px;
+      background-color: #2a2c32;
+    }
+    .arrow {
+      position: absolute;
+      width: 0;
+      height: 0;
+      border-left: 10px solid transparent;
+      border-right: 10px solid transparent;
+      border-top: 10px solid #fff;
+      transform: rotate(0deg);
+    }
+    .market-path {
+      position: relative;
+      height: 150px;
+      margin-top: 15px;
+    }
+    .market-path .arrow {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+    .market-path .arrow:nth-child(2) {
+      top: 50px;
+      transform: translateX(-50%) rotate(90deg);
+    }
+    .market-path .arrow:nth-child(3) {
+      top: 100px;
+      transform: translateX(-50%) rotate(90deg);
+    }
+    .market-path .arrow:nth-child(4) {
+      top: 120px;
+      left: 20px;
+      transform: rotate(180deg);
+    }
+    .emoji {
+      font-size: 18px;
+      margin-right: 5px;
+    }
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+    }
+    .info-row span {
+      font-size: 13px;
+    }
+    .upgrade-tip {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      background-color: rgba(255, 255, 255, 0.3);
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: white;
+      animation: blink 3s infinite;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
+    .rewards {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-top: 8px;
+    }
+    .reward {
+      background-color: #2a2c32;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .boss-reward {
+      border: 1px solid #ff4d4d;
+    }
+    .gilded {
+      color: #ffd700;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="screen">
+    <div class="label">탑 선택 씬</div>
+    <div class="button red">탐험 시작</div>
+    <div style="margin-top: 15px; text-align: center; font-size: 14px;">탑 종류 선택 버튼</div>
+    <div style="margin-top: 5px; text-align: center; font-size: 14px;">층 선택 버튼</div>
+  </div>
+
+  <div class="screen">
+    <div class="label">식재료의 탑</div>
+    <div class="info-row">
+      <span>체력: 100/100</span>
+      <span>층: 1</span>
+    </div>
+    <div class="bar">
+      <div class="bar-fill water" style="width: 75%;"></div>
+    </div>
+    <div class="text">수분(잔여량): 75/100</div>
+    <div class="bar">
+      <div class="bar-fill ferment" style="width: 40%;"></div>
+    </div>
+    <div class="text">발효 진행: 40%</div>
+    <div style="margin-top: 10px; text-align: center;">
+      <div class="button white-border">재료 1</div>
+      <div class="button white-border">재료 2</div>
+      <div class="button white-border">재료 3</div>
+    </div>
+  </div>
+
+  <div class="screen">
+    <div class="label">주막(장사 준비)</div>
+    <div class="popup">오늘의 뽑기: 1/10</div>
+    <div class="button red" style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); width: 80%;">장사 시작</div>
+    <div class="bar">
+      <div class="bar-fill water" style="width: 60%;"></div>
+    </div>
+    <div class="text">수분(잔여량): 60/100</div>
+    <div class="button white-border" style="position: absolute; top: 15px; right: 15px; padding: 6px 12px; font-size: 12px;">시장</div>
+  </div>
+
+  <div class="screen">
+    <div class="label">주막(장사 중)</div>
+    <div class="popup">손님 주문: 김치 1개</div>
+    <div class="bar" style="position: absolute; top: 20px; right: 15px; width: 100px; height: 12px;">
+      <div class="bar-fill ferment" style="width: 65%;"></div>
+    </div>
+    <div class="text" style="position: absolute; top: 40px; right: 15px; font-size: 12px;">발효 진행</div>
+    <div class="button gold" style="position: absolute; bottom: 20px; left: 15px;">업그레이드</div>
+    <div class="tip">성장 기회: 20% 확률</div>
+  </div>
+
+  <div class="screen">
+    <div class="label">시장 씬</div>
+    <div class="popup">오늘의 뽑기: 0/10</div>
+    <div class="info-row">
+      <span>골드: 240</span>
+    </div>
+    <div class="market-layout">
+      <div class="market-stall">요리 재료</div>
+      <div class="market-stall">상위 재료</div>
+      <div class="market-stall">레시피 뽑기</div>
+    </div>
+    <div class="market-path">
+      <div class="arrow"></div>
+      <div class="arrow"></div>
+      <div class="arrow"></div>
+      <div class="arrow"></div>
+    </div>
+    <div style="position: absolute; bottom: 15px; left: 50%; transform: translateX(-50%); width: 80%;">
+      <div class="button white-border" style="width: 100%;">← 주막 문</div>
+    </div>
+    <div style="position: absolute; bottom: 15px; left: 15px; width: 120px;">
+      <div class="button white-border boss-reward" style="padding: 8px 10px; font-size: 12px;">보스 김치 의뢰</div>
+    </div>
+  </div>
+
+  <div class="screen">
+    <div class="label">정산 씬</div>
+    <div class="popup">화련의 국자: 금빛 빛남</div>
+    <div class="info-row">
+      <span>수분: 75/100</span>
+      <span>발효 효율: +15%</span>
+    </div>
+    <div class="rewards">
+      <div class="reward">파 3</div>
+      <div class="reward">특제 양념 1</div>
+    </div>
+    <div class="text grey">이월 재료: [파 3, 특제 양념 1]</div>
+    <div class="text gold">전설 김치 보유: [1]</div>
+    <div class="button gold" style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); width: 80%;">다음 날로</div>
+  </div>
+</body>
+</html>

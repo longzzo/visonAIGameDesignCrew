@@ -169,18 +169,21 @@ function PmWalker() {
 
 /** 회의실 — 협업 세션·팀 리뷰 중일 때 참가자들이 실제로 걸어와 모이는 구역 */
 function MeetingRoom() {
-  const { meetingMembers, feed } = useVE();
+  const { meetingMembers, feed, agentStatus } = useVE();
   const active = meetingMembers.length > 0;
   const n = meetingMembers.length;
   // 각 참가자의 최근 발언 (옆에 붙어 대화하는 느낌)
   const lastSay: Record<string, string> = {};
   for (const m of feed) if (m.from && meetingMembers.includes(m.from)) lastSay[m.from] = m.text;
+  // 지금 발언(작업)하는 사람 — 한눈에 "누가 일하는 중"인지
+  const workingCount = meetingMembers.filter((id) => (agentStatus[id] ?? "idle") === "running").length;
   return (
     <div className={`meeting-room ${active ? "active" : ""}`} data-meeting="room" title="회의실">
       {/* 원탁 둘레로 참가자가 둘러앉는다 */}
       {active &&
         meetingMembers.map((id, i) => {
           const a = AGENT_MAP[id];
+          const st = agentStatus[id] ?? "idle";
           const ang = (i / Math.max(n, 1)) * Math.PI * 2 - Math.PI / 2;
           const rx = 108;
           const ry = 66;
@@ -188,17 +191,27 @@ function MeetingRoom() {
           const top = 50 + (Math.sin(ang) * ry) / 2.4;
           const say = lastSay[id];
           return (
-            <div key={id} className="mtg-seat" style={{ left: `${left}%`, top: `${top}%`, animationDelay: `${i * 0.12}s` }}>
+            <div
+              key={id}
+              className={`mtg-seat st-${st}`}
+              style={{ left: `${left}%`, top: `${top}%`, animationDelay: `${i * 0.12}s` }}
+              title={`${a?.name ?? id} — ${st === "running" ? "발언·작업 중" : st === "done" ? "발언 완료" : st === "error" ? "문제 발생" : "대기"}`}
+            >
               {say && <div className="mtg-bubble">{say.replace(/[#*>`]/g, "").replace(/\s+/g, " ").slice(0, 40)}</div>}
               <div className="mtg-seat-av" style={{ borderColor: (a?.color ?? "#8b7cf6") + "aa" }}>
                 <AgentSprite id={id} size={30} />
+                {st === "running" && <span className="mtg-seat-badge work">⚡</span>}
+                {st === "done" && <span className="mtg-seat-badge ok">✅</span>}
+                {st === "error" && <span className="mtg-seat-badge err">💢</span>}
               </div>
               <span className="mtg-seat-name">{a?.name?.split(" ")[0]}</span>
             </div>
           );
         })}
       <span className="meeting-table">🟫</span>
-      <div className="meeting-label">{active ? `🗣 회의 중 · ${n}명` : "회의실 (대기)"}</div>
+      <div className="meeting-label">
+        {active ? `🗣 회의 중 · ${n}명${workingCount > 0 ? ` · ⚡${workingCount} 작업 중` : ""}` : "회의실 (대기)"}
+      </div>
     </div>
   );
 }
