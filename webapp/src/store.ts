@@ -1336,6 +1336,14 @@ export const useVE = create<VEState>()((set, get) => {
       const project = st.activeProject || "np";
       const runTag = `${project}-orch-${Date.now().toString(36)}`;
 
+      // 회의 참가 캐스트 — 회의를 실제로 이끄는 팀장(escalationTarget)과 초안을 올리는 주니어·인턴
+      // 기여자까지 모두 회의실로 모은다. 이전엔 [pm + 선택 시니어]만 앉아, 정작 지시를 내리는
+      // 팀장이 회의실 밖에 있어 "제대로 모여 회의하지 않는" 것처럼 보였다.
+      const castZones = [...new Set(pool.map((a) => AGENT_ZONE[a.id] ?? "plan"))];
+      const castManagers = castZones.map((z) => deptManagerId(z)).filter((id) => id && id !== "pm");
+      const castContribs = pool.flatMap((o) => contributorsOf(o.id).map((c) => c.id));
+      const meetingCast = [...new Set(["pm", ...castManagers, ...pool.map((a) => a.id), ...castContribs])];
+
       orchAbort = new AbortController();
       const signal = orchAbort.signal;
       set({
@@ -1344,10 +1352,16 @@ export const useVE = create<VEState>()((set, get) => {
         cards: { pm: { agentId: "pm", state: "pending", output: "" } },
         // 회의 소집 — 참여 담당자 전원 + PM을 회의실로 모은다. 3D 아바타가 회의실로 걸어가고,
         // 카메라가 회의실로 이동하며(OfficeView), 2D 회의실이 채워진다. 종료 시 아래 3개 출구에서 해제.
-        meetingMembers: ["pm", ...pool.map((a) => a.id)],
+        meetingMembers: meetingCast,
         // 지시를 접수했으면 입력창을 비운다 — 요청 원문은 아래 피드에 남는다
         orchRequest: "",
       });
+      // 회의 종료 정리 — 회의실 해제 + 서버 실황 즉시 비움(미러 탭이 12초 기다리지 않고 바로 정리됨)
+      const endMeeting = () => {
+        set({ orchRunning: false, meetingMembers: [], mirroredMeeting: false });
+        void publishLive(project, { meetingMembers: [], agentStatus: get().agentStatus });
+      };
+
       const feedStart = get().feed.length; // 회의록 — 이 회의의 피드 구간 시작점
       pushFeed({ from: "user", kind: "request", text: req });
 
@@ -1599,7 +1613,7 @@ export const useVE = create<VEState>()((set, get) => {
             } catch (e: any) {
               if (!get().stopRequested) pushFeed({ from: "system", kind: "error", text: `⚠️ 협업 실패: ${String(e?.message ?? e).slice(0, 120)}` });
             }
-            set({ orchRunning: false, meetingMembers: [] });
+            endMeeting();
             return;
           }
           const parsed = parseDeptPlan(routeText, zonesForRouting);
@@ -1722,7 +1736,7 @@ export const useVE = create<VEState>()((set, get) => {
 
       if (get().stopRequested) {
         pushFeed({ from: "system", kind: "status", text: "사용자 요청으로 오케스트레이션이 중단되었습니다." });
-        set({ orchRunning: false, meetingMembers: [] });
+        endMeeting();
         return;
       }
 
@@ -1866,7 +1880,7 @@ export const useVE = create<VEState>()((set, get) => {
         }
       }
 
-      set({ orchRunning: false, meetingMembers: [] });
+      endMeeting();
       if (results.length > 0) void notify("🎪 회의 완료", `${req.slice(0, 60)} — 산출물 ${results.length}건이 반영되었습니다`);
     },
 
