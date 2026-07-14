@@ -36,3 +36,5 @@ claw_t2_mine_crit,0.15,prob,무쇠 발톱 채굴 크리티컬(드랍 2배·채�
 claw_t3_slow,0.30,mult,서리 서림 감속(2초)
 insul_straw_bonus,0.05,per_wall,짚 단열재 체온 하강 보정(상한 6장)
 insul_clay_wall_hp,750,hp,점토 미장 차열벽 HP(600→750)
+eoduksini_bloom_pause_sec,6,sec,어둑시니 꽃구경 — 만개(등불 반경 진입) 중 벽 공격 중단(개체당 진입 1회)
+eoduksini_rebloom_cd_sec,12,sec,어둑시니 재개화 쿨(개체당) — 밀어내기 반복 어뷰징 상한
