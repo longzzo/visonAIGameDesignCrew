@@ -300,7 +300,12 @@ function notionPayload(projectId: string) {
     }
     // 키비주얼 — art/keyvisual-*.png 을 발행 파이프라인에 동봉 (재발행에도 유지, 오너 지시 2026-07-14)
     const artDir = path.join(projectDir(projectId), "art");
-    const kvCaption: Record<string, string> = { night: "밤 — 요괴 습격", day: "낮 — 백일폭염" };
+    const kvCaption: Record<string, string> = {
+      night: "밤 — 요괴 습격",
+      day: "낮 — 백일폭염",
+      bossfight: "보스전 — 백중날의 강철이 vs 신기전 화차",
+      nap: "냥잠 — 까치 벗과 한낮의 휴식",
+    };
     const keyVisuals = fs.existsSync(artDir)
       ? fs
           .readdirSync(artDir)
