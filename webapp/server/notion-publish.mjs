@@ -631,8 +631,9 @@ export async function publishProject({ projectId, projectName, gddMd, reports, k
   g1.push({ type: "divider", divider: {} }, heading2("🎮 게임 개요"));
 
   const coreLinks = [
+    docs.find((d) => d.group === "spec" && /^게임 소개서/.test(d.title))?.key,
     docs.find((d) => d.group === "gdd" && d.key === "gdd:1")?.key,
-    artSpec?.key,
+    docs.find((d) => d.group === "spec" && /^아트 명세서/.test(d.title))?.key,
     docs.find((d) => d.group === "spec" && /^개발 명세서/.test(d.title))?.key,
     docs.find((d) => d.group === "spec" && /^개발 규칙/.test(d.title))?.key,
   ].filter(Boolean).map(linkTo).filter(Boolean);
