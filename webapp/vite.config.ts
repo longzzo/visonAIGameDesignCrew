@@ -298,7 +298,20 @@ function notionPayload(projectId: string) {
         }
       }
     }
-    return { projectId, projectName, gddMd, reports };
+    // 키비주얼 — art/keyvisual-*.png 을 발행 파이프라인에 동봉 (재발행에도 유지, 오너 지시 2026-07-14)
+    const artDir = path.join(projectDir(projectId), "art");
+    const kvCaption: Record<string, string> = { night: "밤 — 요괴 습격", day: "낮 — 백일폭염" };
+    const keyVisuals = fs.existsSync(artDir)
+      ? fs
+          .readdirSync(artDir)
+          .filter((f) => /^keyvisual-.+\.png$/i.test(f))
+          .sort()
+          .map((f) => ({
+            path: path.join(artDir, f),
+            caption: kvCaption[f.replace(/^keyvisual-|\.png$/gi, "")] ?? f,
+          }))
+      : [];
+    return { projectId, projectName, gddMd, reports, keyVisuals };
   };
 }
 

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>서리발톱 - UI/UX 와이어프레임</title>
+  <style>
+    body {
+      background-color: #14161d;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', sans-serif;
+      margin: 0;
+      padding: 20px;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      grid-gap: 20px;
+    }
+    .screen {
+      border: 1px solid #333;
+      padding: 15px;
+      border-radius: 8px;
+      background-color: #1e212a;
+      position: relative;
+    }
+    .label {
+      font-size: 14px;
+      font-weight: bold;
+      margin-bottom: 10px;
+      color: #ffffff;
+    }
+    .countdown {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 48px;
+      font-weight: bold;
+      color: #f0f0f0;
+      text-shadow: 0 0 10px rgba(100, 200, 255, 0.5);
+    }
+    .syringe {
+      position: absolute;
+      bottom: 15px;
+      right: 15px;
+      font-size: 32px;
+      color: #a0d8f1;
+    }
+    .temp-gauge {
+      position: absolute;
+      top: 15px;
+      left: 15px;
+      width: 120px;
+      height: 12px;
+      background-color: #2a2d35;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .temp-fill {
+      height: 100%;
+      width: 65%;
+      background-color: #ff6b6b;
+    }
+    .seal-gauge {
+      position: absolute;
+      top: 15px;
+      right: 15px;
+      width: 120px;
+      height: 12px;
+      background-color: #2a2d35;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .seal-fill {
+      height: 100%;
+      width: 45%;
+      background-color: #50e3c2;
+    }
+    .night-mode {
+      position: absolute;
+      top: 15px;
+      left: 140px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background-color: #50e3c2;
+      animation: blink 1s infinite;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .tool-palette {
+      position: absolute;
+      bottom: 15px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 8px;
+    }
+    .tool-btn {
+      width: 40px;
+      height: 40px;
+      background-color: #2a2d35;
+      border: 1px solid #444;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      color: #e0e0e0;
+    }
+    .battle-border {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      border: 3px solid #50e3c2;
+      animation: shake 0.5s infinite;
+    }
+    @keyframes shake {
+      0%, 100% { transform: translate(0, 0); }
+      25% { transform: translate(-2px, -2px); }
+      75% { transform: translate(2px, 2px); }
+    }
+    .ice-trail {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      background-color: rgba(160, 220, 255, 0.7);
+      border-radius: 50%;
+      animation: sparkle 1.5s infinite;
+    }
+    @keyframes sparkle {
+      0%, 100% { opacity: 0.2; }
+      50% { opacity: 1; }
+    }
+    .construction-panel {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background-color: #2a2d35;
+      padding: 15px;
+      border-radius: 8px;
+      border: 1px solid #444;
+    }
+    .resource-btn {
+      width: 50px;
+      height: 50px;
+      background-color: #3a3d45;
+      border: 1px solid #555;
+      border-radius: 6px;
+      margin: 5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      color: #e0e0e0;
+    }
+    .map-view {
+      width: 100%;
+      height: 200px;
+      background-color: #1a1c23;
+      position: relative;
+      margin-top: 10px;
+    }
+    .tile {
+      width: 20px;
+      height: 20px;
+      background-color: #3a3d45;
+      border: 1px solid #2a2d35;
+      display: inline-block;
+      margin: 1px;
+    }
+    .ice-block { background-color: #a0d8f1; }
+    .heat-wall { background-color: #7d8b9c; }
+    .ice-pile { background-color: #50e3c2; }
+    .arrow {
+      position: absolute;
+      width: 0;
+      height: 0;
+      border-left: 8px solid transparent;
+      border-right: 8px solid transparent;
+      border-top: 8px solid #50e3c2;
+    }
+    .day-night-label {
+      position: absolute;
+      top: 5px;
+      right: 15px;
+      font-size: 12px;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+  <!-- 홈 화면 -->
+  <div class="screen">
+    <div class="label">홈 화면</div>
+    <div class="countdown">D-100</div>
+    <div class="syringe">🐱</div>
+  </div>
+
+  <!-- 게임 화면 (낮) -->
+  <div class="screen">
+    <div class="label">게임 화면 (낮)</div>
+    <div class="temp-gauge"><div class="temp-fill"></div></div>
+    <div class="seal-gauge"><div class="seal-fill"></div></div>
+    <div class="night-mode"></div>
+    <div class="day-night-label">낮</div>
+    <div class="tool-palette">
+      <div class="tool-btn">❄️</div>
+      <div class="tool-btn">🧱</div>
+      <div class="tool-btn">🧊</div>
+    </div>
+  </div>
+
+  <!-- 밤 전투 화면 -->
+  <div class="screen">
+    <div class="label">밤 전투 화면</div>
+    <div class="battle-border"></div>
+    <div class="ice-trail" style="top: 100px; left: 150px;"></div>
+    <div class="ice-trail" style="top: 130px; left: 180px;"></div>
+    <div class="ice-trail" style="top: 160px; left: 210px;"></div>
+    <div class="day-night-label">밤</div>
+  </div>
+
+  <!-- 제작·건설 패널 -->
+  <div class="screen">
+    <div class="label">제작·건설 패널</div>
+    <div class="construction-panel">
+      <div class="resource-btn">❄️ 얼음 블록</div>
+      <div class="resource-btn">🧱 차열벽</div>
+      <div class="resource-btn">🧊 석빙고</div>
+      <div class="resource-btn">🧊 얼음 기둥</div>
+      <div class="resource-btn">🧊 냉각 모듈</div>
+    </div>
+  </div>
+
+  <!-- 게임 화면 (밤) - 평면도 -->
+  <div class="screen">
+    <div class="label">게임 화면 (밤) - 밀폐도 전략</div>
+    <div class="map-view">
+      <div style="position: absolute; top: 10px; left: 10px;" class="tile ice-block"></div>
+      <div style="position: absolute; top: 10px; left: 32px;" class="tile ice-block"></div>
+      <div style="position: absolute; top: 10px; left: 54px;" class="tile heat-wall"></div>
+      <div style="position: absolute; top: 32px; left: 10px;" class="tile heat-wall"></div>
+      <div style="position: absolute; top: 32px; left: 32px;" class="tile ice-pile"></div>
+      <div style="position: absolute; top: 32px; left: 54px;" class="tile heat-wall"></div>
+      <div style="position: absolute; top: 54px; left: 10px;" class="tile ice-block"></div>
+      <div style="position: absolute; top: 54px; left: 32px;" class="tile ice-block"></div>
+      <div style="position: absolute; top: 54px; left: 54px;" class="tile ice-pile"></div>
+      <div style="position: absolute; top: 10px; left: 76px;" class="arrow" style="transform: rotate(90deg);"></div>
+      <div style="position: absolute; top: 32px; left: 76px;" class="arrow" style="transform: rotate(90deg);"></div>
+      <div style="position: absolute; top: 54px; left: 76px;" class="arrow" style="transform: rotate(90deg);"></div>
+    </div>
+    <div class="day-night-label">밤</div>
+  </div>
+
+  <!-- 밤 전투 화면 (복제) - 밀폐도 게이지 강조 -->
+  <div class="screen">
+    <div class="label">밀폐도 게이지 (상단 오른쪽)</div>
+    <div class="seal-gauge"><div class="seal-fill" style="width: 100%;"></div></div>
+    <div style="position: absolute; bottom: 15px; left: 15px; font-size: 12px;">밀폐도 100% → 승리</div>
+  </div>
+</body>
+</html>

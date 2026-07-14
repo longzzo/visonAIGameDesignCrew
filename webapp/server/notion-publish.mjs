@@ -68,6 +68,20 @@ async function api(token, method, p, body) {
   return j;
 }
 
+/** 로컬 이미지 파일을 노션 File Upload API로 올리고 file_upload id를 반환 (single_part, ≤20MB) */
+async function uploadImageToNotion(token, filePath, filename) {
+  const created = await api(token, "POST", "/file_uploads", { filename, content_type: "image/png" });
+  const fd = new FormData();
+  fd.append("file", new Blob([fs.readFileSync(filePath)], { type: "image/png" }), filename);
+  const r = await fetch(`${API}/file_uploads/${created.id}/send`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Notion-Version": NOTION_VERSION },
+    body: fd, // Content-Type은 FormData가 boundary 포함해 자동 설정
+  });
+  if (!r.ok) throw new Error(`파일 업로드 ${r.status}`);
+  return created.id;
+}
+
 /** 토큰·부모 페이지 검증 — 성공 시 { user, pageTitle } */
 export async function verifySetup(token, parentPageId) {
   const me = await api(token, "GET", "/users/me");
@@ -402,7 +416,7 @@ const heading2 = (text, color = "blue") => ({ type: "heading_2", heading_2: { ri
  * 프로젝트 전체 발행 — 허브 페이지(레퍼런스 대시보드 스타일) + GDD 섹션 자식 페이지 + 보고서 자식 페이지.
  * 허브 URL은 유지되고 내용·자식만 교체된다.
  */
-export async function publishProject({ projectId, projectName, gddMd, reports }) {
+export async function publishProject({ projectId, projectName, gddMd, reports, keyVisuals }) {
   const cfg = loadCfg();
   if (!cfg.token || !cfg.parentPageId) throw new Error("노션 연동이 설정되지 않았습니다 — 토큰과 부모 페이지를 먼저 등록하세요");
   const map = loadMap();
@@ -451,11 +465,35 @@ export async function publishProject({ projectId, projectName, gddMd, reports })
     },
   });
   header.push({ type: "divider", divider: {} });
-  header.push(heading2("📄 마스터 GDD — 섹션별 기획서"));
-  header.push(
-    callout("📌", rich(`**자동 발행 문서** — Vision Engine 스튜디오가 회의 결과를 이 페이지 트리로 발행합니다. 마지막 발행: ${new Date().toLocaleString("ko-KR", { hour12: false })}`), "yellow_background")
-  );
   await appendBlocks(cfg.token, rootId, header);
+
+  // ①-b 키비주얼 — 발행 파이프라인 내장(오너 지시 2026-07-14): 개요 표 바로 아래, 재발행 때마다 함께 올라간다.
+  //     업로드 실패는 발행 전체를 막지 않는다(이미지만 생략).
+  const kvs = (keyVisuals ?? []).filter((k) => k?.path && fs.existsSync(k.path));
+  if (kvs.length > 0) {
+    const kvBlocks = [heading2("🖼️ 키비주얼")];
+    for (const k of kvs) {
+      try {
+        const fid = await uploadImageToNotion(cfg.token, k.path, path.basename(k.path));
+        kvBlocks.push({
+          type: "image",
+          image: { type: "file_upload", file_upload: { id: fid }, caption: rich(k.caption ?? path.basename(k.path)) },
+        });
+      } catch (e) {
+        console.warn(`[notion] 키비주얼 업로드 생략(${path.basename(k.path)}):`, e?.message ?? e);
+      }
+    }
+    if (kvBlocks.length > 1) {
+      kvBlocks.push({ type: "divider", divider: {} });
+      await appendBlocks(cfg.token, rootId, kvBlocks);
+    }
+  }
+
+  // ①-c GDD 섹션 헤딩 (키비주얼 다음, 섹션 자식 페이지들 바로 위)
+  await appendBlocks(cfg.token, rootId, [
+    heading2("📄 마스터 GDD — 섹션별 기획서"),
+    callout("📌", rich(`**자동 발행 문서** — Vision Engine 스튜디오가 회의 결과를 이 페이지 트리로 발행합니다. 마지막 발행: ${new Date().toLocaleString("ko-KR", { hour12: false })}`), "yellow_background"),
+  ]);
 
   // ② GDD 섹션 자식 페이지 (순서대로 → 허브에 순서대로 나열됨)
   for (const s of sections) {
