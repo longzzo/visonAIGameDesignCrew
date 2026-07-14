@@ -83,12 +83,20 @@ async function trySpawnLocalServer() {
   const webappDir = findWebappDir();
   if (!webappDir) return false;
   console.log("⏳ 로컬 서버 기동 중…", webappDir);
-  serverChild = spawn("npm.cmd", ["run", "dev"], {
-    cwd: webappDir,
-    windowsHide: true,
-    stdio: "ignore",
-    shell: false,
-  });
+  try {
+    // Windows: Node 20+(CVE-2024-27980)는 .cmd/.bat을 shell:false로 spawn하면 EINVAL로 죽는다.
+    // 반드시 shell:true 로 실행해야 npm.cmd가 뜬다. 실패해도 설정 화면으로 안전하게 폴백.
+    serverChild = spawn("npm.cmd", ["run", "dev"], {
+      cwd: webappDir,
+      windowsHide: true,
+      stdio: "ignore",
+      shell: true,
+    });
+    serverChild.on("error", (e) => console.warn("⚠️ 로컬 서버 기동 실패:", String(e?.message ?? e)));
+  } catch (e) {
+    console.warn("⚠️ 로컬 서버 spawn 예외:", String(e?.message ?? e));
+    return false;
+  }
   const t0 = Date.now();
   while (Date.now() - t0 < 90_000) {
     await new Promise((r) => setTimeout(r, 1200));
