@@ -353,21 +353,46 @@ export function splitSections(md) {
   return out;
 }
 
-/** 개요 섹션에서 대시보드 표 데이터 추출 — "**항목**: 값" 라인들 */
+/** 개요 섹션에서 대시보드 표 데이터 추출.
+ * ① 정본 테이블(1-1, "| 항목 | 확정 내용 |" 마크다운 표)이 있으면 그 행들을 그대로 발췌(최대 10행) —
+ *    구식 "**라벨**: 값" 그렙은 정본 테이블 체제에서 아무것도 못 뽑아 허브 개요가 '가제' 한 줄이 되는 문제가 있었다(v9 수정).
+ * ② 피치는 "### 1-2. 핵심 훅 — …" 헤딩 문구 → 없으면 "**한 줄 피치**: …" 라인. */
 function overviewFacts(overviewBody, projectName) {
   const rows = [["항목", "내용"], ["가제", projectName || "(프로젝트명 미정)"]];
-  const grab = (label) => {
-    const m = new RegExp(`\\*\\*${label}[^*]*\\*\\*\\s*[:：]\\s*(.+)`).exec(overviewBody);
-    return m ? m[1].replace(/\s+$/, "").trim() : "";
-  };
-  const pitch = grab("한 줄 피치");
-  const gpt = grab("장르/플랫폼/타깃") || grab("장르");
-  if (gpt) {
-    const parts = gpt.split("—");
-    rows.push(["장르/플랫폼", parts[0].trim()]);
-    if (parts[1]) rows.push(["타겟 유저", parts[1].trim()]);
+  const body = String(overviewBody ?? "");
+  // ① 첫 마크다운 표(정본 테이블) 행 발췌 — 구분자·헤더 행 제외
+  const tblRows = [];
+  let inTable = false;
+  for (const line of body.split(/\r?\n/)) {
+    const t = line.trim();
+    if (/^\|.*\|$/.test(t)) {
+      const cells = t.slice(1, -1).split("|").map((c) => c.trim());
+      if (cells.length >= 2 && !/^[-: ]+$/.test(cells.join(""))) tblRows.push([cells[0], cells[1]]);
+      inTable = true;
+    } else if (inTable && t !== "") break; // 첫 표가 끝나면 중단
   }
-  if (pitch) rows.push(["로그라인", pitch]);
+  for (const [label, val] of tblRows.slice(1, 11)) {
+    if (label && val) rows.push([label, val]);
+  }
+  // ② 피치
+  let pitch = /^###\s*1-2\.?\s*(.+)$/m.exec(body)?.[1]?.trim() ?? "";
+  if (!pitch) {
+    const m = /\*\*한 줄 피치[^*]*\*\*\s*[:：]\s*(.+)/.exec(body);
+    pitch = m ? m[1].replace(/\s+$/, "").trim() : "";
+  }
+  // 정본 테이블이 없던 옛 문서 폴백 — 구식 라벨 그렙
+  if (rows.length <= 2) {
+    const grab = (label) => {
+      const m = new RegExp(`\\*\\*${label}[^*]*\\*\\*\\s*[:：]\\s*(.+)`).exec(body);
+      return m ? m[1].replace(/\s+$/, "").trim() : "";
+    };
+    const gpt = grab("장르/플랫폼/타깃") || grab("장르");
+    if (gpt) {
+      const parts = gpt.split("—");
+      rows.push(["장르/플랫폼", parts[0].trim()]);
+      if (parts[1]) rows.push(["타겟 유저", parts[1].trim()]);
+    }
+  }
   return { pitch, rows };
 }
 
@@ -498,11 +523,20 @@ export async function publishProject({ projectId, projectName, gddMd, reports, k
   const specList = all.filter((r) => kindOf(r) === "spec");
   const repList = all.filter((r) => kindOf(r) !== "spec");
   const fmtD = (ts) => new Date(ts).toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" });
-  const docs = [
+  const allDocs = [
     ...sections.map((s) => ({ key: `gdd:${s.num || s.title}`, group: "gdd", title: s.title, icon: s.icon, md: s.body })),
     ...specList.map((r) => ({ key: `spec:${r.ts}`, group: "spec", title: `${r.title} (${fmtD(r.ts)})`, icon: r.emoji || "📐", md: r.markdown ?? "" })),
     ...repList.map((r) => ({ key: `rep:${r.ts}`, group: "rep", title: `${r.title} (${fmtD(r.ts)})`, icon: r.emoji || "📋", md: r.markdown ?? "" })),
   ].map((d) => ({ ...d, hash: docHash(d) }));
+
+  // ── 하위 문서 배선 (오너 지시 2026-07-14): "아트 발주서 …"는 허브 평면이 아니라
+  //    "아트 명세서 …" 페이지의 하위 페이지로 들어간다. 부모가 없으면 허브 평면 폴백.
+  const artSpec = allDocs.find((d) => d.group === "spec" && /^아트 명세서/.test(d.title));
+  for (const d of allDocs) {
+    if (d.group === "spec" && /^아트 발주서/.test(d.title) && artSpec) d.parentKey = artSpec.key;
+  }
+  const docs = allDocs.filter((d) => !d.parentKey); // 허브 평면 문서 (순서 관리 대상)
+  const subDocs = allDocs.filter((d) => d.parentKey); // 부모 페이지 안 하위 문서
 
   // ── 기존 페이지 재사용 매칭 + 더는 없는 문서만 보관 처리 ──
   const liveIds = new Set(pagesNow.map((p) => p.id));
@@ -539,7 +573,8 @@ export async function publishProject({ projectId, projectName, gddMd, reports, k
           properties: { title: { title: rich(d.title) } },
         });
         const kids = await listChildren(cfg.token, existing);
-        for (const k of kids) await deleteBlock(cfg.token, k.id);
+        // 하위 페이지(child_page)는 절대 지우지 않는다 — 아트 발주서 등 문서 안에 사는 페이지 보존
+        for (const k of kids) if (k.type !== "child_page") await deleteBlock(cfg.token, k.id);
         await appendBlocks(cfg.token, existing, mdToBlocks(d.md));
         updated++;
       }
@@ -552,6 +587,55 @@ export async function publishProject({ projectId, projectName, gddMd, reports, k
     }
     newDocs[d.key] = { id: pageIdOf.get(d.key), hash: d.hash };
   }
+  // ── 하위 문서 반영 (부모 페이지 안 — 허브 순서 관리 밖) ──
+  const createdUnder = new Set(); // 이번에 하위 페이지가 새로 생긴 부모 key
+  for (const d of subDocs) {
+    const parentId = pageIdOf.get(d.parentKey);
+    if (!parentId) continue;
+    const prev = docsPrev[d.key];
+    let id = prev?.id ?? null;
+    if (id) {
+      try {
+        const p = await api(cfg.token, "GET", `/pages/${id}`);
+        if (p.archived || p.in_trash) id = null;
+      } catch {
+        id = null;
+      }
+    }
+    if (id && prev?.hash === d.hash) {
+      reused++;
+    } else if (id) {
+      await api(cfg.token, "PATCH", `/pages/${id}`, {
+        icon: { type: "emoji", emoji: d.icon },
+        properties: { title: { title: rich(d.title) } },
+      });
+      const kids = await listChildren(cfg.token, id);
+      for (const k of kids) if (k.type !== "child_page") await deleteBlock(cfg.token, k.id);
+      await appendBlocks(cfg.token, id, mdToBlocks(d.md));
+      updated++;
+    } else {
+      const page = await createChildPage(cfg.token, parentId, d.title, d.icon, mdToBlocks(d.md));
+      id = page.id;
+      created++;
+      createdUnder.add(d.parentKey);
+    }
+    pageIdOf.set(d.key, id);
+    newDocs[d.key] = { id, hash: d.hash };
+  }
+  // 부모 레이아웃 정규화: 하위 페이지가 새로 붙은 부모는 본문을 다시 붙여 [하위 페이지들 → 본문] 순서로 고정
+  for (const pk of createdUnder) {
+    const parentDoc = docs.find((x) => x.key === pk);
+    const pid = pageIdOf.get(pk);
+    if (!parentDoc || !pid) continue;
+    const kids = await listChildren(cfg.token, pid);
+    for (const k of kids) if (k.type !== "child_page") await deleteBlock(cfg.token, k.id);
+    await appendBlocks(cfg.token, pid, mdToBlocks(parentDoc.md));
+  }
+  // 사라진 문서 정리 — 허브 밖(하위) 페이지 포함, 이번 발행 목록에 없는 옛 페이지는 보관 처리
+  for (const [k, v] of Object.entries(docsPrev)) {
+    if (!newDocs[k] && v?.id) await deleteBlock(cfg.token, v.id);
+  }
+
   const lastOf = (g) => {
     const arr = docs.filter((d) => d.group === g);
     return arr.length > 0 ? pageIdOf.get(arr[arr.length - 1].key) : null;
@@ -582,11 +666,13 @@ export async function publishProject({ projectId, projectName, gddMd, reports, k
   );
 
   // ② 명세서 칸 헤더 — GDD 마지막 섹션 페이지 바로 뒤 (오너 지시: 회의록과 분리된 전용 칸)
-  if (specList.length > 0) {
+  const hubSpecCount = docs.filter((d) => d.group === "spec").length;
+  if (hubSpecCount > 0) {
+    const subNote = subDocs.length > 0 ? ` 아트 발주서 ${subDocs.length}건은 아트 명세서 페이지 안(하위 페이지)에 있다.` : "";
     await appendBlocks(cfg.token, rootId, [
       { type: "divider", divider: {} },
       heading2("📐 명세서"),
-      callout("📐", rich(`정식 명세 문서 ${specList.length}건 — 아트·개발 명세서, 개발 규칙. 팀 배포 기준 문서.`), "blue_background"),
+      callout("📐", rich(`정식 명세 문서 ${hubSpecCount}건 — 아트·개발 명세서, 개발 규칙. 팀 배포 기준 문서.${subNote}`), "blue_background"),
     ], lastOf("gdd") ?? topLastId);
   }
 
