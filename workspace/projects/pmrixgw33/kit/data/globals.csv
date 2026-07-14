@@ -30,3 +30,9 @@ baekjung_sig_mult,2,mult,백중날 시그니처 드랍 배율
 magpie_join_kills,30,count,까치 입주 누적 처치 조건(또는 백중날 생존)
 magpie_magnet_radius,10,tile,까치 줍기 반경
 magpie_magnet_interval,4,sec,까치 줍기 주기
+smelt_iron_ratio,2:1,ore:ingot,철·구리 광석 2+석탄 1=주괴 1(화로 20초 배치 6)
+smelt_icesteel_ratio,2:1,ore:ingot,얼음강철 원석 2+석탄 2=주괴 1(용광로 45초 배치 4)
+claw_t2_mine_crit,0.15,prob,무쇠 발톱 채굴 크리티컬(드랍 2배·채굴 전용)
+claw_t3_slow,0.30,mult,서리 서림 감속(2초)
+insul_straw_bonus,0.05,per_wall,짚 단열재 체온 하강 보정(상한 6장)
+insul_clay_wall_hp,750,hp,점토 미장 차열벽 HP(600→750)

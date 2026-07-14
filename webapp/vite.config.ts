@@ -305,15 +305,16 @@ function notionPayload(projectId: string) {
       day: "낮 — 백일폭염",
       bossfight: "보스전 — 백중날의 강철이 vs 신기전 화차",
       nap: "냥잠 — 까치 벗과 한낮의 휴식",
+      summon: "아이콘 예시 — 보스 소환템 4종(씨름 샅바·무쇠 미끼·얼음 제단 봉헌·가뭄 부적)",
     };
     const keyVisuals = fs.existsSync(artDir)
       ? fs
           .readdirSync(artDir)
-          .filter((f) => /^keyvisual-.+\.png$/i.test(f))
+          .filter((f) => /^(keyvisual|icons)-.+\.png$/i.test(f))
           .sort()
           .map((f) => ({
             path: path.join(artDir, f),
-            caption: kvCaption[f.replace(/^keyvisual-|\.png$/gi, "")] ?? f,
+            caption: kvCaption[f.replace(/^(keyvisual|icons)-|\.png$/gi, "")] ?? f,
           }))
       : [];
     return { projectId, projectName, gddMd, reports, keyVisuals };
