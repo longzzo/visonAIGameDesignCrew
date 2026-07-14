@@ -547,7 +547,7 @@ export async function publishProject({ projectId, projectName, gddMd, reports, k
     if (/명세서|규칙|스펙|사양/.test(t)) return "spec";
     return "report";
   };
-  const all = (reports ?? []).slice(0, 20);
+  const all = (reports ?? []).slice(0, 40);
   const specList = all.filter((r) => kindOf(r) === "spec");
   const repList = all.filter((r) => kindOf(r) !== "spec");
   const fmtD = (ts) => new Date(ts).toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" });
@@ -556,10 +556,17 @@ export async function publishProject({ projectId, projectName, gddMd, reports, k
     ...specList.map((r) => ({ key: `spec:${r.ts}`, group: "spec", title: `${r.title} (${fmtD(r.ts)})`, icon: r.emoji || "📐", md: r.markdown ?? "" })),
     ...repList.map((r) => ({ key: `rep:${r.ts}`, group: "rep", title: `${r.title} (${fmtD(r.ts)})`, icon: r.emoji || "📋", md: r.markdown ?? "" })),
   ].map((d) => ({ ...d, hash: docHash(d) }));
-  // 아트 발주서 → 아트 명세서의 하위 페이지 (오너 지시 2026-07-14)
-  const artSpec = allDocs.find((d) => d.group === "spec" && /^아트 명세서/.test(d.title));
-  for (const d of allDocs) {
-    if (d.group === "spec" && /^아트 발주서/.test(d.title) && artSpec) d.parentKey = artSpec.key;
+  // 하위 문서 배선 (오너 지시 2026-07-14): 발주서·가이드류는 해당 명세서 페이지의 하위 페이지로
+  const nestRules = [
+    [/^아트 발주서/, /^아트 명세서/],
+    [/^개발 가이드/, /^개발 명세서/],
+  ];
+  for (const [childRe, parentRe] of nestRules) {
+    const parent = allDocs.find((d) => d.group === "spec" && parentRe.test(d.title));
+    if (!parent) continue;
+    for (const d of allDocs) {
+      if (d.group === "spec" && childRe.test(d.title)) d.parentKey = parent.key;
+    }
   }
   const docs = allDocs.filter((d) => !d.parentKey);
   const subDocs = allDocs.filter((d) => d.parentKey);
@@ -647,7 +654,12 @@ export async function publishProject({ projectId, projectName, gddMd, reports, k
   const gddLinks = docs.filter((d) => d.group === "gdd").map((d) => linkTo(d.key)).filter(Boolean);
   const specLinks = docs.filter((d) => d.group === "spec").map((d) => linkTo(d.key)).filter(Boolean);
   if (subDocs.length > 0) {
-    specLinks.push({ type: "paragraph", paragraph: { rich_text: rich(`└ 아트 발주서 ${subDocs.length}건은 아트 명세서 안(하위 페이지)`, { color: "gray" }) } });
+    const nArt = subDocs.filter((d) => /^아트 발주서/.test(d.title)).length;
+    const nDev = subDocs.filter((d) => /^개발 가이드/.test(d.title)).length;
+    const parts = [];
+    if (nArt > 0) parts.push(`아트 발주서 ${nArt}건 → 아트 명세서 안`);
+    if (nDev > 0) parts.push(`개발 가이드 ${nDev}건 → 개발 명세서 안`);
+    specLinks.push({ type: "paragraph", paragraph: { rich_text: rich(`└ ${parts.join(" · ")} (하위 페이지)`, { color: "gray" }) } });
   }
   const repLinks = docs.filter((d) => d.group === "rep").map((d) => linkTo(d.key)).filter(Boolean);
   const rightCol = [];
