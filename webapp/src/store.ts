@@ -376,6 +376,8 @@ interface VEState {
   /** 승인 대기 큐 — PM이 판단한 초중대 사항이 오너 결재를 기다린다 */
   approvals: ApprovalItem[];
   approvalsOpen: boolean;
+  /** 승인됐지만 회의 중이라 종료 후 실행하기로 예약된 안건의 지시문 큐 */
+  pendingApprovalRuns: string[];
   /** 개발 착수 킷 */
   kitFiles: KitFile[];
   devKitBusy: boolean;
@@ -421,7 +423,7 @@ interface VEState {
   setAutoRoute: (b: boolean) => void;
   loadBraveStatus: () => Promise<void>;
   setModelName: (m: string) => void;
-  startOrch: () => Promise<void>;
+  startOrch: (opts?: { request?: string; poolIds?: string[]; autoRoute?: boolean }) => Promise<void>;
   stopOrch: () => void;
   clearFeed: () => void;
   /** 풀 기획 회의 — 7명 전체 + 교차 검토 + GDD 반영을 구성하고 요청이 있으면 즉시 시작 */
@@ -929,6 +931,7 @@ export const useVE = create<VEState>()((set, get) => {
     decisions: [],
     approvals: [],
     approvalsOpen: false,
+    pendingApprovalRuns: [],
     kitFiles: [],
     devKitBusy: false,
     devKitPhase: "",
@@ -1133,6 +1136,7 @@ export const useVE = create<VEState>()((set, get) => {
         protoList: [],
         decisions: [],
         approvals: [],
+        pendingApprovalRuns: [],
         kitFiles: [],
         devKitLog: [],
       });
@@ -1327,12 +1331,16 @@ export const useVE = create<VEState>()((set, get) => {
       if (project) persistQueue = persistQueue.then(() => saveFeedHistory(project, []));
     },
 
-    startOrch: async () => {
+    startOrch: async (opts) => {
       const st = get();
-      const req = st.orchRequest.trim();
+      const usingOverrideReq = !!opts?.request;
+      const req = (opts?.request ?? st.orchRequest).trim();
       if (!req || st.orchRunning) return;
-      const pool = SPECIALISTS.filter((a) => st.selected[a.id]);
+      const pool = opts?.poolIds
+        ? SPECIALISTS.filter((a) => opts.poolIds!.includes(a.id))
+        : SPECIALISTS.filter((a) => st.selected[a.id]);
       if (pool.length === 0) return;
+      const autoRoute = opts?.autoRoute ?? st.autoRoute;
       const project = st.activeProject || "np";
       const runTag = `${project}-orch-${Date.now().toString(36)}`;
 
@@ -1353,8 +1361,9 @@ export const useVE = create<VEState>()((set, get) => {
         // 회의 소집 — 참여 담당자 전원 + PM을 회의실로 모은다. 3D 아바타가 회의실로 걸어가고,
         // 카메라가 회의실로 이동하며(OfficeView), 2D 회의실이 채워진다. 종료 시 아래 3개 출구에서 해제.
         meetingMembers: meetingCast,
-        // 지시를 접수했으면 입력창을 비운다 — 요청 원문은 아래 피드에 남는다
-        orchRequest: "",
+        // 지시를 접수했으면 입력창을 비운다 — 요청 원문은 아래 피드에 남는다.
+        // 단, 승인 실행 등 오버라이드 지시로 시작한 경우엔 오너가 입력 중이던 텍스트를 보존한다.
+        orchRequest: usingOverrideReq ? st.orchRequest : "",
       });
       // 회의 종료 정리 — 회의실 해제 + 서버 실황 즉시 비움(미러 탭이 12초 기다리지 않고 바로 정리됨)
       const endMeeting = () => {
@@ -1593,7 +1602,7 @@ export const useVE = create<VEState>()((set, get) => {
       const deptList = zonesForRouting.map((z) => ({ zone: z, label: zoneOf(z).label, manager: AGENT_MAP[deptManagerId(z)] }));
       let activeDepts: { zone: string; directive: string }[] = zonesForRouting.map((z) => ({ zone: z, directive: req }));
 
-      if (st.autoRoute && !get().stopRequested && deptList.length > 0) {
+      if (autoRoute && !get().stopRequested && deptList.length > 0) {
         updateCard("pm", { state: "running", phase: "본부 배정 중", startedAt: Date.now() });
         setAgentStatus("pm", "running");
         pushFeed({ from: "pm", kind: "status", text: "지시를 분석해 관련 본부 팀장에게 하달하는 중…" });
@@ -1882,6 +1891,15 @@ export const useVE = create<VEState>()((set, get) => {
 
       endMeeting();
       if (results.length > 0) void notify("🎪 회의 완료", `${req.slice(0, 60)} — 산출물 ${results.length}건이 반영되었습니다`);
+
+      // 회의 중 승인돼 예약된 안건이 있으면 이어서 자동 착수 (한 건씩)
+      const queued = get().pendingApprovalRuns;
+      if (queued.length > 0 && !get().stopRequested) {
+        const next = queued[0];
+        set({ pendingApprovalRuns: queued.slice(1) });
+        pushFeed({ from: "pm", kind: "status", text: "📌 예약된 승인 안건을 이어서 실행합니다." });
+        setTimeout(() => void get().startOrch({ request: next, poolIds: SPECIALISTS.map((a) => a.id), autoRoute: true }), 1000);
+      }
     },
 
     stopOrch: () => {
@@ -2997,16 +3015,30 @@ export const useVE = create<VEState>()((set, get) => {
       try {
         const item = await decideApprovalApi(project, id, status, note);
         await get().loadApprovals();
-        if (status === "approved") {
-          // 승인 = 결정 원장에 적립 → 다음 회의부터 모든 에이전트에게 자동 주입
-          await appendDecisions(project, [`(오너 승인) ${item.title}`], "approval");
-          await get().loadDecisions();
-        }
         pushFeed({
           from: "user",
           kind: "status",
           text: `${status === "approved" ? "✅ 오너 승인" : "❌ 오너 반려"}: ${item.title.slice(0, 80)}${note ? ` — ${note.slice(0, 60)}` : ""}`,
         });
+        if (status === "approved") {
+          // 승인 = 결정 원장에 적립 → 이후 모든 회의가 자동 참조
+          await appendDecisions(project, [`(오너 승인) ${item.title}`], "approval");
+          await get().loadDecisions();
+          // 그리고 즉시 실행 — PM이 승인 안건을 지시로 삼아 담당 본부에 배정하는 포커스 회의를 착수한다.
+          // (원장 적립만 하고 끝나면 "다음 회의까지 아무 일도 안 일어나" 무용지물이었다.)
+          const directive =
+            `오너가 승인한 안건을 즉시 실행하라: "${item.title}".` +
+            (item.detail ? ` (배경: ${item.detail})` : "") +
+            ` 관련 담당 본부가 이 결정을 GDD에 반영하고, 필요한 후속 작업(수치·시스템·콘텐츠·일정)을 구체화해 확정하라.`;
+          if (get().orchRunning) {
+            // 이미 회의 중이면 끝난 뒤 실행하도록 예약 — 회의 종료 후 자동 착수
+            set((s) => ({ pendingApprovalRuns: [...s.pendingApprovalRuns, directive] }));
+            pushFeed({ from: "pm", kind: "status", text: `📌 승인 안건 실행을 현재 회의 종료 후로 예약했습니다: ${item.title.slice(0, 60)}` });
+          } else {
+            pushFeed({ from: "pm", kind: "instruction", text: `🔨 승인 안건 실행 착수 — 담당 본부에 배정합니다: ${item.title.slice(0, 80)}` });
+            void get().startOrch({ request: directive, poolIds: SPECIALISTS.map((a) => a.id), autoRoute: true });
+          }
+        }
       } catch (e: any) {
         pushFeed({ from: "system", kind: "error", text: `⚠️ 결재 실패: ${String(e?.message ?? e).slice(0, 80)}` });
       }
