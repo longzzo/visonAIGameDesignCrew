@@ -519,13 +519,12 @@ export async function publishProject({ projectId, projectName, gddMd, reports, k
     }
   }
   if (!storageId) {
-    // 허브의 '자식'이 아니라 '형제'(cfg.parentPageId 아래)로 둔다 — 허브에 child_page 블록이 있으면
-    // column_list의 after 삽입이 자식 페이지 무리를 건너뛰는 노션 quirk에 걸린다(2026-07-14 실측).
-    // 허브에서는 맨 아래 link_to_page로 노출.
+    // 반드시 허브의 '자식'으로 둔다 — 형제로 두면 오너가 허브만 공유했을 때 팀원에게 문서가 안 보인다
+    // (권한 상속 단절, 2026-07-14 실사고). column_list quirk는 역순 삽입 레이아웃으로 회피(아래 참조).
     const page = await api(cfg.token, "POST", "/pages", {
-      parent: { page_id: cfg.parentPageId },
+      parent: { page_id: rootId },
       icon: { type: "emoji", emoji: "📦" },
-      properties: { title: { title: rich(`${projectName || projectId} — 문서 보관함`) } },
+      properties: { title: { title: rich("문서 보관함") } },
       children: mdToBlocks("> 발행 파이프라인의 물리 보관함 — 문서 열람은 허브 대시보드의 링크로. 이 페이지의 순서는 의미가 없다."),
     });
     storageId = page.id;
@@ -610,29 +609,27 @@ export async function publishProject({ projectId, projectName, gddMd, reports, k
     if (!newDocs[k] && v?.id) await deleteBlock(cfg.token, v.id);
   }
 
-  // ── 허브 레이아웃 재구성 (앵커 뒤 after 체인 — 물리 페이지·보관함은 그대로 맨 아래) ──
-  children = await listChildren(cfg.token, rootId);
-  for (const b of children) if (b.id !== anchorId && b.type !== "child_page") await deleteBlock(cfg.token, b.id);
+  // ── 허브 레이아웃 재구성 — "역순 삽입" (디자인 정본: docs/notion-design-guide.md)
+  // 보관함(child_page)이 허브 맨 아래에 있으므로, 레이아웃 그룹을 "역순"으로 각각 after=앵커에 삽입한다.
+  // 이유: column_list를 after=X로 넣을 때 X 뒤에 child_page 무리가 이어지면 노션이 무리 끝으로 밀어 넣는
+  // quirk가 있다(2026-07-14 실측). 역순 삽입에서는 컬럼 삽입 시점의 다음 형제가 항상 일반 블록이라 안전하다.
+  let children2 = await listChildren(cfg.token, rootId);
+  for (const b of children2) if (b.id !== anchorId && b.type !== "child_page") await deleteBlock(cfg.token, b.id);
 
   const linkTo = (key) => (pageIdOf.has(key) ? { type: "link_to_page", link_to_page: { type: "page_id", page_id: pageIdOf.get(key) } } : null);
-  // 허브에는 자식 페이지가 없으므로(보관함은 허브 형제) 순수 순차 append로 충분하다.
-  // after 체인을 쓰지 않는 이유: column_list를 after로 끼워 넣으면 인접 child_page 무리를 건너뛰어
-  // 그 뒤에 꽂히는 노션 quirk가 있다(2026-07-14 실측 — 일반 블록은 정상).
-  const put = async (blocks) => { await appendBlocks(cfg.token, rootId, blocks); };
-  const putCols = async (cols) => { await appendColumnList(cfg.token, rootId, cols); };
 
-  // ① 피치 아래 한 줄 설명 → 개요(2단: 발췌 표 | 핵심 문서 바로가기)
-  const head = [];
-  if (sub) head.push({ type: "paragraph", paragraph: { rich_text: rich(sub) } });
-  head.push({ type: "divider", divider: {} }, heading2("🎮 게임 개요"));
-  await put(head);
+  // 그룹 조립 (화면 순서대로 정의하고, 삽입은 아래에서 역순으로)
+  const g1 = [];
+  if (sub) g1.push({ type: "paragraph", paragraph: { rich_text: rich(sub) } });
+  g1.push({ type: "divider", divider: {} }, heading2("🎮 게임 개요"));
+
   const coreLinks = [
     docs.find((d) => d.group === "gdd" && d.key === "gdd:1")?.key,
     artSpec?.key,
     docs.find((d) => d.group === "spec" && /^개발 명세서/.test(d.title))?.key,
     docs.find((d) => d.group === "spec" && /^개발 규칙/.test(d.title))?.key,
   ].filter(Boolean).map(linkTo).filter(Boolean);
-  await putCols([
+  const g2cols = [
     [{
       type: "table",
       table: {
@@ -643,10 +640,10 @@ export async function publishProject({ projectId, projectName, gddMd, reports, k
       },
     }],
     [callout("⭐", rich("**핵심 문서 바로가기**"), "yellow_background", coreLinks)],
-  ]);
+  ];
 
-  // ② 기획서 모음 (2단: GDD 콜아웃 | 명세서·보고서함 콜아웃) — 링크는 콜아웃 안에 (디자인 가이드 2조)
-  await put([{ type: "divider", divider: {} }, heading2("📄 기획서 모음")]);
+  const g3 = [{ type: "divider", divider: {} }, heading2("📄 기획서 모음")];
+
   const gddLinks = docs.filter((d) => d.group === "gdd").map((d) => linkTo(d.key)).filter(Boolean);
   const specLinks = docs.filter((d) => d.group === "spec").map((d) => linkTo(d.key)).filter(Boolean);
   if (subDocs.length > 0) {
@@ -656,19 +653,20 @@ export async function publishProject({ projectId, projectName, gddMd, reports, k
   const rightCol = [];
   if (specLinks.length > 0) rightCol.push(callout("📐", rich("**명세서 — 팀 배포 기준 문서**"), "blue_background", specLinks));
   if (repLinks.length > 0) rightCol.push(callout("🗂️", rich("**보고서함 — 회의록·검증 보고**"), "gray_background", repLinks));
-  await putCols([
+  const g4cols = [
     [callout("📄", rich("**마스터 GDD — 섹션별 기획서**"), "default", gddLinks)],
     rightCol.length > 0 ? rightCol : [{ type: "paragraph", paragraph: { rich_text: rich("") } }],
-  ]);
+  ];
 
-  // ③ 아트 — 맨 아래 유지 (오너 지시). 업로드 실패는 발행을 막지 않는다.
+  // 아트(맨 아래 칸 — 오너 지시) + 발행 시각 꼬리
+  const g5 = [];
   const kvs = (keyVisuals ?? []).filter((k) => k?.path && fs.existsSync(k.path));
   if (kvs.length > 0) {
-    const kvBlocks = [{ type: "divider", divider: {} }, heading2("🖼️ 아트 — 키비주얼·아이콘")];
+    g5.push({ type: "divider", divider: {} }, heading2("🖼️ 아트 — 키비주얼·아이콘"));
     for (const k of kvs) {
       try {
         const fid = await uploadImageToNotion(cfg.token, k.path, path.basename(k.path));
-        kvBlocks.push({
+        g5.push({
           type: "image",
           image: { type: "file_upload", file_upload: { id: fid }, caption: rich(k.caption ?? path.basename(k.path)) },
         });
@@ -676,13 +674,15 @@ export async function publishProject({ projectId, projectName, gddMd, reports, k
         console.warn(`[notion] 키비주얼 업로드 생략(${path.basename(k.path)}):`, e?.message ?? e);
       }
     }
-    await put(kvBlocks);
   }
-  // ④ 꼬리 — 보관함 링크(레퍼런스의 '작업실' 위치) + 발행 시각
-  const tail = [];
-  if (storageId) tail.push({ type: "link_to_page", link_to_page: { type: "page_id", page_id: storageId } });
-  tail.push({ type: "paragraph", paragraph: { rich_text: rich(`🔄 Vision Engine 자동 발행 — 마지막: ${new Date().toLocaleString("ko-KR", { hour12: false })}`, { color: "gray" }) } });
-  await put(tail);
+  g5.push({ type: "paragraph", paragraph: { rich_text: rich(`🔄 Vision Engine 자동 발행 — 마지막: ${new Date().toLocaleString("ko-KR", { hour12: false })}`, { color: "gray" }) } });
+
+  // 역순 삽입 — 전부 after=앵커: 마지막에 넣은 그룹이 맨 위로 온다
+  await appendBlocks(cfg.token, rootId, g5, anchorId);
+  await appendColumnList(cfg.token, rootId, g4cols, anchorId);
+  await appendBlocks(cfg.token, rootId, g3, anchorId);
+  await appendColumnList(cfg.token, rootId, g2cols, anchorId);
+  await appendBlocks(cfg.token, rootId, g1, anchorId);
 
   map[projectId] = { rootPageId: rootId, anchorId, storageId, docs: newDocs, lastPublish: Date.now() };
   saveMap(map);
