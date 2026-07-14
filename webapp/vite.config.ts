@@ -305,13 +305,16 @@ function notionPayload(projectId: string) {
       day: "낮 — 백일폭염",
       bossfight: "보스전 — 백중날의 강철이 vs 신기전 화차",
       nap: "냥잠 — 까치 벗과 한낮의 휴식",
+      treasure: "보물 상자 — 설한풍 한벌옷 차림의 심층 파밍 (v8 장비·악세)",
       summon: "아이콘 예시 — 보스 소환템 4종(씨름 샅바·무쇠 미끼·얼음 제단 봉헌·가뭄 부적)",
+      armor: "아이콘 예시 — 장비 3부위×3티어(짚·무쇠·얼음강철)",
+      accessories: "아이콘 예시 — 악세사리 6종(노리개·댕기·구슬·얼음 심장·복주머니·감투)",
     };
     const keyVisuals = fs.existsSync(artDir)
       ? fs
           .readdirSync(artDir)
           .filter((f) => /^(keyvisual|icons)-.+\.png$/i.test(f))
-          .sort()
+          .sort((a, b) => Number(/^icons-/i.test(a)) - Number(/^icons-/i.test(b)) || a.localeCompare(b)) // 키비주얼 먼저, 아이콘 시트 나중
           .map((f) => ({
             path: path.join(artDir, f),
             caption: kvCaption[f.replace(/^(keyvisual|icons)-|\.png$/gi, "")] ?? f,
@@ -1719,6 +1722,42 @@ function obsidianApiPlugin(): Plugin {
                 return bt - at || b.mtime - a.mtime;
               });
               res.end(JSON.stringify({ ok: true, results }));
+              return;
+            }
+
+            // 🎨 톤앤매너 가이드 — 파일명에 "톤앤매너"가 든 노트를 정본으로 서빙 (오너 지시 2026-07-14:
+            // 산출물 문체가 들쭉날쭉 → 볼트의 가이드 노트를 모든 생산 프롬프트에 주입).
+            // 오너 자필(비-내보내기) 우선, 동률이면 최신 수정본. 없으면 found:false — 기능 전체가 조용히 꺼진다.
+            if (sub === "/style" && req.method === "GET") {
+              const cands: { file: string; rel: string; mtime: number; fromExport: boolean }[] = [];
+              for (const file of walkVaultMd(vault, true)) {
+                if (!path.basename(file, ".md").includes("톤앤매너")) continue;
+                let stat: fs.Stats;
+                try {
+                  stat = fs.statSync(file);
+                } catch {
+                  continue;
+                }
+                const rel = path.relative(vault, file).replace(/\\/g, "/");
+                cands.push({ file, rel, mtime: Math.floor(stat.mtimeMs), fromExport: rel.startsWith(`${OBSIDIAN_EXPORT_DIR}/`) });
+              }
+              cands.sort((a, b) => (a.fromExport ? 1 : 0) - (b.fromExport ? 1 : 0) || b.mtime - a.mtime);
+              const pick = cands[0];
+              if (!pick) {
+                res.end(JSON.stringify({ found: false }));
+                return;
+              }
+              const md = fs.readFileSync(pick.file, "utf-8");
+              const { body } = parseFrontmatter(md);
+              res.end(
+                JSON.stringify({
+                  found: true,
+                  path: pick.rel,
+                  title: path.basename(pick.file, ".md"),
+                  content: stripInternalUrls(stripWikiLinks(body)).slice(0, 6000),
+                  mtime: pick.mtime,
+                })
+              );
               return;
             }
 

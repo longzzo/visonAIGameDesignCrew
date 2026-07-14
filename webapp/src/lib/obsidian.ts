@@ -73,6 +73,30 @@ export async function searchObsidian(q: string): Promise<ObsidianSearchHit[]> {
   }
 }
 
+/* ── 🎨 톤앤매너 가이드 (오너 지시 2026-07-14: 산출물 문체 널뜀 교정) ──
+ * 볼트에서 파일명에 "톤앤매너"가 든 노트를 정본으로 읽어 모든 생산 프롬프트에 주입한다.
+ * 오너가 옵시디언에서 노트를 고치면 다음 호출(캐시 2분)부터 반영 — 게이트웨이 재시작 불필요. */
+
+let styleCache: { text: string; at: number } | null = null;
+
+export async function styleBlock(): Promise<string> {
+  if (styleCache && Date.now() - styleCache.at < 120_000) return styleCache.text;
+  let text = "";
+  try {
+    const r = await fetch("/api/obsidian/style");
+    if (r.ok) {
+      const j = await r.json();
+      if (j.found && j.content) {
+        text = `[🎨 톤앤매너 가이드 — 오너 정본(볼트 「${j.title}」). 아래 문체·용어·톤 규칙을 산출물에 그대로 적용하고, 가이드와 충돌하는 표현은 고쳐 써라]\n${String(j.content).slice(0, 2500)}`;
+      }
+    }
+  } catch {
+    /* 볼트 없음/실패 = 가이드 없이 진행 */
+  }
+  styleCache = { text, at: Date.now() };
+  return text;
+}
+
 /** 회의 주입용 사서 블록 — 요청과 관련된 볼트 노트 상위 n건을 발췌한다 (없으면 빈 문자열) */
 export async function librarianBlock(query: string, n = 3): Promise<string> {
   const all = await searchObsidian(query);

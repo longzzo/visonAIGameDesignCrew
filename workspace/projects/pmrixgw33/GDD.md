@@ -442,7 +442,7 @@ MVP는 일수(30일)뿐 아니라 **다음 코어 콘텐츠가 돌아가야 "테
 | 26~30일 | 70 | 101 | 냉기 3호기 −40 + 장갑 −25 | **36** |
 - 총수급 **221** vs 소비 185 — 잔여 36은 **가뭄 부적(눈물×30, 6-9)의 30일 내 1회 소비를 처음 가능케 함**(강철이 재소환 시연 어필, 과잉분 소비처 확보) ✅.
 
-#### ③ 까치 벗 — 순수 QoL (호작도 까치 × 백호 서리발톱, 8장 레퍼런스 정합)
+#### ③ 까치 벗 — 순수 QoL (호작도 까치 × 흰 고양이 서리발톱, 8장 레퍼런스 정합)
 | 항목 | 수치 | 근거 |
 |---|---|---|
 | 까치 둥지 | 나무×8 + 삼줄기×6 · 작업대 · 10초 [메인 헤드 확정] | 보금자리와 같은 온보딩 티어 설치물 |
@@ -535,7 +535,7 @@ MVP는 일수(30일)뿐 아니라 **다음 코어 콘텐츠가 돌아가야 "테
 
 ### 8-1. 방향 판정 — "조선 민화풍" 채택 (메인 헤드 추천안 승인, 조건부 발전)
 - **판정: 타당, 채택.** 근거 3가지: ① 민화의 평면 채색+굵은 먹선은 도트 아트의 외곽선·제한 팔레트 문법과 1:1 호환(변환 비용 최소), ② 호작도·민화 도깨비의 "무섭지 않고 얄미운" 익살은 정본 톤 "공포 없는 청량함"과 정확히 정합, ③ 오방색은 티어/기능 색 코딩 체계로 그대로 전용 가능. 대안으로 검토한 수묵담채는 번짐·농담 표현이 16×16px에서 전부 소실되어 기각, 일반 "조선풍(기와·한복 소품 나열)"은 정체성이 배경 소품에 머물러 기각.
-- **채택 조건 3개(16px 가독·물량 한계 반영)**: 호작도 줄무늬는 등·꼬리에 2~3px 획으로 축약 / 단청 문양은 석빙고 모듈 타일 상단 2px 머리초 띠로만(전면 단청은 물량 초과) / 오방색은 포인트 전용, 주조는 청량 톤 유지.
+- **채택 조건 3개(16px 가독·물량 한계 반영, v9 개정)**: 주인공은 어디까지나 **고양이** — 호작도에서 왕눈·능청 비례의 익살만 차용하고 **줄무늬는 쓰지 않는다**(백호 오독 방지, 오너 교정 2026-07-14) / 단청 문양은 석빙고 모듈 타일 상단 2px 머리초 띠로만(전면 단청은 물량 초과) / 오방색은 포인트 전용, 주조는 청량 톤 유지.
 
 ### 8-2. 스타일 정의
 - 도트, 타일 16×16px 고정. 모든 스프라이트에 1px 먹선(#1A1A24) 외곽 — 민화 먹선의 도트 번역이자 폭염·설원 어느 배경에서도 실루엣을 분리하는 가독 장치.
@@ -553,7 +553,7 @@ MVP는 일수(30일)뿐 아니라 **다음 코어 콘텐츠가 돌아가야 "테
 - 낮↔밤 전환은 타일 원본 1벌 + 팔레트 LUT 2종 스왑으로 처리 — 아트 물량 절반 절감(개발 A 셰이더 협업).
 
 ### 8-4. 캐릭터 스펙 (v4 — 요괴 5종)
-- **서리발톱**: 호작도 호랑이의 백호 재해석 — 백색(#F5F1E8) 몸통 + 등·꼬리 흑 줄무늬 2~3px + 청색 눈. 낮엔 처진 귀·헥헥 혀, 밤엔 세운 귀·반짝 눈 — 자세만으로 낮밤 상태 읽힘.
+- **서리발톱 (v9 교정 — 백호 아님, 흰 집고양이)**: 백색(#F5F1E8) **단색** 몸통 + **청 #1E5AA8 목수건**(아군 식별색 = UI 청과 정합, 16px에서도 실루엣 포인트) + 청색 눈. **줄무늬 전면 금지** — 구판 "백호 재해석 + 흑 줄무늬"는 키비주얼이 호랑이로 오독되는 실측 결과로 폐기(오너 교정 2026-07-14), 호작도에서는 왕눈·능청 비례만 차용. 낮엔 처진 귀·헥헥 혀, 밤엔 세운 귀·반짝 눈 — 자세만으로 낮밤 상태 읽힘.
 - **요괴 5종 (정본 4-1 명칭 — 전 종 1px 먹선 #1A1A24, 어둑시니만 예외)**:
 
 | 요괴 (출현) | 실루엣 · 크기 | 오방색 배색 (8-3 HEX) | 16px 가독 포인트 | 공격 예고 | 민화 레퍼런스 |
@@ -580,14 +580,16 @@ MVP는 일수(30일)뿐 아니라 **다음 코어 콘텐츠가 돌아가야 "테
 | 타일셋 3장(지상+폐허 / 지하 3레이어·자원 / 석빙고 모듈·차열벽) 60타일 + 설치물 3종 편입 = 63타일 + LUT 2종 | 3장 (+5%) | 아트 A |
 | 배경 패럴랙스 낮·밤 각 2레이어 | 4장 | 아트 A |
 | 요괴 5종 — 방망이6f·불가사리6f·야광귀4f(대기=이동 겸용)·어둑시니4f(이동 없음, 트랜스폼)·강철이6f(유영은 세그먼트 웨이브) | 26프레임 (구 24f +8.3%) | 아트 B |
-| UI/HUD: 체온바·밀폐도 게이지·D-카운터·인벤 12슬롯·제작 아이콘(발톱 강화·주괴·단열·꾸미기) + 장비 9·악세사리 6 아이콘 + 보물 상자 개폐 2f (v8 — **장비 착용 외형 변화 없음: 아이콘만**. 소환템 4종은 icons-summon.png 예시 완료) | 1세트 | 아트 B |
+| UI/HUD: 체온바·밀폐도 게이지·D-카운터·인벤 12슬롯·제작 아이콘(발톱 강화·주괴·단열·꾸미기) + 장비 9·악세사리 6 아이콘 + 보물 상자 개폐 2f (v8 — **장비 착용 외형 변화 없음: 아이콘만**. 소환템·장비·악세 아이콘 예시 완료: icons-summon·armor·accessories.png) | 1세트 | 아트 B |
 | 이펙트: 결빙 3f·화염 3f·타일 파괴 2f — 불가사리·강철이 브레스는 화염 3f 재활용 | 8프레임 | 아트 B |
 - **컷 순위(먼저 버리는 순)**: ① 패럴랙스 2레이어→단색 그라데이션 1장 ② 확장 보스 2종(어미 불가사리·이무기 — 데모 컷라인은 6장) ③ 불가사리·강철이 공격 2f→1f(예고선·트랜스폼이 예고 대행) ④ 서리발톱 헥헥·피격 모션 ⑤ 단청 머리초 띠. **절대 컷 불가**: 요괴 5종 실루엣 구분, 3상황 팔레트 스왑, HUD 게이지 2종, **등불(어둑시니 카운터 — 게임플레이 필수)**.
 
-### 8-6. 키비주얼 — 생성 완료 (실측) + 프롬프트
-- ✅ **키비주얼 4종 생성 완료** (NVIDIA flux.1-dev, 1344×768): `art/keyvisual-night.png`(요괴 행렬 습격) · `keyvisual-day.png`(백일폭염 낮) · `keyvisual-bossfight.png`(v6 — 백중날 강철이 vs 신기전 화차 보스전) · `keyvisual-nap.png`(v6 — 냥잠+까치 벗, 냉온 대비). 노션 발행 파이프라인이 art/keyvisual-*.png를 자동 동봉.
-- 밤 씬 프롬프트: `Korean minhwa folk painting key visual, traditional hanji mulberry paper texture, bold black ink outlines, flat matte colors, obangsaek five-color palette, summer night navy sky, a white cat hero with black tiger stripes guarding a stone ice-house fortress of glowing ice-blue blocks, four mischievous Korean yokai marching — a goblin with an oversized yellow club, an iron-scaled beast with bear body and elephant trunk snorting embers, a tiny grinning imp clutching a white bundle of stolen shoes, a faceless shadow creature with glowing teal eyes — and a huge drought-serpent dragon coiling as a red silhouette across the night sky, flattened folk-art perspective, playful mischievous mood, not scary` (negative: `photorealism, 3D render, horror, gore, gradient shading, anime style, text, watermark`)
-- 낮 씬 프롬프트: `Korean minhwa folk painting key visual, hanji paper texture, bold black ink outlines, flat matte colors, a giant blazing sun with stylized folk-art flame rays in a hot orange sky, dry fields, a small cute white cat with black tiger stripes resting in one cool blue shadow patch next to a Korean stone ice-house with an arched entrance, a thin serpent silhouette coiling near the sun, flat folk-art perspective, bright cheerful colors, daytime` (negative: `photorealism, 3D render, lens flare, horror, anime style, human characters, text, watermark`)
+### 8-6. 키비주얼·아이콘 — v9 전량 재생성 완료 (실측) + 프롬프트 규칙
+- ✅ **v9 비주얼 7종 생성 완료** (NVIDIA flux.1-dev, 키비주얼 1344×768 · 아이콘 시트 1024×1024): `art/keyvisual-night.png`(요괴 행렬 습격) · `keyvisual-day.png`(백일폭염 낮) · `keyvisual-bossfight.png`(백중날 강철이 vs 신기전 화차) · `keyvisual-nap.png`(냥잠+까치 벗) · **`keyvisual-treasure.png`(v8 신규 — 설한풍 한벌옷 차림의 심층 보물 상자 파밍; 인게임 스프라이트는 장비 외형 미반영이므로 키비주얼 전용 연출)** · **`icons-armor.png`(장비 3부위×3티어 예시)** · **`icons-accessories.png`(악세사리 6종 예시)** + 기존 `icons-summon.png`(소환템 4종). 노션 발행 파이프라인이 art/(keyvisual|icons)-*.png를 자동 동봉(허브 맨 아래 아트 칸).
+- **주인공 공통 문구 (v9 필수)**: `a small cute white domestic house cat with plain solid white fur, round face, blue eyes, wearing a small blue neckerchief scarf` — **`tiger`·`stripes` 단어 전면 금지.** 실측: 민화(minhwa) 스타일 단어 자체가 까치호랑이 도상에 편향되어, 구판 문구(white cat with black tiger stripes)로는 4종 전부 호랑이로 출력됐다(오너 지적으로 발견, v9 전량 재생성).
+- **콘텐츠 필터 함정 (실측)**: `shooting fire arrows at ...` 같은 직접 공격 묘사는 전 시드 동일 크기(6KB) 퇴화 이미지를 반환한다(시드 무관 = 필터). 불꽃놀이·축제 묘사(`rocket arrows trailing golden firework sparks`)로 완화하면 통과.
+- 밤 씬 프롬프트: `Korean minhwa folk painting key visual, traditional hanji mulberry paper texture, bold black ink outlines, flat matte colors, obangsaek five-color palette, summer night navy sky with a red moon, [주인공 공통 문구] standing guard on top of a stone ice-house fortress of glowing ice-blue blocks, four mischievous Korean yokai marching toward it — a goblin with an oversized yellow wooden club, an iron-scaled beast with a bear body and elephant trunk snorting embers, a tiny grinning imp clutching a white bundle, a faceless shadow creature with glowing teal eyes — flattened folk-art perspective, playful mischievous mood, not scary`
+- 낮·보스전·냥잠·보물 상자 씬은 동일 스타일 접두 + 주인공 공통 문구 + 장면 묘사로 구성(스크립트 scratchpad/genimg.py에 전문 보존). 아이콘 시트는 `game item icon sheet on hanji mulberry paper ... evenly spaced grid` 골격.
 
 ## 9. 기술
 

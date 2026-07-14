@@ -660,7 +660,7 @@ export function notionEditPrompt(
 }
 
 /** 발행 전 다듬기 — 아키비스트가 GDD 섹션을 오너 노션 스타일로 재포맷 (내용 불변) */
-export function notionPolishPrompt(sectionTitle: string, body: string): string {
+export function notionPolishPrompt(sectionTitle: string, body: string, styleGuide = ""): string {
   return [
     `너는 노션 아키비스트다. 아래 기획 섹션을 오너의 노션 스타일로 재포맷해라 — 내용(사실·수치·결정)은 절대 바꾸지 말고 형태만 다듬는다.`,
     ``,
@@ -668,6 +668,7 @@ export function notionPolishPrompt(sectionTitle: string, body: string): string {
     `- "### 1. 소제목" 숫자 소제목 → 바로 아래 **볼드 리드 한 문장** → 불릿 상세 순서.`,
     `- 표 데이터는 헤더 행 포함 마크다운 표로. 이미 표면 유지.`,
     `- 개조식(명사형 종결). 합니다체 금지. 원문에 없는 내용 추가 금지, 있는 내용 삭제 금지.`,
+    ...(styleGuide ? [``, styleGuide] : []),
     ``,
     `[섹션: ${sectionTitle}]`,
     body.slice(0, 6000),

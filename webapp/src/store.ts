@@ -84,6 +84,7 @@ import {
   listObsidianLearnNotes,
   fetchObsidianNote,
   librarianBlock,
+  styleBlock,
   type ObsidianStatus,
   type ObsidianNoteInfo,
 } from "./lib/obsidian";
@@ -1381,7 +1382,15 @@ export const useVE = create<VEState>()((set, get) => {
       } catch {
         /* 사서 실패는 회의를 막지 않는다 */
       }
-      const decisionsText = [decisionsBlock(get().decisions), librarian].filter(Boolean).join("\n\n");
+      // 🎨 톤앤매너 가이드 — 볼트 정본을 전 섹션 생산 프롬프트에 주입 (오너 지시 2026-07-14: 문체 널뜀 교정)
+      let style = "";
+      try {
+        style = await styleBlock();
+        if (style) pushFeed({ from: "system", kind: "status", text: "🎨 톤앤매너 가이드(볼트 정본)를 회의 전원에게 배포했습니다." });
+      } catch {
+        /* 가이드 실패도 회의를 막지 않는다 */
+      }
+      const decisionsText = [decisionsBlock(get().decisions), style, librarian].filter(Boolean).join("\n\n");
       // 회의 전 스냅샷 — 끝난 뒤 "🔍 변경 확인"(diff)과 "⏪ 되돌리기"의 기준이 된다
       set({ orchBaseline: baseMd, meetingDiffOpen: false });
 
@@ -1925,7 +1934,7 @@ export const useVE = create<VEState>()((set, get) => {
         }
         const r = await gateway.runAgent(
           agentId,
-          reportPrompt(agent, title, gddFull, knowledgeBlockFor(agentId, get().knowledge, title)),
+          reportPrompt(agent, title, gddFull, [knowledgeBlockFor(agentId, get().knowledge, title), await styleBlock()].filter(Boolean).join("\n\n")),
           `report-${project}-${Date.now().toString(36)}`
         );
         const markdown = sanitizeAgentOutput(r.text);
@@ -2474,7 +2483,7 @@ export const useVE = create<VEState>()((set, get) => {
           try {
             const r = await gateway.runAgent(
               "archivist",
-              notionPolishPrompt(header.replace(/^##\s*/, ""), body),
+              notionPolishPrompt(header.replace(/^##\s*/, ""), body, await styleBlock()),
               `polish-${project}-${Date.now().toString(36)}`
             );
             const clean = sanitizeAgentOutput(r.text);
@@ -2641,7 +2650,7 @@ export const useVE = create<VEState>()((set, get) => {
           .join("\n");
         const r = await gateway.runAgent(
           "pm",
-          briefingPrompt(projectName, gddFull, reportLines, knowledgeBlockFor("pm", get().knowledge)),
+          briefingPrompt(projectName, gddFull, reportLines, [knowledgeBlockFor("pm", get().knowledge), await styleBlock()].filter(Boolean).join("\n\n")),
           `brief-${project}-${Date.now().toString(36)}`
         );
         const text = sanitizeAgentOutput(r.text) || "(빈 브리핑)";
@@ -3171,7 +3180,7 @@ export const useVE = create<VEState>()((set, get) => {
         setAgentStatus("td", "running");
         const r = await gateway.runAgent(
           "td",
-          reportPrompt(AGENT_MAP["td"], DEFAULT_REPORT_TOPIC["td"], baseMd, knowledgeBlockFor("td", get().knowledge, "유니티 개발")),
+          reportPrompt(AGENT_MAP["td"], DEFAULT_REPORT_TOPIC["td"], baseMd, [knowledgeBlockFor("td", get().knowledge, "유니티 개발"), await styleBlock()].filter(Boolean).join("\n\n")),
           `${tag}-doc`
         );
         const md = sanitizeAgentOutput(r.text);

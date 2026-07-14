@@ -5,6 +5,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -372,28 +373,33 @@ function overviewFacts(overviewBody, projectName) {
 
 /* ── 발행 ──────────────────────────────────────────── */
 
-async function appendBlocks(token, blockId, blocks) {
+/** 블록 추가 — after를 주면 그 블록 '뒤'에 순서대로 삽입(위치 지정), 없으면 맨 아래. 마지막 생성 블록 id 반환. */
+async function appendBlocks(token, blockId, blocks, after) {
+  let cursor = after;
+  let lastId = null;
   for (let i = 0; i < blocks.length; i += 90) {
-    await api(token, "PATCH", `/blocks/${blockId}/children`, { children: blocks.slice(i, i + 90) });
+    const body = { children: blocks.slice(i, i + 90) };
+    if (cursor) body.after = cursor;
+    const r = await api(token, "PATCH", `/blocks/${blockId}/children`, body);
+    const res = r?.results ?? [];
+    if (res.length > 0) {
+      lastId = res[res.length - 1].id;
+      if (cursor) cursor = lastId; // after 체인 — 다음 청크는 방금 넣은 것 뒤에
+    }
+  }
+  return lastId;
+}
+
+async function deleteBlock(token, id) {
+  try {
+    await api(token, "DELETE", `/blocks/${id}`);
+  } catch {
+    /* 이미 지워진 블록 등은 무시 */
   }
 }
 
-async function clearChildren(token, blockId) {
-  let cursor;
-  const ids = [];
-  do {
-    const r = await api(token, "GET", `/blocks/${blockId}/children?page_size=100${cursor ? `&start_cursor=${cursor}` : ""}`);
-    for (const b of r.results ?? []) ids.push(b.id);
-    cursor = r.has_more ? r.next_cursor : undefined;
-  } while (cursor);
-  for (const id of ids) {
-    try {
-      await api(token, "DELETE", `/blocks/${id}`);
-    } catch {
-      /* 이미 지워진 블록 등은 무시 */
-    }
-  }
-}
+/** 문서 내용 지문 — 같으면 노션 페이지를 일절 건드리지 않는다 (제자리 갱신의 핵심) */
+const docHash = (d) => crypto.createHash("sha1").update(`${d.icon} ${d.title} ${d.md}`).digest("hex");
 
 async function createChildPage(token, parentId, title, icon, blocks) {
   const page = await api(token, "POST", "/pages", {
@@ -413,17 +419,26 @@ const callout = (emoji, richText, color = "blue_background") => ({
 const heading2 = (text, color = "blue") => ({ type: "heading_2", heading_2: { rich_text: rich(text), color } });
 
 /**
- * 프로젝트 전체 발행 — 허브 페이지(레퍼런스 대시보드 스타일) + GDD 섹션 자식 페이지 + 보고서 자식 페이지.
- * 허브 URL은 유지되고 내용·자식만 교체된다.
+ * 프로젝트 전체 발행 — 허브 페이지(레퍼런스 대시보드 스타일) + GDD 섹션·명세서·보고서 자식 페이지 + 아트(맨 아래).
+ *
+ * 제자리 갱신(오너 지시 2026-07-14 "휴지통 범람 수정"):
+ *   자식 페이지는 매 발행마다 지우고 새로 만들지 않는다. notion-map.json에 key(gdd:N / spec:ts / rep:ts)별
+ *   페이지 id + 내용 해시를 기억해 두고 — 내용이 같으면 건드리지 않고, 바뀐 것만 블록 교체, 사라진 것만 보관 처리.
+ *   페이지 URL도 발행을 거듭해도 유지된다. 허브 레이아웃 블록(헤딩·표·이미지)만 매번 재구성하는데,
+ *   블록 삭제는 노션 휴지통 목록에 쌓이지 않는다(휴지통은 '페이지' 단위).
+ *
+ * 순서 보장: 노션 API는 블록 이동이 불가 → 맨 위 '앵커 문단'(피치)을 기준으로 after 삽입.
+ *   기존 페이지 순서가 목표 순서의 접두(prefix)와 일치하는 만큼만 재사용하고, 어긋난 지점부터는 재생성(드묾).
+ *   앵커가 없는 옛 구조는 1회 전체 재생성으로 마이그레이션한다.
  */
 export async function publishProject({ projectId, projectName, gddMd, reports, keyVisuals }) {
   const cfg = loadCfg();
   if (!cfg.token || !cfg.parentPageId) throw new Error("노션 연동이 설정되지 않았습니다 — 토큰과 부모 페이지를 먼저 등록하세요");
   const map = loadMap();
-  let rootId = map[projectId]?.rootPageId;
+  const rec = map[projectId] ?? {};
+  let rootId = rec.rootPageId;
 
   // 허브 페이지 확보 (없거나 삭제됐으면 생성)
-  const title = `🎮 ${projectName || projectId}`;
   if (rootId) {
     try {
       const p = await api(cfg.token, "GET", `/pages/${rootId}`);
@@ -439,39 +454,156 @@ export async function publishProject({ projectId, projectName, gddMd, reports, k
       properties: { title: { title: rich(projectName || projectId) } },
     });
     rootId = page.id;
+    rec.anchorId = null; // 새 허브 — 앵커도 새로
   } else {
     await api(cfg.token, "PATCH", `/pages/${rootId}`, { properties: { title: { title: rich(projectName || projectId) } } });
   }
 
-  // 기존 내용·자식 페이지 정리 후 재구성 (허브 URL은 유지)
-  await clearChildren(cfg.token, rootId);
+  // ── 현재 자식 파악: 자식 페이지(보존 대상) vs 레이아웃 블록(재구성 대상) ──
+  let children = await listChildren(cfg.token, rootId);
+  let pagesNow = children.filter((b) => b.type === "child_page");
+  const blocksNow = children.filter((b) => b.type !== "child_page");
+
+  // ── 앵커 확보 — 없으면 1회 마이그레이션(옛 구조 전체 재생성, 이후부터는 제자리 갱신) ──
+  let anchorId = rec.anchorId && children.some((b) => b.id === rec.anchorId) ? rec.anchorId : null;
+  const docsPrev = anchorId ? rec.docs ?? {} : {};
+  if (!anchorId) {
+    for (const p of pagesNow) await deleteBlock(cfg.token, p.id);
+    for (const b of blocksNow) await deleteBlock(cfg.token, b.id);
+    pagesNow = [];
+    anchorId = await appendBlocks(cfg.token, rootId, [{ type: "paragraph", paragraph: { rich_text: rich("") } }]);
+  } else {
+    for (const b of blocksNow) if (b.id !== anchorId) await deleteBlock(cfg.token, b.id);
+  }
 
   const sections = splitSections(gddMd ?? "");
   const overview = sections.find((s) => s.num === 1);
   const { pitch, rows } = overviewFacts(overview?.body ?? "", projectName);
 
-  // ① 허브 헤더 — 볼드 피치 + 개요 표 (레퍼런스 스타일)
-  const header = [];
-  if (pitch) header.push({ type: "paragraph", paragraph: { rich_text: rich(`**"${pitch.replace(/^"|"$/g, "")}"**`) } });
-  header.push({ type: "divider", divider: {} });
-  header.push(heading2("🎮 게임 개요"));
-  header.push({
-    type: "table",
-    table: {
-      table_width: 2,
-      has_column_header: true,
-      has_row_header: false,
-      children: rows.map((r) => ({ type: "table_row", table_row: { cells: [rich(r[0]), rich(r[1])] } })),
-    },
+  // 앵커 = 볼드 피치 문단 — 매 발행 텍스트만 갱신 (블록 자체는 영구 보존 = 위치 기준점)
+  await api(cfg.token, "PATCH", `/blocks/${anchorId}`, {
+    paragraph: { rich_text: rich(pitch ? `**"${pitch.replace(/^"|"$/g, "")}"**` : `**${projectName || projectId}**`) },
   });
-  header.push({ type: "divider", divider: {} });
-  await appendBlocks(cfg.token, rootId, header);
 
-  // ①-b 키비주얼 — 발행 파이프라인 내장(오너 지시 2026-07-14): 개요 표 바로 아래, 재발행 때마다 함께 올라간다.
-  //     업로드 실패는 발행 전체를 막지 않는다(이미지만 생략).
+  // ── 목표 문서 목록 (그룹 순서 = GDD → 명세서 → 보고서함) ──
+  //    분류 규칙은 webapp/src/lib/reports.ts reportKind와 항상 동일하게 유지할 것.
+  const kindOf = (r) => {
+    if (r.kind === "spec" || r.kind === "minutes" || r.kind === "report") return r.kind;
+    const t = String(r.title ?? "");
+    if (t.startsWith("회의록")) return "minutes";
+    if (/명세서|규칙|스펙|사양/.test(t)) return "spec";
+    return "report";
+  };
+  const all = (reports ?? []).slice(0, 20);
+  const specList = all.filter((r) => kindOf(r) === "spec");
+  const repList = all.filter((r) => kindOf(r) !== "spec");
+  const fmtD = (ts) => new Date(ts).toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" });
+  const docs = [
+    ...sections.map((s) => ({ key: `gdd:${s.num || s.title}`, group: "gdd", title: s.title, icon: s.icon, md: s.body })),
+    ...specList.map((r) => ({ key: `spec:${r.ts}`, group: "spec", title: `${r.title} (${fmtD(r.ts)})`, icon: r.emoji || "📐", md: r.markdown ?? "" })),
+    ...repList.map((r) => ({ key: `rep:${r.ts}`, group: "rep", title: `${r.title} (${fmtD(r.ts)})`, icon: r.emoji || "📋", md: r.markdown ?? "" })),
+  ].map((d) => ({ ...d, hash: docHash(d) }));
+
+  // ── 기존 페이지 재사용 매칭 + 더는 없는 문서만 보관 처리 ──
+  const liveIds = new Set(pagesNow.map((p) => p.id));
+  const claimed = new Map(); // key → 기존 페이지 id
+  for (const d of docs) {
+    const prev = docsPrev[d.key];
+    if (prev?.id && liveIds.has(prev.id) && ![...claimed.values()].includes(prev.id)) claimed.set(d.key, prev.id);
+  }
+  const claimedIds = new Set(claimed.values());
+  for (const p of pagesNow) if (!claimedIds.has(p.id)) await deleteBlock(cfg.token, p.id);
+  const oldOrder = pagesNow.filter((p) => claimedIds.has(p.id)).map((p) => p.id);
+
+  // 목표 순서와 일치하는 접두(prefix)까지만 제자리 재사용 — 그 뒤는 재생성해야 순서가 맞는다
+  let prefixLen = 0;
+  while (prefixLen < docs.length) {
+    const id = claimed.get(docs[prefixLen].key);
+    if (!id || oldOrder[prefixLen] !== id) break;
+    prefixLen++;
+  }
+
+  // ── 페이지 반영 — 해시 동일이면 API 호출 0회 ──
+  const newDocs = {};
+  const pageIdOf = new Map();
+  let reused = 0, updated = 0, created = 0;
+  for (let i = 0; i < docs.length; i++) {
+    const d = docs[i];
+    const existing = claimed.get(d.key);
+    if (i < prefixLen && existing) {
+      if (docsPrev[d.key]?.hash === d.hash) {
+        reused++;
+      } else {
+        await api(cfg.token, "PATCH", `/pages/${existing}`, {
+          icon: { type: "emoji", emoji: d.icon },
+          properties: { title: { title: rich(d.title) } },
+        });
+        const kids = await listChildren(cfg.token, existing);
+        for (const k of kids) await deleteBlock(cfg.token, k.id);
+        await appendBlocks(cfg.token, existing, mdToBlocks(d.md));
+        updated++;
+      }
+      pageIdOf.set(d.key, existing);
+    } else {
+      if (existing) await deleteBlock(cfg.token, existing); // 순서가 어긋난 페이지만 재생성 (드묾)
+      const page = await createChildPage(cfg.token, rootId, d.title, d.icon, mdToBlocks(d.md));
+      pageIdOf.set(d.key, page.id);
+      created++;
+    }
+    newDocs[d.key] = { id: pageIdOf.get(d.key), hash: d.hash };
+  }
+  const lastOf = (g) => {
+    const arr = docs.filter((d) => d.group === g);
+    return arr.length > 0 ? pageIdOf.get(arr[arr.length - 1].key) : null;
+  };
+
+  // ── 허브 레이아웃 재구성 (after 삽입으로 위치 지정) ──
+  // ① 상단 헤더: 앵커(피치) 바로 아래 — 개요 표 + GDD 섹션 안내
+  const topLastId = await appendBlocks(
+    cfg.token,
+    rootId,
+    [
+      { type: "divider", divider: {} },
+      heading2("🎮 게임 개요"),
+      {
+        type: "table",
+        table: {
+          table_width: 2,
+          has_column_header: true,
+          has_row_header: false,
+          children: rows.map((r) => ({ type: "table_row", table_row: { cells: [rich(r[0]), rich(r[1])] } })),
+        },
+      },
+      { type: "divider", divider: {} },
+      heading2("📄 마스터 GDD — 섹션별 기획서"),
+      callout("📌", rich(`**자동 발행 문서** — Vision Engine 스튜디오가 회의 결과를 이 페이지 트리로 발행합니다. 마지막 발행: ${new Date().toLocaleString("ko-KR", { hour12: false })}`), "yellow_background"),
+    ],
+    anchorId
+  );
+
+  // ② 명세서 칸 헤더 — GDD 마지막 섹션 페이지 바로 뒤 (오너 지시: 회의록과 분리된 전용 칸)
+  if (specList.length > 0) {
+    await appendBlocks(cfg.token, rootId, [
+      { type: "divider", divider: {} },
+      heading2("📐 명세서"),
+      callout("📐", rich(`정식 명세 문서 ${specList.length}건 — 아트·개발 명세서, 개발 규칙. 팀 배포 기준 문서.`), "blue_background"),
+    ], lastOf("gdd") ?? topLastId);
+  }
+
+  // ③ 보고서함 헤더 — 명세서 마지막 페이지 바로 뒤
+  if (repList.length > 0) {
+    await appendBlocks(cfg.token, rootId, [
+      { type: "divider", divider: {} },
+      heading2("📋 보고서함"),
+      callout("🗂️", rich(`최근 보고서 ${repList.length}건 — 회의록·검증 보고·협업 결론`), "gray_background"),
+    ], lastOf("spec") ?? lastOf("gdd") ?? topLastId);
+  }
+
+  // ④ 아트 — 허브 맨 아래 (오너 지시 2026-07-14: 키비주얼·아이콘은 문서 뒤로).
+  //    업로드 실패는 발행 전체를 막지 않는다(이미지만 생략).
   const kvs = (keyVisuals ?? []).filter((k) => k?.path && fs.existsSync(k.path));
   if (kvs.length > 0) {
-    const kvBlocks = [heading2("🖼️ 키비주얼")];
+    const kvBlocks = [{ type: "divider", divider: {} }, heading2("🖼️ 아트 — 키비주얼·아이콘")];
     for (const k of kvs) {
       try {
         const fid = await uploadImageToNotion(cfg.token, k.path, path.basename(k.path));
@@ -483,64 +615,14 @@ export async function publishProject({ projectId, projectName, gddMd, reports, k
         console.warn(`[notion] 키비주얼 업로드 생략(${path.basename(k.path)}):`, e?.message ?? e);
       }
     }
-    if (kvBlocks.length > 1) {
-      kvBlocks.push({ type: "divider", divider: {} });
-      await appendBlocks(cfg.token, rootId, kvBlocks);
-    }
+    if (kvBlocks.length > 2) await appendBlocks(cfg.token, rootId, kvBlocks); // 맨 아래 append
   }
 
-  // ①-c GDD 섹션 헤딩 (키비주얼 다음, 섹션 자식 페이지들 바로 위)
-  await appendBlocks(cfg.token, rootId, [
-    heading2("📄 마스터 GDD — 섹션별 기획서"),
-    callout("📌", rich(`**자동 발행 문서** — Vision Engine 스튜디오가 회의 결과를 이 페이지 트리로 발행합니다. 마지막 발행: ${new Date().toLocaleString("ko-KR", { hour12: false })}`), "yellow_background"),
-  ]);
-
-  // ② GDD 섹션 자식 페이지 (순서대로 → 허브에 순서대로 나열됨)
-  for (const s of sections) {
-    await createChildPage(cfg.token, rootId, s.title, s.icon, mdToBlocks(s.body));
-  }
-
-  // ③ 명세서 (아트·개발 명세서, 개발 규칙 등) — 회의록과 분리된 전용 칸 (오너 지시 2026-07-14)
-  //    분류 규칙은 webapp/src/lib/reports.ts reportKind와 항상 동일하게 유지할 것.
-  const kindOf = (r) => {
-    if (r.kind === "spec" || r.kind === "minutes" || r.kind === "report") return r.kind;
-    const t = String(r.title ?? "");
-    if (t.startsWith("회의록")) return "minutes";
-    if (/명세서|규칙|스펙|사양/.test(t)) return "spec";
-    return "report";
-  };
-  const all = (reports ?? []).slice(0, 20);
-  const specs = all.filter((r) => kindOf(r) === "spec");
-  if (specs.length > 0) {
-    await appendBlocks(cfg.token, rootId, [
-      { type: "divider", divider: {} },
-      heading2("📐 명세서"),
-      callout("📐", rich(`정식 명세 문서 ${specs.length}건 — 아트·개발 명세서, 개발 규칙. 팀 배포 기준 문서.`), "blue_background"),
-    ]);
-    for (const r of specs) {
-      const d = new Date(r.ts).toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" });
-      await createChildPage(cfg.token, rootId, `${r.title} (${d})`, r.emoji || "📐", mdToBlocks(r.markdown ?? ""));
-    }
-  }
-
-  // ④ 보고서함 (회의록·일반 보고 — 명세서 제외)
-  const reps = all.filter((r) => kindOf(r) !== "spec");
-  if (reps.length > 0) {
-    await appendBlocks(cfg.token, rootId, [
-      { type: "divider", divider: {} },
-      heading2("📋 보고서함"),
-      callout("🗂️", rich(`최근 보고서 ${reps.length}건 — 회의록·검증 보고·협업 결론`), "gray_background"),
-    ]);
-    for (const r of reps) {
-      const d = new Date(r.ts).toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" });
-      await createChildPage(cfg.token, rootId, `${r.title} (${d})`, r.emoji || "📋", mdToBlocks(r.markdown ?? ""));
-    }
-  }
-
-  map[projectId] = { rootPageId: rootId, lastPublish: Date.now() };
+  map[projectId] = { rootPageId: rootId, anchorId, docs: newDocs, lastPublish: Date.now() };
   saveMap(map);
   const dash = rootId.replace(/-/g, "");
-  return { ok: true, pageId: rootId, url: `https://www.notion.so/${dash}` };
+  console.log(`[notion] 발행 — 재사용 ${reused} · 갱신 ${updated} · 신규 ${created} (휴지통행 0 목표)`);
+  return { ok: true, pageId: rootId, url: `https://www.notion.so/${dash}`, reused, updated, created };
 }
 
 /* ── 노션 편집실 — 임의 페이지 읽기(블록→마크다운) + 안전 수정 ──
