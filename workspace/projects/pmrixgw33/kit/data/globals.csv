@@ -19,3 +19,14 @@ tile_px,16,px,타일 16x16(아트 정합)
 team_dev,2,person,개발 2명(오너확정)
 team_art,2,person,아트 2명(오너확정)
 team_design,1,person,기획 1명=오너(확정)
+baekjung_day,15,day,백중날 밤 이벤트(v6 — 요괴 급증·드랍 강화, 데모 세이브 15일차와 일치)
+nap_timescale,4,mult,냥잠 낮 시간 가속(v6)
+nap_temp_mult,3,mult,냥잠 체온 하강 배수(자연 0.15/게임초 기준 — v6)
+ice_shard_temp_relief,10,gauge,얼음 조각 1개 즉시 체온 -10(v6 신규 정의)
+baekjung_spawn_cap,12,count,백중날 밤 한정 스폰 상한(공식값x3)
+baekjung_spawn_mult,3,mult,백중날 스폰 배율
+baekjung_tears_mult,1.5,mult,백중날 요괴 눈물 배율
+baekjung_sig_mult,2,mult,백중날 시그니처 드랍 배율
+magpie_join_kills,30,count,까치 입주 누적 처치 조건(또는 백중날 생존)
+magpie_magnet_radius,10,tile,까치 줍기 반경
+magpie_magnet_interval,4,sec,까치 줍기 주기
