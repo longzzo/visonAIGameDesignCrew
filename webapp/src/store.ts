@@ -1891,19 +1891,45 @@ export const useVE = create<VEState>()((set, get) => {
           /* 회의록 저장 실패는 치명적이지 않음 */
         }
 
-        // 🔔 오너 승인 요청 수집 — PM·에이전트가 "[오너 승인 필요] …"로 표시한 초중대 사항을 승인 대기 큐에 상신
+        // 🔔 오너 승인 요청 수집 — PM·에이전트가 "[오너 승인 필요] …"로 표시한 초중대 사항을 승인 대기 큐에 상신.
+        // 안건마다 "누가·어디서·왜"를 함께 남긴다 — 결재창만 보고는 맥락을 알 수 없다는 오너 지적(2026-07-15).
+        // 상신자의 1:1 채팅에도 설명을 게시해, 결재 전에 근거를 읽을 수 있게 한다(LLM 호출 0).
         try {
           const markerRe = /\[오너 승인 필요\]\s*([^\n]{4,160})/g;
           const seen = new Set<string>();
-          const texts = [get().cards["pm"]?.output ?? "", ...results.map((r) => r.text)];
+          const raisers: { agentId: string; name: string; section: string; text: string }[] = [
+            { agentId: "pm", name: AGENT_MAP["pm"]?.name ?? "PM 디렉터", section: "개요·통합", text: get().cards["pm"]?.output ?? "" },
+            ...results.map((r) => ({ agentId: r.agent.id, name: r.agent.name, section: r.agent.sectionTitle, text: r.text })),
+          ];
           let count = 0;
-          for (const t of texts) {
-            for (const m of t.matchAll(markerRe)) {
+          for (const src of raisers) {
+            for (const m of src.text.matchAll(markerRe)) {
               const title = m[1].trim().replace(/[*_`]+/g, "");
               if (!title || seen.has(title) || count >= 5) continue;
               seen.add(title);
               count++;
-              await get().addApproval(title, `회의 "${req.slice(0, 60)}"에서 상신됨`, "meeting");
+              // 근거 문맥 — 마커 앞뒤 본문을 잘라 "왜 이 안건이 나왔는지"를 보존한다
+              const at = m.index ?? 0;
+              const ctx = src.text
+                .slice(Math.max(0, at - 320), Math.min(src.text.length, at + m[0].length + 320))
+                .replace(/\s+/g, " ")
+                .trim();
+              const detail = [
+                `상신: ${src.name} (${src.section} 작업 중)`,
+                `회의: "${req.slice(0, 80)}${req.length > 80 ? "…" : ""}"`,
+                `근거 발췌: …${ctx}…`,
+              ].join("\n");
+              await get().addApproval(title, detail, `meeting:${src.agentId}`);
+              await postWorkLog(src.agentId, [
+                `🔔 **오너 승인 요청 상신** — ${new Date().toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}`,
+                ``,
+                `**안건**: ${title}`,
+                `**어디서 나왔나**: 회의 「${req.slice(0, 60)}${req.length > 60 ? "…" : ""}」에서 제가 맡은 **${src.section}** 작업 중`,
+                `**왜 올렸나**: 기존 기획의 방향·정본을 바꿀 수 있는 사항이라 제 선에서 확정하지 않고 오너 결재를 요청했습니다.`,
+                `**근거 발췌**: …${ctx}…`,
+                `**승인하면**: 결정 원장에 적립되어 다음 회의부터 전원이 참조합니다${get().approvalAutoRun ? " — 그리고 PM이 담당 본부에 배정해 후속 작업을 곧바로 착수합니다." : " (⚡ 자동 실행이 꺼져 있어 착수는 수동입니다)."}`,
+                `**결재**: 상단 🔔 승인 대기 창에서 승인·반려`,
+              ]);
             }
           }
         } catch {

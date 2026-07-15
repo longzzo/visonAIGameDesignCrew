@@ -36,6 +36,8 @@ export function Sidebar() {
     knowledge,
     openProfile,
     obsidianNotes,
+    approvals,
+    setApprovalsOpen,
   } = useVE();
   const obsidianNew = obsidianNotes.filter((n) => n.state !== "learned").length;
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
@@ -46,6 +48,15 @@ export function Sidebar() {
   const unreadByAgent: Record<string, number> = {};
   for (const r of reports) {
     if (!readReports.includes(r.ts)) unreadByAgent[r.agent] = (unreadByAgent[r.agent] ?? 0) + 1;
+  }
+
+  // 에이전트별 승인 대기 수 — 안건이 "어디서 왜" 나왔는지 보이게(오너 지적 2026-07-15).
+  // 상신자의 대화방에 어디서·왜·근거·승인 시 무슨 일이 적혀 있으므로, 배지를 그 문으로 쓴다.
+  const approvalsByAgent: Record<string, number> = {};
+  for (const a of approvals) {
+    if (a.status !== "pending") continue;
+    const id = /^meeting:(.+)$/.exec(a.source ?? "")?.[1];
+    if (id) approvalsByAgent[id] = (approvalsByAgent[id] ?? 0) + 1;
   }
 
   const healthDone = Object.keys(agentHealth).length;
@@ -165,6 +176,18 @@ export function Sidebar() {
                 <span className="agent-name">{a.name}</span>
                 <span className="agent-role">{a.role}</span>
               </span>
+              {approvalsByAgent[a.id] > 0 && (
+                <span
+                  className="approval-mark"
+                  title={`${a.name}이(가) 상신한 승인 대기 ${approvalsByAgent[a.id]}건 — 클릭하면 결재함. 대화방에 "어디서·왜·근거·승인하면 무슨 일"이 적혀 있습니다`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setApprovalsOpen(true);
+                  }}
+                >
+                  🔔{approvalsByAgent[a.id]}
+                </span>
+              )}
               {unreadByAgent[a.id] > 0 && (
                 <span
                   className="report-badge"

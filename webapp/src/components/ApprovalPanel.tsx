@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useVE } from "../store";
+import { AGENT_MAP } from "../lib/agents";
 
 function fmtTs(ts: number): string {
   return new Date(ts).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
@@ -9,8 +10,15 @@ function fmtTs(ts: number): string {
  * 승인 대기 창 — PM에게 총 결정권이 있지만, 방향을 바꾸는 초중대 사항은 여기 쌓여 오너 결재를 기다린다.
  * 승인하면 결정 원장에 적립되고, ⚡ 자동 실행이 켜져 있으면 PM이 곧바로 담당 본부에 배정해 착수한다.
  */
+/** source가 "meeting:<agentId>"면 상신한 에이전트를 돌려준다 — 안건이 "어디서 왜" 나왔는지 추적용 */
+function raiserOf(source?: string): { id: string; name: string } | null {
+  const id = /^meeting:(.+)$/.exec(source ?? "")?.[1];
+  if (!id) return null;
+  return { id, name: AGENT_MAP[id]?.name ?? id };
+}
+
 export function ApprovalPanel() {
-  const { approvals, setApprovalsOpen, decideApproval, addApproval, approvalAutoRun, setApprovalAutoRun, runApproval, orchRunning } =
+  const { approvals, setApprovalsOpen, decideApproval, addApproval, approvalAutoRun, setApprovalAutoRun, runApproval, orchRunning, selectAgent } =
     useVE();
   const [newTitle, setNewTitle] = useState("");
   const [busy, setBusy] = useState("");
@@ -53,23 +61,39 @@ export function ApprovalPanel() {
         </label>
 
         {pending.length === 0 && <div className="dim approval-empty">대기 중인 안건이 없습니다.</div>}
-        {pending.map((a) => (
-          <div key={a.id} className="approval-item">
-            <div className="approval-title">{a.title}</div>
-            {a.detail && <div className="approval-detail dim">{a.detail}</div>}
-            <div className="approval-meta dim">
-              {fmtTs(a.ts)} · 출처: {a.source === "meeting" ? "회의 상신" : a.source || "수동"}
+        {pending.map((a) => {
+          const raiser = raiserOf(a.source);
+          return (
+            <div key={a.id} className="approval-item">
+              <div className="approval-title">{a.title}</div>
+              {/* 배경은 "상신자 / 회의 / 근거 발췌" 여러 줄이라 줄바꿈을 살려 보여준다 */}
+              {a.detail && <div className="approval-detail dim">{a.detail}</div>}
+              <div className="approval-meta dim">
+                {fmtTs(a.ts)} · 출처: {raiser ? `${raiser.name} 상신 (회의)` : a.source === "meeting" ? "회의 상신" : a.source || "수동"}
+              </div>
+              <div className="approval-actions">
+                <button className="btn small primary" disabled={busy === a.id} onClick={() => void decide(a.id, "approved")}>
+                  ✅ 승인
+                </button>
+                <button className="btn small" disabled={busy === a.id} onClick={() => void decide(a.id, "rejected")}>
+                  ❌ 반려
+                </button>
+                {raiser && (
+                  <button
+                    className="btn small"
+                    title={`${raiser.name}의 대화방에서 이 안건의 전체 설명(어디서·왜·근거·승인 시 무슨 일)을 읽습니다`}
+                    onClick={() => {
+                      selectAgent(raiser.id);
+                      setApprovalsOpen(false);
+                    }}
+                  >
+                    💬 {raiser.name} 대화에서 보기
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="approval-actions">
-              <button className="btn small primary" disabled={busy === a.id} onClick={() => void decide(a.id, "approved")}>
-                ✅ 승인
-              </button>
-              <button className="btn small" disabled={busy === a.id} onClick={() => void decide(a.id, "rejected")}>
-                ❌ 반려
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
 
         <div className="approval-add">
           <input

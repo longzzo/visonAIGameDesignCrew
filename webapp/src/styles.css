@@ -310,6 +310,13 @@ button { font-family: inherit; }
   padding: 1px 6px; flex-shrink: 0; font-weight: 700;
   animation: pulse 2.2s infinite;
 }
+/* 이 담당이 상신한 승인 대기 배지 — 클릭하면 결재함이 열린다(보고서 배지와 같은 자리, 다른 색) */
+.approval-mark {
+  font-size: 10.5px; background: #7c3aed; color: #fff; border-radius: 9px;
+  padding: 1px 6px; flex-shrink: 0; font-weight: 700; cursor: pointer;
+  animation: pulse 2.2s infinite;
+}
+.approval-mark:hover { background: #8b5cf6; }
 
 /* 보고서 PM 가치검증 플로우 */
 .report-verify { margin: 8px 0 12px; }
@@ -456,9 +463,14 @@ button { font-family: inherit; }
 .approval-empty { padding: 18px 4px; font-size: 13px; }
 .approval-item { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; background: var(--bg-2); }
 .approval-title { font-size: 14px; font-weight: 600; }
-.approval-detail { font-size: 12.5px; margin-top: 4px; }
+/* 배경은 "상신자 / 회의 / 근거 발췌" 여러 줄 — 줄바꿈을 살리고, 길면 스크롤(결재창이 밀리지 않게) */
+.approval-detail {
+  font-size: 12.5px; margin-top: 6px; white-space: pre-wrap; line-height: 1.5;
+  max-height: 8.5em; overflow-y: auto; padding: 7px 9px;
+  background: var(--panel-2); border-radius: 8px; border: 1px solid var(--border);
+}
 .approval-meta { font-size: 11.5px; margin-top: 6px; }
-.approval-actions { display: flex; gap: 8px; margin-top: 10px; }
+.approval-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .approval-add { display: flex; gap: 8px; margin-top: 14px; }
 .approval-add input { flex: 1; background: var(--bg-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 13px; font-family: inherit; }
 .approval-add input:focus { outline: none; border-color: var(--accent); }
