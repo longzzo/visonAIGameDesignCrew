@@ -874,7 +874,11 @@ export const useVE = create<VEState>()((set, get) => {
     orchRequest: "",
     selected: Object.fromEntries(SPECIALISTS.map((a) => [a.id, true])),
     concurrency: 1,
-    autoReflect: true,
+    // 기본 OFF — 오너 지시(2026-07-15). 회의 초안이 정본을 덮어써 GDD를 109KB→22KB로
+    // 파괴한 실사고(HANDOFF 함정 40) 이후 확정된 운용 방식: 회의는 검토 의견·리서치·검증을
+    // 얻는 데 쓰고, 정본 반영은 메인 헤드가 대조 후 수동으로 한다.
+    // 켜고 싶으면 회의 옵션에서 직접 켜라(축소 방어가 2차 안전망으로 남아 있다).
+    autoReflect: false,
     crossReview: true,
     webResearch: false,
     braveOk: false,
@@ -1349,7 +1353,8 @@ export const useVE = create<VEState>()((set, get) => {
       set({
         selected: Object.fromEntries(SPECIALISTS.map((a) => [a.id, true])),
         crossReview: true,
-        autoReflect: true,
+        // autoReflect는 강제하지 않는다 — 오너 설정을 그대로 따른다(기본 OFF, HANDOFF 함정 40).
+        // 여기서 true로 덮으면 "풀 기획 회의" 한 번이 정본을 통째로 날린다.
         // 풀 기획 회의는 "전원 참여"가 목적 — PM 자동 분배가 인원을 줄이지 않게 해제
         autoRoute: false,
       });

@@ -317,9 +317,9 @@ export function OrchestrationView() {
               <input type="checkbox" checked={webResearch} onChange={(e) => setWebResearch(e.target.checked)} disabled={orchRunning} />
               🌐 웹 리서치{webResearch && !braveOk ? <span className="dim"> (조회만)</span> : null}
             </label>
-            <label>
+            <label title="켜면 회의 산출물이 GDD 섹션을 자동으로 덮어씁니다. 정본이 쌓인 프로젝트에서는 회의 초안이 정본을 밀어내므로 기본 꺼짐 — 회의는 검토 의견을 받는 데 쓰고, 반영은 대조 후 직접 하세요.">
               <input type="checkbox" checked={autoReflect} onChange={(e) => setAutoReflect(e.target.checked)} />
-              GDD 자동 반영
+              GDD 자동 반영 <span className="dim">(정본 덮어씀 — 기본 꺼짐)</span>
             </label>
             <label title="동시에 일하는 에이전트 수 — 로컬 모델(GPU 1개)은 1 권장, 클라우드 모델(GitHub/NVIDIA)이면 4~7로 올려 전원이 동시에 일하는 모습을 볼 수 있습니다">
               동시{" "}
@@ -358,7 +358,7 @@ export function OrchestrationView() {
                   className="btn"
                   onClick={() => void fullMeeting()}
                   disabled={!orchRequest.trim()}
-                  title="전원 + 교차 검토 + GDD 반영으로 즉시 시작"
+                  title="전원 + 교차 검토로 즉시 시작 — GDD 반영 여부는 아래 '작성 결과를 GDD에 자동 반영' 설정을 따릅니다(기본 꺼짐)"
                 >
                   🎪 풀 기획 회의
                 </button>
