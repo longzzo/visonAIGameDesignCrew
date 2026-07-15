@@ -138,6 +138,7 @@ import {
   getSectionBody,
   sanitizeAgentOutput,
   isGatewayErrorText,
+  detectLangLeak,
   listProjects,
   createProject,
   renameProject,
@@ -1761,6 +1762,15 @@ export const useVE = create<VEState>()((set, get) => {
             }
           }
 
+          // 다른 언어 누수 경고 — 지우지 않고 알린다. 조용히 GDD에 들어가면 다음 회의로 전파된다(trap 33).
+          const leak = detectLangLeak(final);
+          if (leak) {
+            pushFeed({
+              from: "system",
+              kind: "error",
+              text: `🈳 ${agent.name}의 "${agent.sectionTitle}" 산출물에 다른 언어가 섞였습니다 — ${leak}. GDD를 확인하고 필요하면 🕘 히스토리에서 되돌리세요.`,
+            });
+          }
           updateCard(agent.id, { state: "done", phase: undefined, output: final, endedAt: Date.now() });
           setAgentStatus(agent.id, "done");
           get().recordGrowth(agent.id, "draft");
@@ -2908,8 +2918,11 @@ export const useVE = create<VEState>()((set, get) => {
           briefingPrompt(projectName, gddFull, reportLines, [knowledgeBlockFor("pm", get().knowledge), await styleBlock()].filter(Boolean).join("\n\n")),
           `brief-${project}-${Date.now().toString(36)}`
         );
-        const text = sanitizeAgentOutput(r.text) || "(빈 브리핑)";
+        let text = sanitizeAgentOutput(r.text) || "(빈 브리핑)";
         addUsage(r.usage, text);
+        // 브리핑에 러시아어·한자가 섞여 나온 실사고(2026-07-15 오너 스크린샷) — 알아볼 수 있게 꼬리말로 알린다.
+        const leak = detectLangLeak(text);
+        if (leak) text += `\n\n---\n🈳 *이 브리핑에 다른 언어가 섞였습니다 — ${leak}. 모델 언어 누수이니 그 부분은 걸러 읽으세요.*`;
         set((s) => ({
           chats: {
             ...s.chats,

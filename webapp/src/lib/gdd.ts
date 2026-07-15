@@ -309,6 +309,26 @@ export function reflowMd(md: string): string {
   return out.join("\n");
 }
 
+/**
+ * 다른 언어 누수 감지 — 모델(122b/80b)이 한국어 산출물에 러시아어·중국어·일본어를 흘린다.
+ * 실사례: 브리핑 "всю HUD"·"9일以有", 결정 원장 "结算/锁定", 회고 "zasady".
+ *
+ * 프롬프트 규칙(KO_RULE)이 1차 방어지만 모델은 여전히 흘린다 — 이건 2차 방어로,
+ * **지우지 않고 알리기만 한다**(자동 삭제는 정상 내용까지 깰 수 있다. 판단은 오너·메인 헤드 몫).
+ * 한자는 한국어 문서에도 드물게 정상 등장하므로 2자 이상일 때만 잡는다.
+ */
+export function detectLangLeak(text: string): string {
+  if (!text) return "";
+  const hits: string[] = [];
+  const cyr = text.match(/[Ѐ-ӿ]+/g);
+  const kana = text.match(/[぀-ヿ]+/g);
+  const han = text.match(/[一-鿿]+/g);
+  if (cyr) hits.push(`러시아어 ${[...new Set(cyr)].slice(0, 3).join(",")}`);
+  if (kana) hits.push(`일본어 ${[...new Set(kana)].slice(0, 3).join(",")}`);
+  if (han && han.join("").length >= 2) hits.push(`한자 ${[...new Set(han)].slice(0, 3).join(",")}`);
+  return hits.join(" · ");
+}
+
 /** 게이트웨이 오류 문자열 감지 — 이게 산출물로 저장되면 GDD·회의가 오염된다 (2026-07-11 실측: 타임아웃 문구가 GDD 섹션에 반영됨) */
 export function isGatewayErrorText(text: string): boolean {
   const head = text.trim().slice(0, 300);
