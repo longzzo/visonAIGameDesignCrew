@@ -7,10 +7,11 @@ function fmtTs(ts: number): string {
 
 /**
  * 승인 대기 창 — PM에게 총 결정권이 있지만, 방향을 바꾸는 초중대 사항은 여기 쌓여 오너 결재를 기다린다.
- * 승인하면 결정 원장에 적립되어 다음 회의부터 모든 에이전트에게 자동 주입된다.
+ * 승인하면 결정 원장에 적립되고, ⚡ 자동 실행이 켜져 있으면 PM이 곧바로 담당 본부에 배정해 착수한다.
  */
 export function ApprovalPanel() {
-  const { approvals, setApprovalsOpen, decideApproval, addApproval } = useVE();
+  const { approvals, setApprovalsOpen, decideApproval, addApproval, approvalAutoRun, setApprovalAutoRun, runApproval, orchRunning } =
+    useVE();
   const [newTitle, setNewTitle] = useState("");
   const [busy, setBusy] = useState("");
   const pending = approvals.filter((a) => a.status === "pending").sort((a, b) => b.ts - a.ts);
@@ -30,11 +31,26 @@ export function ApprovalPanel() {
       <div className="onb-card approval-card" onClick={(e) => e.stopPropagation()}>
         <div className="approval-head">
           <b>🔔 승인 대기 — 오너 결재함</b>
-          <span className="dim">PM이 판단한 초중대 사항입니다 · 승인하면 결정 원장에 적립되어 다음 회의부터 팀 전체에 적용됩니다</span>
+          <span className="dim">
+            PM이 판단한 초중대 사항입니다 · 승인하면 결정 원장에 적립되어 이후 모든 회의에 적용됩니다
+          </span>
           <button className="btn tiny approval-close" onClick={() => setApprovalsOpen(false)}>
             ✕ 닫기
           </button>
         </div>
+
+        <label
+          className="approval-autorun"
+          title="켜면 승인하는 즉시 PM이 담당 본부에 배정해 실행 회의를 착수합니다. 끄면 결정 원장 적립만 하고, 아래 ▶ 지금 실행으로 원할 때 시작합니다."
+        >
+          <input type="checkbox" checked={approvalAutoRun} onChange={(e) => setApprovalAutoRun(e.target.checked)} />
+          ⚡ 승인 시 자동 실행
+          <span className="dim">
+            {approvalAutoRun
+              ? " — 승인 즉시 PM이 담당 본부에 배정해 착수합니다 (회의 중이면 종료 후 이어서)"
+              : " — 원장 적립만 합니다. 착수는 ▶ 지금 실행으로 직접 (다음 회의부터 자동 참조)"}
+          </span>
+        </label>
 
         {pending.length === 0 && <div className="dim approval-empty">대기 중인 안건이 없습니다.</div>}
         {pending.map((a) => (
@@ -85,6 +101,19 @@ export function ApprovalPanel() {
             {decided.map((a) => (
               <div key={a.id} className="approval-hist-item dim">
                 {a.status === "approved" ? "✅" : "❌"} {a.title} <span>({fmtTs(a.decidedTs ?? a.ts)})</span>
+                {a.status === "approved" && (
+                  <button
+                    className="btn tiny approval-run"
+                    onClick={() => runApproval(a.id)}
+                    title={
+                      orchRunning
+                        ? "회의 중입니다 — 현재 회의가 끝나면 이어서 실행하도록 예약됩니다"
+                        : "PM이 이 승인 안건을 지시로 담당 본부에 배정해 지금 착수합니다"
+                    }
+                  >
+                    ▶ 지금 실행
+                  </button>
+                )}
               </div>
             ))}
           </details>

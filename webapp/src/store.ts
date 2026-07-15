@@ -378,6 +378,8 @@ interface VEState {
   approvalsOpen: boolean;
   /** 승인됐지만 회의 중이라 종료 후 실행하기로 예약된 안건의 지시문 큐 */
   pendingApprovalRuns: string[];
+  /** 승인 시 PM이 곧바로 실행 회의를 착수할지 (끄면 결정 원장 적립만 — 나중에 ▶ 지금 실행) */
+  approvalAutoRun: boolean;
   /** 개발 착수 킷 */
   kitFiles: KitFile[];
   devKitBusy: boolean;
@@ -526,6 +528,9 @@ interface VEState {
   setApprovalsOpen: (b: boolean) => void;
   addApproval: (title: string, detail?: string, source?: string) => Promise<void>;
   decideApproval: (id: string, status: "approved" | "rejected", note?: string) => Promise<void>;
+  setApprovalAutoRun: (b: boolean) => void;
+  /** 이미 승인된 안건을 지금 실행 (자동 실행이 꺼져 있을 때 수동 착수) */
+  runApproval: (id: string) => void;
   /** 개발 착수 킷 — 유니티 문서·밸런스 CSV·에셋 매니페스트·스켈레톤·그레이박스를 체인으로 생성 */
   buildDevKit: () => Promise<void>;
   /** 밸런싱 수치 시트만 — 데이터 테이블(CSV)+근거 README를 생성해 데이터 탭에 저장 */
@@ -806,6 +811,24 @@ export const useVE = create<VEState>()((set, get) => {
   };
 
   /**
+   * 승인 안건 실행 — PM이 승인 내용을 지시로 삼아 담당 본부에 배정하는 포커스 회의를 착수한다.
+   * 이미 회의 중이면 예약해 두고 종료 후 이어서 실행. (자동 실행 on/off와 수동 "▶ 지금 실행"이 공유)
+   */
+  const launchApproval = (item: { title: string; detail?: string }) => {
+    const directive =
+      `오너가 승인한 안건을 즉시 실행하라: "${item.title}".` +
+      (item.detail ? ` (배경: ${item.detail})` : "") +
+      ` 관련 담당 본부가 이 결정을 GDD에 반영하고, 필요한 후속 작업(수치·시스템·콘텐츠·일정)을 구체화해 확정하라.`;
+    if (get().orchRunning) {
+      set((s) => ({ pendingApprovalRuns: [...s.pendingApprovalRuns, directive] }));
+      pushFeed({ from: "pm", kind: "status", text: `📌 승인 안건 실행을 현재 회의 종료 후로 예약했습니다: ${item.title.slice(0, 60)}` });
+    } else {
+      pushFeed({ from: "pm", kind: "instruction", text: `🔨 승인 안건 실행 착수 — 담당 본부에 배정합니다: ${item.title.slice(0, 80)}` });
+      void get().startOrch({ request: directive, poolIds: SPECIALISTS.map((a) => a.id), autoRoute: true });
+    }
+  };
+
+  /**
    * 게이트웨이 호출 + 오류 문구 응답(타임아웃 등)이면 5초 뒤 1회 자동 재시도.
    * 실측: idle timeout이 수정본·QA 채점에 오류 문자열로 들어와 검증이 뚫리는 사고 방지 (오너 요청).
    */
@@ -932,6 +955,13 @@ export const useVE = create<VEState>()((set, get) => {
     approvals: [],
     approvalsOpen: false,
     pendingApprovalRuns: [],
+    approvalAutoRun: ((): boolean => {
+      try {
+        return localStorage.getItem("ve-approval-autorun") !== "off";
+      } catch {
+        return true;
+      }
+    })(),
     kitFiles: [],
     devKitBusy: false,
     devKitPhase: "",
@@ -2994,6 +3024,20 @@ export const useVE = create<VEState>()((set, get) => {
 
     setApprovalsOpen: (b) => set({ approvalsOpen: b }),
 
+    setApprovalAutoRun: (b) => {
+      try {
+        localStorage.setItem("ve-approval-autorun", b ? "on" : "off");
+      } catch {
+        /* noop */
+      }
+      set({ approvalAutoRun: b });
+    },
+
+    runApproval: (id) => {
+      const item = get().approvals.find((a) => a.id === id);
+      if (item) launchApproval(item);
+    },
+
     addApproval: async (title, detail = "", source = "") => {
       const project = get().activeProject;
       if (!project || !title.trim()) return;
@@ -3024,19 +3068,16 @@ export const useVE = create<VEState>()((set, get) => {
           // 승인 = 결정 원장에 적립 → 이후 모든 회의가 자동 참조
           await appendDecisions(project, [`(오너 승인) ${item.title}`], "approval");
           await get().loadDecisions();
-          // 그리고 즉시 실행 — PM이 승인 안건을 지시로 삼아 담당 본부에 배정하는 포커스 회의를 착수한다.
-          // (원장 적립만 하고 끝나면 "다음 회의까지 아무 일도 안 일어나" 무용지물이었다.)
-          const directive =
-            `오너가 승인한 안건을 즉시 실행하라: "${item.title}".` +
-            (item.detail ? ` (배경: ${item.detail})` : "") +
-            ` 관련 담당 본부가 이 결정을 GDD에 반영하고, 필요한 후속 작업(수치·시스템·콘텐츠·일정)을 구체화해 확정하라.`;
-          if (get().orchRunning) {
-            // 이미 회의 중이면 끝난 뒤 실행하도록 예약 — 회의 종료 후 자동 착수
-            set((s) => ({ pendingApprovalRuns: [...s.pendingApprovalRuns, directive] }));
-            pushFeed({ from: "pm", kind: "status", text: `📌 승인 안건 실행을 현재 회의 종료 후로 예약했습니다: ${item.title.slice(0, 60)}` });
+          // 자동 실행이 켜져 있으면 PM이 곧바로 실행 회의를 착수한다.
+          // (원장 적립만 하고 끝나면 "다음 회의까지 아무 일도 안 일어나" 무용지물이었다 — 그래서 기본값 on)
+          if (get().approvalAutoRun) {
+            launchApproval(item);
           } else {
-            pushFeed({ from: "pm", kind: "instruction", text: `🔨 승인 안건 실행 착수 — 담당 본부에 배정합니다: ${item.title.slice(0, 80)}` });
-            void get().startOrch({ request: directive, poolIds: SPECIALISTS.map((a) => a.id), autoRoute: true });
+            pushFeed({
+              from: "pm",
+              kind: "status",
+              text: `📒 결정 원장에 적립했습니다 — 자동 실행이 꺼져 있어 지금 착수하지 않습니다. 🔔 결재함의 "▶ 지금 실행"으로 언제든 시작하거나, 다음 회의부터 자동 참조됩니다.`,
+            });
           }
         }
       } catch (e: any) {
