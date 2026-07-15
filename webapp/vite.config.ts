@@ -2983,10 +2983,17 @@ const MODEL_LABELS: Record<string, { label: string; note?: string }> = {
   // GitHub 설정에서 Models 유료 결제(또는 Copilot 유료 플랜)를 켜면 제한이 풀려 사용 가능.
   "github/openai/gpt-5-mini": { label: "GPT-5 mini · GitHub Models", note: "⚠️ GitHub 유료 결제 필요 (무료 티어는 4K 제한)" },
   "github/openai/gpt-5": { label: "GPT-5 · GitHub Models", note: "⚠️ GitHub 유료 결제 필요 (무료 티어는 4K 제한)" },
-  "nvidia/moonshotai/kimi-k2.6": { label: "Kimi K2.6 · NVIDIA", note: "헤드급 — PM 추천" },
-  "nvidia/qwen/qwen3-next-80b-a3b-instruct": { label: "Qwen3 Next 80B · NVIDIA", note: "빠름 — 팀원 추천" },
-  "nvidia/deepseek-ai/deepseek-v4-flash": { label: "DeepSeek V4 Flash · NVIDIA", note: "빠름" },
-  "nvidia/openai/gpt-oss-120b": { label: "GPT-OSS 120B · NVIDIA", note: "균형" },
+  // 한국어 누수 실측(2026-07-16, 모델당 4회 + 게이트웨이 경유 대조) 결과를 note에 반영한다.
+  // 오너 스튜디오는 한국어가 결과물이라 "한국어를 안 깨뜨리는가"가 모델 선택의 1순위다.
+  "nvidia/openai/gpt-oss-120b": { label: "GPT-OSS 120B · NVIDIA", note: "✅ 한국어 누수 0 · 최속(5s) — PM·팀원 추천" },
+  "nvidia/z-ai/glm-5.2": { label: "GLM 5.2 · NVIDIA", note: "✅ 한국어 누수 0 · 13s — 대안" },
+  "nvidia/qwen/qwen3-next-80b-a3b-instruct": { label: "Qwen3 Next 80B · NVIDIA", note: "팀원 기본 — 안정" },
+  "nvidia/minimaxai/minimax-m3": { label: "MiniMax M3 · NVIDIA", note: "신규 — 미검증" },
+  "nvidia/deepseek-ai/deepseek-v4-pro": { label: "DeepSeek V4 Pro · NVIDIA", note: "신규 — 미검증" },
+  "nvidia/meta/llama-4-maverick-17b-128e-instruct": { label: "Llama 4 Maverick · NVIDIA", note: "⚠️ 실측 시 180s 타임아웃" },
+  "nvidia/qwen/qwen3.5-122b-a10b": { label: "Qwen3.5 122B · NVIDIA", note: "⚠️ 게이트웨이 경유 시 한국어 깨짐(的冰·łoś) — 비권장" },
+  "nvidia/moonshotai/kimi-k2.6": { label: "Kimi K2.6 · NVIDIA", note: "⚠️ channels 오류 — 사용 불가" },
+  "nvidia/deepseek-ai/deepseek-v4-flash": { label: "DeepSeek V4 Flash · NVIDIA", note: "⚠️ channels 오류 — 사용 불가" },
 };
 
 function hasProviderKey(cfg: any, provider: string): boolean {

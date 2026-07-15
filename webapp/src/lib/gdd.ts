@@ -323,9 +323,16 @@ export function detectLangLeak(text: string): string {
   const cyr = text.match(/[Ѐ-ӿ]+/g);
   const kana = text.match(/[぀-ヿ]+/g);
   const han = text.match(/[一-鿿]+/g);
+  // 한글에 한자가 **바로 붙은** 토큰은 길이와 무관하게 누수다: "실装", "도点", "초반十章".
+  // 처음엔 "한자 2자 이상"만 봤는데, 1자짜리가 한글에 박힌 실제 누수를 놓쳤다(2026-07-16 실측).
+  const glued = text.match(/[가-힣][一-鿿]+|[一-鿿]+[가-힣]/g);
+  // 한글 바로 뒤 로마자 3자 이상 — "만dropping", "진URITY" 류 결합 쓰레기 (단, "HUD를" 같은 정상 조사는 걸리지 않는다)
+  const mixLatin = text.match(/[가-힣][A-Za-z]{3,}/g);
   if (cyr) hits.push(`러시아어 ${[...new Set(cyr)].slice(0, 3).join(",")}`);
   if (kana) hits.push(`일본어 ${[...new Set(kana)].slice(0, 3).join(",")}`);
-  if (han && han.join("").length >= 2) hits.push(`한자 ${[...new Set(han)].slice(0, 3).join(",")}`);
+  if (glued) hits.push(`한글+한자 ${[...new Set(glued)].slice(0, 3).join(",")}`);
+  else if (han && han.join("").length >= 2) hits.push(`한자 ${[...new Set(han)].slice(0, 3).join(",")}`);
+  if (mixLatin) hits.push(`한글+로마자 ${[...new Set(mixLatin)].slice(0, 3).join(",")}`);
   return hits.join(" · ");
 }
 
