@@ -69,6 +69,10 @@ export interface ApprovalItem {
   status: "pending" | "approved" | "rejected";
   decidedTs?: number;
   note?: string;
+  /** 이 안건으로 실행 회의를 착수한 시각 — 중복 실행 방지의 근거 (자동 실행·수동 실행 공통) */
+  ranTs?: number;
+  /** 실행 횟수 — 오너가 의도적으로 재실행한 경우 누적 */
+  ranCount?: number;
 }
 
 export async function listApprovals(project: string): Promise<ApprovalItem[]> {
@@ -101,6 +105,26 @@ export async function decideApprovalApi(project: string, id: string, status: "ap
   const j = await r.json();
   if (!r.ok || !j.ok) throw new Error(j.error || "결재 실패");
   return j.item as ApprovalItem;
+}
+
+/**
+ * 실행권 선점(claim) — 서버가 ranTs를 원자적으로 찍어 중복 실행을 막는다.
+ * 이미 실행된 안건이면 `already: true`를 돌려주고 ranTs는 그대로 둔다(force일 때만 재실행 허용).
+ * 클라 상태만으로 막으면 더블클릭·창 2개에서 같은 지시가 두 번 나간다 — 판정은 반드시 서버에서.
+ */
+export async function claimApprovalRunApi(
+  project: string,
+  id: string,
+  force = false
+): Promise<{ already: boolean; item: ApprovalItem }> {
+  const r = await fetch(`/api/approvals?project=${encodeURIComponent(project)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ claimRun: { id, force } }),
+  });
+  const j = await r.json();
+  if (!r.ok || !j.ok) throw new Error(j.error || "실행 기록 실패");
+  return { already: !!j.already, item: j.item as ApprovalItem };
 }
 
 /** 최근 결정사항을 프롬프트 주입용 불릿 텍스트로 (최신 우선 최대 n개) */

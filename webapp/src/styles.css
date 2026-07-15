@@ -486,7 +486,9 @@ button { font-family: inherit; }
 .approval-history summary { cursor: pointer; }
 /* 코멘트가 붙으면 줄바꿈되어야 하므로 wrap — 안 그러면 한 줄에 눌려 잘린다 */
 .approval-hist-item { padding: 4px 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.approval-hist-item .approval-run { margin-left: auto; flex: none; }
+.approval-hist-item .approval-hist-run { margin-left: auto; flex: none; display: flex; align-items: center; gap: 7px; }
+/* 이미 실행된 안건 — 실행 시각을 눈에 띄게 남겨 중복 클릭을 막는다 */
+.approval-ran { font-size: 11px; color: #34d399; white-space: nowrap; }
 .approval-hist-note {
   flex-basis: 100%; margin: 2px 0 4px 18px; padding: 4px 8px;
   background: var(--panel-2); border-left: 2px solid rgba(139, 124, 246, 0.5);

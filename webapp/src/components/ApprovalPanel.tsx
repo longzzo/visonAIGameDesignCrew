@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useVE } from "../store";
 import { AGENT_MAP } from "../lib/agents";
+import { uiConfirm } from "../lib/dialog";
+import type { ApprovalItem } from "../lib/kit";
 
 function fmtTs(ts: number): string {
   return new Date(ts).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
@@ -26,6 +28,33 @@ export function ApprovalPanel() {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const pending = approvals.filter((a) => a.status === "pending").sort((a, b) => b.ts - a.ts);
   const decided = approvals.filter((a) => a.status !== "pending").sort((a, b) => (b.decidedTs ?? b.ts) - (a.decidedTs ?? a.ts)).slice(0, 10);
+
+  /**
+   * 수동 실행 — 회의를 실제로 띄우는 무거운 동작이라 **항상 확인을 거친다.**
+   * 이미 실행된 안건이면 중복이라는 사실을 명시하고 force로만 재실행한다.
+   */
+  const run = async (a: ApprovalItem) => {
+    const already = !!a.ranTs;
+    const ok = await uiConfirm(already ? "이미 실행된 안건을 다시 실행할까요?" : "이 안건을 지금 실행할까요?", {
+      message:
+        `"${a.title}"\n\n` +
+        (already
+          ? `⚠️ 이 안건은 ${fmtTs(a.ranTs!)}에 이미 실행됐습니다${(a.ranCount ?? 1) > 1 ? ` (${a.ranCount}회)` : ""}.\n다시 실행하면 담당 본부에 같은 지시가 중복으로 나갑니다.\n\n`
+          : "") +
+        (orchRunning
+          ? "지금 회의가 진행 중이라, 현재 회의가 끝난 뒤 이어서 착수합니다."
+          : "PM이 담당 본부에 배정해 곧바로 회의를 착수합니다."),
+      confirmLabel: already ? "↻ 중복 실행" : "▶ 실행",
+      cancelLabel: "취소",
+    });
+    if (!ok) return;
+    setBusy(a.id);
+    try {
+      await runApproval(a.id, already);
+    } finally {
+      setBusy("");
+    }
+  };
 
   const decide = async (id: string, status: "approved" | "rejected") => {
     setBusy(id);
@@ -153,18 +182,32 @@ export function ApprovalPanel() {
                 {/* 오너 코멘트가 있으면 반드시 보여준다 — 조건부 승인이었는지 나중에 확인할 수 없으면
                     "원안 승인"으로 오해되어 수정 조건이 사라진다 */}
                 {a.note && <div className="approval-hist-note">⚠️ 오너 지시: {a.note}</div>}
+                {/* 이미 실행된 안건은 실행 시각을 보여주고, 재실행은 확인을 거친다.
+                    조건 없이 "지금 실행"을 노출했다가 오너가 자동 실행된 건을 다시 눌러
+                    중복 지시가 나간 실사고가 있었다 (2026-07-15). */}
                 {a.status === "approved" && (
-                  <button
-                    className="btn tiny approval-run"
-                    onClick={() => runApproval(a.id)}
-                    title={
-                      orchRunning
-                        ? "회의 중입니다 — 현재 회의가 끝나면 이어서 실행하도록 예약됩니다"
-                        : "PM이 이 승인 안건을 지시로 담당 본부에 배정해 지금 착수합니다"
-                    }
-                  >
-                    ▶ 지금 실행
-                  </button>
+                  <span className="approval-hist-run">
+                    {a.ranTs && (
+                      <span className="approval-ran" title={`${a.ranCount ?? 1}회 실행됨`}>
+                        ▶ 실행됨 {fmtTs(a.ranTs)}
+                        {(a.ranCount ?? 1) > 1 ? ` ·${a.ranCount}회` : ""}
+                      </span>
+                    )}
+                    <button
+                      className="btn tiny approval-run"
+                      disabled={busy === a.id}
+                      onClick={() => void run(a)}
+                      title={
+                        a.ranTs
+                          ? "이미 실행된 안건입니다 — 다시 실행하면 같은 지시가 중복으로 나갑니다 (확인을 거칩니다)"
+                          : orchRunning
+                            ? "회의 중입니다 — 현재 회의가 끝나면 이어서 실행하도록 예약됩니다 (확인을 거칩니다)"
+                            : "PM이 이 승인 안건을 지시로 담당 본부에 배정해 착수합니다 (확인을 거칩니다)"
+                      }
+                    >
+                      {a.ranTs ? "↻ 다시 실행" : "▶ 지금 실행"}
+                    </button>
+                  </span>
                 )}
               </div>
             ))}

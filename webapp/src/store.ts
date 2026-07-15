@@ -120,6 +120,7 @@ import {
   listApprovals,
   addApprovalApi,
   decideApprovalApi,
+  claimApprovalRunApi,
   type ApprovalItem,
   type KitFile,
   type DecisionItem,
@@ -531,7 +532,8 @@ interface VEState {
   decideApproval: (id: string, status: "approved" | "rejected", note?: string) => Promise<void>;
   setApprovalAutoRun: (b: boolean) => void;
   /** 이미 승인된 안건을 지금 실행 (자동 실행이 꺼져 있을 때 수동 착수) */
-  runApproval: (id: string) => void;
+  /** 이미 승인된 안건을 지금 실행 (force=true는 오너가 중복 실행을 확인한 재실행) */
+  runApproval: (id: string, force?: boolean) => Promise<void>;
   /** 개발 착수 킷 — 유니티 문서·밸런스 CSV·에셋 매니페스트·스켈레톤·그레이박스를 체인으로 생성 */
   buildDevKit: () => Promise<void>;
   /** 밸런싱 수치 시트만 — 데이터 테이블(CSV)+근거 README를 생성해 데이터 탭에 저장 */
@@ -873,7 +875,31 @@ export const useVE = create<VEState>()((set, get) => {
    * 승인 안건 실행 — PM이 승인 내용을 지시로 삼아 담당 본부에 배정하는 포커스 회의를 착수한다.
    * 이미 회의 중이면 예약해 두고 종료 후 이어서 실행. (자동 실행 on/off와 수동 "▶ 지금 실행"이 공유)
    */
-  const launchApproval = (item: { title: string; detail?: string; note?: string }) => {
+  /**
+   * 승인 안건 실행. **반드시 서버에서 실행권(ranTs)을 선점한 뒤** 착수한다 —
+   * 이미 실행된 안건이면 여기서 끊긴다. 클라 상태로만 막으면 더블클릭·창 2개에서
+   * 같은 지시가 두 번 나간다(오너 실사고 2026-07-15: 자동 실행된 안건의 "지금 실행"을
+   * 다시 눌러 중복 명령이 나갔다). force=true는 오너가 확인 후 의도적으로 재실행할 때만.
+   */
+  const launchApproval = async (item: ApprovalItem, force = false): Promise<"launched" | "queued" | "already"> => {
+    const project = get().activeProject;
+    if (!project) return "already";
+    try {
+      const { already } = await claimApprovalRunApi(project, item.id, force);
+      if (already) {
+        pushFeed({
+          from: "system",
+          kind: "status",
+          text: `🛡️ "${item.title.slice(0, 50)}"는 이미 실행된 안건입니다 — 중복 지시를 막았습니다. 정말 다시 돌리려면 결재함의 "↻ 다시 실행"을 쓰세요.`,
+        });
+        return "already";
+      }
+    } catch (e: any) {
+      pushFeed({ from: "system", kind: "error", text: `⚠️ 실행 기록에 실패해 착수를 중단했습니다(중복 방지): ${String(e?.message ?? e).slice(0, 80)}` });
+      return "already";
+    }
+    void get().loadApprovals();
+
     // 오너 코멘트("이것만 이렇게 고쳐서 승인")는 안건 제목보다 우선하는 지시다 — 맨 앞에 둔다.
     // 안 그러면 담당이 원안대로 실행해 수정 조건이 조용히 사라진다(오너 요청 2026-07-15).
     const directive =
@@ -884,10 +910,11 @@ export const useVE = create<VEState>()((set, get) => {
     if (get().orchRunning) {
       set((s) => ({ pendingApprovalRuns: [...s.pendingApprovalRuns, directive] }));
       pushFeed({ from: "pm", kind: "status", text: `📌 승인 안건 실행을 현재 회의 종료 후로 예약했습니다: ${item.title.slice(0, 60)}` });
-    } else {
-      pushFeed({ from: "pm", kind: "instruction", text: `🔨 승인 안건 실행 착수 — 담당 본부에 배정합니다: ${item.title.slice(0, 80)}` });
-      void get().startOrch({ request: directive, poolIds: SPECIALISTS.map((a) => a.id), autoRoute: true });
+      return "queued";
     }
+    pushFeed({ from: "pm", kind: "instruction", text: `🔨 승인 안건 실행 착수 — 담당 본부에 배정합니다: ${item.title.slice(0, 80)}` });
+    void get().startOrch({ request: directive, poolIds: SPECIALISTS.map((a) => a.id), autoRoute: true });
+    return "launched";
   };
 
   /**
@@ -3132,9 +3159,9 @@ export const useVE = create<VEState>()((set, get) => {
     // 세션 한정 — 저장하지 않는다 (새로고침하면 다시 꺼짐)
     setApprovalAutoRun: (b) => set({ approvalAutoRun: b }),
 
-    runApproval: (id) => {
+    runApproval: async (id, force = false) => {
       const item = get().approvals.find((a) => a.id === id);
-      if (item) launchApproval(item);
+      if (item) await launchApproval(item, force);
     },
 
     addApproval: async (title, detail = "", source = "") => {
@@ -3171,7 +3198,7 @@ export const useVE = create<VEState>()((set, get) => {
           await get().loadDecisions();
           // 자동 실행이 켜져 있으면 PM이 곧바로 실행 회의를 착수한다 (세션 한정 옵트인 — 기본 꺼짐).
           if (get().approvalAutoRun) {
-            launchApproval({ ...item, note });
+            await launchApproval({ ...item, note });
           } else {
             pushFeed({
               from: "pm",

@@ -2401,6 +2401,27 @@ function approvalsApiPlugin(): Plugin {
                 res.end(JSON.stringify({ ok: true, item: it }));
                 return;
               }
+              // 실행권 선점 — ranTs를 원자적으로 찍어 같은 안건이 두 번 실행되는 걸 막는다.
+              // 이미 찍혀 있으면 already=true만 돌려주고 아무것도 바꾸지 않는다 (force면 재실행 허용).
+              if (j.claimRun) {
+                const id = String(j.claimRun.id ?? "");
+                const force = j.claimRun.force === true;
+                const it = items.find((x) => x.id === id);
+                if (!it) {
+                  res.statusCode = 400;
+                  res.end(JSON.stringify({ ok: false, error: "안건을 찾지 못했습니다" }));
+                  return;
+                }
+                if (it.ranTs && !force) {
+                  res.end(JSON.stringify({ ok: true, already: true, item: it }));
+                  return;
+                }
+                it.ranTs = Date.now();
+                it.ranCount = (Number(it.ranCount) || 0) + 1;
+                save(items);
+                res.end(JSON.stringify({ ok: true, already: false, item: it }));
+                return;
+              }
               res.statusCode = 400;
               res.end(JSON.stringify({ ok: false, error: "add 또는 decide가 필요합니다" }));
               return;
