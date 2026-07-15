@@ -1320,6 +1320,30 @@ export function revisePrompt(author: AgentDef, reviewer: AgentDef, review: strin
  * 🎖️ 상사 평가 — 섹션 확정 직전, 팀장(또는 PM)이 부하 산출물을 평가한다.
  * 미달이면 "[재지시] …" 마커로 1회 재작성을 지시 — 오너 요청(유기적 소통·검증).
  */
+/**
+ * 오너와의 1:1 대화 — 스튜디오 현재 상황을 붙여 보낸다.
+ *
+ * 왜: 맨 질문만 보내면 "지금 뭐 작업 중이야?" 같은 상태 질문에 답할 근거가 없어, 모델이
+ * 세션·상태 조회 도구를 뒤지다 최종 답변을 못 쓰고 턴을 끝낸다. 그러면 게이트웨이가
+ * "Agent couldn't generate a response"(incomplete_turn)를 돌려줘 오너에겐 그냥 오류로 보인다.
+ * (같은 함정 때문에 healthCheck도 "상태 점검" 표현을 피해 에코 요청을 쓴다.)
+ */
+export function chatPrompt(agent: AgentDef, context: string, question: string): string {
+  return [
+    `너는 ${agent.name}(${agent.role})다. 지금 오너와 1:1로 대화 중이다.`,
+    ``,
+    context,
+    ``,
+    `[오너 질문]`,
+    question,
+    ``,
+    `[답변 규칙]`,
+    `- 위 [현재 스튜디오 상황]으로 답할 수 있으면 **도구를 호출하지 마라.** 세션·메모리·상태 조회 도구를 뒤지지 말고 곧바로 문장으로 답해라 — 도구만 부르다 답을 못 쓰면 오너 화면엔 오류로 뜬다.`,
+    `- 반드시 한국어로, 3~8줄로 간결하게. 이모지·특수기호는 최소로.`,
+    `- 위 정보에 없는 것은 지어내지 말고 "그건 지금 화면에 없다"고 말한 뒤, 알려면 무엇이 필요한지 짚어라.`,
+  ].join("\n");
+}
+
 export function bossReviewPrompt(boss: AgentDef, worker: AgentDef, request: string, final: string): string {
   return [
     `너는 ${boss.name}, ${worker.name}의 상사다. 부하가 확정 직전까지 다듬은 "${worker.sectionTitle}" 산출물을 상사로서 평가해라.`,

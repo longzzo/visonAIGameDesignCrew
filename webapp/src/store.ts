@@ -48,6 +48,7 @@ import {
   balanceDataPrompt,
   balanceSheetPrompt,
   bossReviewPrompt,
+  chatPrompt,
   redoPrompt,
   uiMockupPrompt,
   staticUiMockup,
@@ -811,6 +812,64 @@ export const useVE = create<VEState>()((set, get) => {
   };
 
   /**
+   * 1:1 대화에 붙일 "현재 스튜디오 상황" — 회의/담당자/승인/피드/GDD/보고서를 압축한 스냅샷.
+   * LLM 호출 0회(전부 로컬 상태). 이게 없으면 상태 질문에 답할 근거가 없어 에이전트가
+   * 도구를 뒤지다 턴을 태우고 "Agent couldn't generate a response"로 끝난다.
+   */
+  const buildStudioContext = (): string => {
+    const s = get();
+    const nameOf = (id: string) => (id === "pm" ? "PM" : AGENT_MAP[id]?.name ?? id);
+    const hhmm = (ts: number) => new Date(ts).toLocaleTimeString("ko-KR", { hour12: false, hour: "2-digit", minute: "2-digit" });
+    const L: string[] = ["[현재 스튜디오 상황 — 오너 화면에서 자동 첨부됨. 이 정보로 답해라]"];
+
+    L.push(`· 프로젝트: ${s.projects.find((p) => p.id === s.activeProject)?.name ?? (s.activeProject || "없음")}`);
+
+    // 회의 — 지금 누가 무엇을 하는 중인지
+    if (s.orchRunning) {
+      const working = Object.values(s.cards)
+        .filter((c) => c.state === "running")
+        .map((c) => `${nameOf(c.agentId)}(${c.phase ?? "작업 중"})`);
+      const done = Object.values(s.cards).filter((c) => c.state === "done").length;
+      const total = Object.values(s.cards).length;
+      L.push(`· 회의: 진행 중 — 참석 ${s.meetingMembers.length}명, ${done}/${total} 완료`);
+      L.push(`  현재 작업 중: ${working.length ? working.join(", ") : "(단계 전환 중)"}`);
+    } else {
+      L.push(`· 회의: 진행 중인 회의 없음 (대기)`);
+    }
+
+    // 오너 결재 대기
+    const pend = s.approvals.filter((a) => a.status === "pending");
+    L.push(
+      pend.length
+        ? `· 오너 승인 대기 ${pend.length}건: ${pend.slice(0, 3).map((a) => `"${a.title.slice(0, 40)}"`).join(", ")}`
+        : `· 오너 승인 대기: 없음`
+    );
+
+    // 최근 활동
+    const recent = s.feed.filter((m) => m.kind !== "status").slice(-5);
+    if (recent.length) {
+      L.push(`· 최근 활동:`);
+      for (const m of recent) {
+        const who = m.from === "user" ? "오너" : nameOf(m.from);
+        L.push(`  ${hhmm(m.ts)} ${who}${m.to ? `→${nameOf(m.to)}` : ""} [${m.kind}] ${m.text.replace(/\s+/g, " ").slice(0, 70)}`);
+      }
+    } else {
+      L.push(`· 최근 활동: 기록 없음`);
+    }
+
+    // 기획 진행도
+    const empty = (s.gdd.match(/아직 작성되지 않음/g) ?? []).length;
+    const sections = (s.gdd.match(/^## /gm) ?? []).length;
+    if (sections) L.push(`· GDD: 섹션 ${sections}개 중 ${sections - empty}개 작성됨${s.gddMtime ? ` (갱신 ${hhmm(s.gddMtime)})` : ""}`);
+    if (s.reports.length) {
+      const latest = s.reports.reduce((a, b) => (a.ts > b.ts ? a : b));
+      L.push(`· 보고서함: ${s.reports.length}건 (최근: ${latest.title.slice(0, 40)})`);
+    }
+    if (s.decisions.length) L.push(`· 결정 원장: ${s.decisions.length}건 적립됨`);
+    return L.join("\n");
+  };
+
+  /**
    * 승인 안건 실행 — PM이 승인 내용을 지시로 삼아 담당 본부에 배정하는 포커스 회의를 착수한다.
    * 이미 회의 중이면 예약해 두고 종료 후 이어서 실행. (자동 실행 on/off와 수동 "▶ 지금 실행"이 공유)
    */
@@ -1220,7 +1279,11 @@ export const useVE = create<VEState>()((set, get) => {
       }));
       setAgentStatus(id, "running");
       try {
-        const { result } = await gateway.sendChat(id, text, `web-${project}-${epoch}`);
+        // 화면엔 오너가 친 원문(userMsg)이 그대로 남고, 게이트웨이에는 현재 상황 + 답변 규칙을 붙여 보낸다.
+        // 맨 질문만 보내면 상태 질문에서 에이전트가 도구를 뒤지다 답을 못 쓰고 incomplete_turn으로 끝난다.
+        const agent = AGENT_MAP[id];
+        const prompt = agent ? chatPrompt(agent, buildStudioContext(), text) : text;
+        const { result } = await gateway.sendChat(id, prompt, `web-${project}-${epoch}`);
         set((s) => {
           const msgs = [...(s.chats[id] ?? [])];
           let last = msgs[msgs.length - 1];
