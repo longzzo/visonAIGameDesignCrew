@@ -132,6 +132,8 @@ export function TopBar() {
     restartGatewayAction,
     approvals,
     setApprovalsOpen,
+    failures,
+    setFailuresOpen,
   } = useVE();
   const pendingApprovals = approvals.filter((a) => a.status === "pending").length;
   const price = priceFor(modelName);
@@ -257,6 +259,16 @@ export function TopBar() {
         >
           🔔{pendingApprovals > 0 ? ` ${pendingApprovals}` : ""}
         </button>
+        {/* 🗂️ 오류함 — 재시도(5초→2분)까지 실패한 호출이 있을 때만 보인다 */}
+        {failures.length > 0 && (
+          <button
+            className="badge failure-badge"
+            onClick={() => setFailuresOpen(true)}
+            title="오류함 — 재시도 후에도 실패한 게이트웨이 호출 (원인 분석용으로 보관됩니다)"
+          >
+            🗂️ {failures.length}
+          </button>
+        )}
         <span className="badge model-badge" title="현재 모델">
           🧠 {modelName}
         </span>

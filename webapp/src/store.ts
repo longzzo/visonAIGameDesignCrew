@@ -121,6 +121,10 @@ import {
   addApprovalApi,
   decideApprovalApi,
   claimApprovalRunApi,
+  listFailures,
+  addFailureApi,
+  clearFailuresApi,
+  type FailureItem,
   type ApprovalItem,
   type KitFile,
   type DecisionItem,
@@ -382,6 +386,9 @@ interface VEState {
   pendingApprovalRuns: string[];
   /** 승인 시 PM이 곧바로 실행 회의를 착수할지 (끄면 결정 원장 적립만 — 나중에 ▶ 지금 실행) */
   approvalAutoRun: boolean;
+  /** 🗂️ 오류함 — 재시도까지 실패한 게이트웨이 호출 (오너가 나중에 물어볼 수 있게 디스크 보관) */
+  failures: FailureItem[];
+  failuresOpen: boolean;
   /** 개발 착수 킷 */
   kitFiles: KitFile[];
   devKitBusy: boolean;
@@ -531,6 +538,9 @@ interface VEState {
   addApproval: (title: string, detail?: string, source?: string) => Promise<void>;
   decideApproval: (id: string, status: "approved" | "rejected", note?: string) => Promise<void>;
   setApprovalAutoRun: (b: boolean) => void;
+  loadFailures: () => Promise<void>;
+  setFailuresOpen: (b: boolean) => void;
+  clearFailures: () => Promise<void>;
   /** 이미 승인된 안건을 지금 실행 (자동 실행이 꺼져 있을 때 수동 착수) */
   /** 이미 승인된 안건을 지금 실행 (force=true는 오너가 중복 실행을 확인한 재실행) */
   runApproval: (id: string, force?: boolean) => Promise<void>;
@@ -921,18 +931,64 @@ export const useVE = create<VEState>()((set, get) => {
    * 게이트웨이 호출 + 오류 문구 응답(타임아웃 등)이면 5초 뒤 1회 자동 재시도.
    * 실측: idle timeout이 수정본·QA 채점에 오류 문자열로 들어와 검증이 뚫리는 사고 방지 (오너 요청).
    */
+  /** 중단(⏹) 버튼을 누르면 긴 대기도 즉시 깨지는 sleep */
+  const abortableSleep = (ms: number, signal?: AbortSignal) =>
+    new Promise<void>((res) => {
+      if (signal?.aborted) return res();
+      const t = setTimeout(done, ms);
+      function done() {
+        clearTimeout(t);
+        signal?.removeEventListener("abort", done);
+        res();
+      }
+      signal?.addEventListener("abort", done, { once: true });
+    });
+
   const runAgentSafe = async (agentId: string, prompt: string, tag: string, signal?: AbortSignal) => {
+    // 5초 = 일시적 오류 흡수, 2분 = 오너 요청("게이트웨이 오류는 2분 간격으로 재시도").
+    // 5초를 먼저 두는 이유: 대부분의 오류는 즉시 풀려서, 처음부터 2분을 기다리면 회의가 헛돈다.
+    const waits = [5_000, 120_000];
+    const name = AGENT_MAP[agentId]?.name ?? agentId;
     let r = await gateway.runAgent(agentId, prompt, tag, signal);
-    if (isGatewayErrorText(sanitizeAgentOutput(r.text)) && !signal?.aborted) {
+    for (let i = 0; i < waits.length; i++) {
+      if (!isGatewayErrorText(sanitizeAgentOutput(r.text)) || signal?.aborted) return r;
+      const label = waits[i] >= 60_000 ? `${waits[i] / 60_000}분` : `${waits[i] / 1000}초`;
       pushFeed({
         from: "system",
         kind: "status",
-        text: `⏳ ${AGENT_MAP[agentId]?.name ?? agentId}의 응답이 게이트웨이 오류(타임아웃 등)로 왔습니다 — 5초 후 1회 재시도합니다.`,
+        text: `⏳ ${name}의 응답이 게이트웨이 오류(타임아웃 등)로 왔습니다 — ${label} 후 재시도합니다 (${i + 1}/${waits.length}).`,
       });
-      await new Promise((res) => setTimeout(res, 5000));
-      r = await gateway.runAgent(agentId, prompt, `${tag}-retry`, signal);
+      await abortableSleep(waits[i], signal);
+      if (signal?.aborted) return r;
+      r = await gateway.runAgent(agentId, prompt, `${tag}-retry${i + 1}`, signal);
+    }
+    // 여기까지 왔으면 재시도를 다 쓰고도 실패 — 오류함에 보관해 오너가 나중에 물어볼 수 있게 한다.
+    const finalText = sanitizeAgentOutput(r.text);
+    if (isGatewayErrorText(finalText) && !signal?.aborted) {
+      void recordFailure({
+        agentId,
+        agentName: name,
+        tag,
+        phase: get().cards[agentId]?.phase ?? "",
+        attempts: waits.length + 1,
+        error: finalText.slice(0, 600),
+        prompt: prompt.slice(0, 800),
+      });
+      pushFeed({
+        from: "system",
+        kind: "error",
+        text: `🗂️ ${name} 호출이 ${waits.length + 1}회 시도 후에도 실패해 오류함에 보관했습니다 — 상단 🗂️ 에서 확인하세요.`,
+      });
     }
     return r;
+  };
+
+  /** 오류함 적립 — 실패해도 회의를 막지 않는다 */
+  const recordFailure = async (item: Omit<FailureItem, "id" | "ts">) => {
+    const project = get().activeProject;
+    if (!project) return;
+    await addFailureApi(project, item);
+    void get().loadFailures();
   };
 
   return {
@@ -1048,6 +1104,8 @@ export const useVE = create<VEState>()((set, get) => {
     approvals: [],
     approvalsOpen: false,
     pendingApprovalRuns: [],
+    failures: [],
+    failuresOpen: false,
     // 자동 실행은 세션 한정 — 항상 꺼진 상태로 시작한다. 켜둔 채 일괄 결재하면 승인 수만큼
     // 회의가 연쇄 착수되는 사고(2026-07-15 실사고: 11건 연쇄)가 나므로 켜는 행위는 그때그때 명시적으로.
     approvalAutoRun: false,
@@ -1105,6 +1163,7 @@ export const useVE = create<VEState>()((set, get) => {
         void get().loadProto();
         void get().loadDecisions();
         void get().loadApprovals();
+        void get().loadFailures();
         void get().loadKit();
       }
       void get().checkArtStatus();
@@ -1256,6 +1315,7 @@ export const useVE = create<VEState>()((set, get) => {
         decisions: [],
         approvals: [],
         pendingApprovalRuns: [],
+        failures: [],
         kitFiles: [],
         devKitLog: [],
       });
@@ -1268,6 +1328,7 @@ export const useVE = create<VEState>()((set, get) => {
       void get().loadProto();
       void get().loadDecisions();
       void get().loadApprovals();
+      void get().loadFailures();
       void get().loadKit();
     },
 
@@ -3158,6 +3219,22 @@ export const useVE = create<VEState>()((set, get) => {
 
     // 세션 한정 — 저장하지 않는다 (새로고침하면 다시 꺼짐)
     setApprovalAutoRun: (b) => set({ approvalAutoRun: b }),
+
+    loadFailures: async () => {
+      const project = get().activeProject;
+      if (!project) return;
+      const failures = await listFailures(project);
+      if (get().activeProject === project) set({ failures });
+    },
+
+    setFailuresOpen: (b) => set({ failuresOpen: b }),
+
+    clearFailures: async () => {
+      const project = get().activeProject;
+      if (!project) return;
+      await clearFailuresApi(project);
+      await get().loadFailures();
+    },
 
     runApproval: async (id, force = false) => {
       const item = get().approvals.find((a) => a.id === id);

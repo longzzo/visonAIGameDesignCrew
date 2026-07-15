@@ -1922,3 +1922,18 @@ button { font-family: inherit; }
 .decision-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .decision-auto { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-size: 12px; color: var(--text); }
 .decision-auto input { accent-color: var(--accent); }
+
+/* 🗂️ 오류함 배지 — 실패가 있을 때만 나타난다 */
+.failure-badge { border-color: rgba(244, 63, 94, 0.45); color: #fda4af; cursor: pointer; }
+.failure-badge:hover { border-color: #f43f5e; color: #fff; }
+.fail-err {
+  font-size: 12px; color: #fda4af; background: rgba(244, 63, 94, 0.08);
+  border: 1px solid rgba(244, 63, 94, 0.25); border-radius: 7px;
+  padding: 6px 8px; margin-top: 6px; word-break: break-word; white-space: pre-wrap;
+}
+.fail-prompt { margin-top: 6px; font-size: 11.5px; }
+.fail-prompt summary { cursor: pointer; }
+.fail-prompt pre {
+  white-space: pre-wrap; word-break: break-word; font-size: 11px; color: var(--text-dim);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 7px; margin: 5px 0 0; max-height: 180px; overflow: auto;
+}

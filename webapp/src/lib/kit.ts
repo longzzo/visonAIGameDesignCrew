@@ -75,6 +75,49 @@ export interface ApprovalItem {
   ranCount?: number;
 }
 
+/** 🗂️ 오류함 — 재시도까지 실패한 게이트웨이 호출 (오너가 나중에 물어볼 수 있게 디스크에 보관) */
+export interface FailureItem {
+  id: string;
+  ts: number;
+  agentId: string;
+  agentName: string;
+  tag: string;
+  phase?: string;
+  attempts: number;
+  error: string;
+  prompt: string;
+}
+
+export async function listFailures(project: string): Promise<FailureItem[]> {
+  try {
+    const r = await fetch(`/api/failures?project=${encodeURIComponent(project)}`);
+    if (!r.ok) return [];
+    return (await r.json()).items ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function addFailureApi(project: string, item: Omit<FailureItem, "id" | "ts">): Promise<void> {
+  try {
+    await fetch(`/api/failures?project=${encodeURIComponent(project)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ add: item }),
+    });
+  } catch {
+    /* 오류 기록 실패가 회의를 막으면 안 된다 */
+  }
+}
+
+export async function clearFailuresApi(project: string): Promise<void> {
+  await fetch(`/api/failures?project=${encodeURIComponent(project)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ clear: true }),
+  });
+}
+
 export async function listApprovals(project: string): Promise<ApprovalItem[]> {
   try {
     const r = await fetch(`/api/approvals?project=${encodeURIComponent(project)}`);

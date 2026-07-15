@@ -2331,6 +2331,78 @@ function decisionsApiPlugin(): Plugin {
  * 회의 산출물의 "[오너 승인 필요] …" 마커가 자동 수집되고, 오너가 승인하면 결정 원장에 적립된다.
  * 저장: projects/<id>/approvals.json
  */
+/**
+ * 🗂️ 오류함 — 재시도까지 실패한 게이트웨이 호출을 프로젝트별로 보관한다.
+ * 오너 요청(2026-07-15): "실패한 거 따로 모아두면 내가 물어볼 수 있게".
+ * 앱이 꺼져도 남아야 하므로 디스크(failures.json)에 둔다 — 메인 헤드가 읽고 진단할 수 있다.
+ */
+function failuresApiPlugin(): Plugin {
+  const file = (id: string) => path.join(projectDir(id), "failures.json");
+  return {
+    name: "vision-engine-failures-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/failures", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            const url = new URL(req.url ?? "/", "http://local");
+            const project = url.searchParams.get("project") ?? "";
+            if (!isSafeId(project) || !fs.existsSync(projectDir(project))) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: "project 확인 필요" }));
+              return;
+            }
+            const f = file(project);
+            const load = (): any[] => {
+              try {
+                return JSON.parse(fs.readFileSync(f, "utf-8"));
+              } catch {
+                return [];
+              }
+            };
+            if (req.method === "GET") {
+              res.end(JSON.stringify({ ok: true, items: load() }));
+              return;
+            }
+            if (req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
+              const j = JSON.parse((await readBody(req)) || "{}");
+              if (j.clear) {
+                fs.writeFileSync(f, "[]", "utf-8");
+                res.end(JSON.stringify({ ok: true, cleared: true }));
+                return;
+              }
+              const a = j.add ?? {};
+              const item = {
+                id: `err-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+                ts: Date.now(),
+                agentId: String(a.agentId ?? "").slice(0, 40),
+                agentName: String(a.agentName ?? "").slice(0, 60),
+                tag: String(a.tag ?? "").slice(0, 80),
+                phase: String(a.phase ?? "").slice(0, 80),
+                attempts: Number(a.attempts) || 0,
+                error: String(a.error ?? "").slice(0, 600),
+                prompt: String(a.prompt ?? "").slice(0, 800),
+              };
+              const items = load();
+              items.push(item);
+              // 최근 80건만 — 오류함이 무한히 커지지 않게
+              fs.writeFileSync(f, JSON.stringify(items.slice(-80), null, 1), "utf-8");
+              res.end(JSON.stringify({ ok: true, item }));
+              return;
+            }
+            res.statusCode = 405;
+            res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 300) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
 function approvalsApiPlugin(): Plugin {
   const file = (id: string) => path.join(projectDir(id), "approvals.json");
   return {
@@ -3360,6 +3432,7 @@ export default defineConfig({
     protoApiPlugin(),
     decisionsApiPlugin(),
     approvalsApiPlugin(),
+    failuresApiPlugin(),
     liveApiPlugin(),
     kitApiPlugin(),
     officeBgPlugin(),

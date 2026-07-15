@@ -14,6 +14,7 @@ import { DiffViewer } from "./components/DiffViewer";
 import { DocViewer } from "./components/DocViewer";
 import { ArtStudio } from "./components/ArtStudio";
 import { ApprovalPanel } from "./components/ApprovalPanel";
+import { FailurePanel } from "./components/FailurePanel";
 
 export default function App() {
   const {
@@ -33,6 +34,7 @@ export default function App() {
     artStudioOpen,
     setArtStudioOpen,
     approvalsOpen,
+    failuresOpen,
   } = useVE();
 
   const [onboard, setOnboard] = useState(false);
@@ -92,6 +94,7 @@ export default function App() {
       {docViewer && <DocViewer />}
       {artStudioOpen && <ArtStudio onClose={() => setArtStudioOpen(false)} />}
       {approvalsOpen && <ApprovalPanel />}
+      {failuresOpen && <FailurePanel />}
       <DialogHost />
       {/* 모바일 전용 하단 탭 (900px 이하에서만 표시) */}
       <nav className="mobile-tabs">
