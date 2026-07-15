@@ -38,3 +38,10 @@ insul_straw_bonus,0.05,per_wall,짚 단열재 체온 하강 보정(상한 6장)
 insul_clay_wall_hp,750,hp,점토 미장 차열벽 HP(600→750)
 eoduksini_bloom_pause_sec,6,sec,어둑시니 꽃구경 — 만개(등불 반경 진입) 중 벽 공격 중단(개체당 진입 1회)
 eoduksini_rebloom_cd_sec,12,sec,어둑시니 재개화 쿨(개체당) — 밀어내기 반복 어뷰징 상한
+portable_lantern_radius,3,tile,휴대(활성 슬롯) 등불 광원 — 어둑시니 판정 태그 불참(4-7·설치 전용)
+portable_lantern_fuel_rule,active_slot_only,rule,활성 슬롯에 든 동안만 연료 소모 — 석탄 1=270초(설치와 동일 타이머 재사용)
+dev_speed_mult,8,mult,개발빌드 전용 시연 배속 토글(냥잠 x4와 별개 값) — 지상 노출 중 사용 금지(시연 대본)
+badge_wall_count,1,count,목표 배지 ② 차열벽 판정 — 첫 1장 설치(수량 압박은 밀폐도 게이지 승계)
+badge_window_days,3,day,목표 배지 HUD 기간 — min(3배지 전부 달성·3일차 밤 종료) 소멸
+ice_tile_hp,600,hp,얼음 계열 타일 HP(신규 등재 — 불가사리 얼음 32DPS·확장 용해 대상. 차열벽 600 동급)
+ice_storage_hp,900,hp,얼음 저장고 HP(신규 등재 — 무쇠 차열벽 900 동급·확장 노출 용해 6.7일)
