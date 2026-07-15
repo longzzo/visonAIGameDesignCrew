@@ -22,13 +22,16 @@ export function ApprovalPanel() {
     useVE();
   const [newTitle, setNewTitle] = useState("");
   const [busy, setBusy] = useState("");
+  /** 안건별 오너 코멘트 — "이것만 이렇게 고쳐서 승인"을 담는다(조건부 승인·반려 사유 공용) */
+  const [notes, setNotes] = useState<Record<string, string>>({});
   const pending = approvals.filter((a) => a.status === "pending").sort((a, b) => b.ts - a.ts);
   const decided = approvals.filter((a) => a.status !== "pending").sort((a, b) => (b.decidedTs ?? b.ts) - (a.decidedTs ?? a.ts)).slice(0, 10);
 
   const decide = async (id: string, status: "approved" | "rejected") => {
     setBusy(id);
     try {
-      await decideApproval(id, status);
+      await decideApproval(id, status, (notes[id] ?? "").trim());
+      setNotes((n) => ({ ...n, [id]: "" }));
     } finally {
       setBusy("");
     }
@@ -71,11 +74,33 @@ export function ApprovalPanel() {
               <div className="approval-meta dim">
                 {fmtTs(a.ts)} · 출처: {raiser ? `${raiser.name} 상신 (회의)` : a.source === "meeting" ? "회의 상신" : a.source || "수동"}
               </div>
+              {/* 오너 코멘트 — 조건부 승인("이것만 이렇게 고쳐서")을 담는 자리.
+                  입력하면 결정 원장·PM 실행 지시 양쪽에 원안보다 우선하는 지시로 실린다. */}
+              <textarea
+                className="approval-note"
+                rows={2}
+                value={notes[a.id] ?? ""}
+                onChange={(e) => setNotes((n) => ({ ...n, [a.id]: e.target.value }))}
+                placeholder="수정 지시·조건 (선택) — 예: &quot;RX는 28 말고 32로&quot; / &quot;도감 대신 까치를 남겨&quot;. 적으면 원안보다 우선하는 지시로 결정 원장과 담당 배정에 함께 전달됩니다."
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !busy) void decide(a.id, "approved");
+                }}
+              />
               <div className="approval-actions">
-                <button className="btn small primary" disabled={busy === a.id} onClick={() => void decide(a.id, "approved")}>
-                  ✅ 승인
+                <button
+                  className="btn small primary"
+                  disabled={busy === a.id}
+                  title={(notes[a.id] ?? "").trim() ? "수정 지시를 붙여 승인합니다 (Ctrl+Enter)" : "원안 그대로 승인합니다 (Ctrl+Enter)"}
+                  onClick={() => void decide(a.id, "approved")}
+                >
+                  {(notes[a.id] ?? "").trim() ? "✅ 수정 지시 붙여 승인" : "✅ 승인"}
                 </button>
-                <button className="btn small" disabled={busy === a.id} onClick={() => void decide(a.id, "rejected")}>
+                <button
+                  className="btn small"
+                  disabled={busy === a.id}
+                  title={(notes[a.id] ?? "").trim() ? "반려 사유를 남기고 반려합니다" : "반려합니다 (사유를 적으면 함께 기록됩니다)"}
+                  onClick={() => void decide(a.id, "rejected")}
+                >
                   ❌ 반려
                 </button>
                 {raiser && (
@@ -125,6 +150,9 @@ export function ApprovalPanel() {
             {decided.map((a) => (
               <div key={a.id} className="approval-hist-item dim">
                 {a.status === "approved" ? "✅" : "❌"} {a.title} <span>({fmtTs(a.decidedTs ?? a.ts)})</span>
+                {/* 오너 코멘트가 있으면 반드시 보여준다 — 조건부 승인이었는지 나중에 확인할 수 없으면
+                    "원안 승인"으로 오해되어 수정 조건이 사라진다 */}
+                {a.note && <div className="approval-hist-note">⚠️ 오너 지시: {a.note}</div>}
                 {a.status === "approved" && (
                   <button
                     className="btn tiny approval-run"

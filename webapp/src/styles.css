@@ -470,14 +470,28 @@ button { font-family: inherit; }
   background: var(--panel-2); border-radius: 8px; border: 1px solid var(--border);
 }
 .approval-meta { font-size: 11.5px; margin-top: 6px; }
+/* 오너 코멘트 — 조건부 승인("이것만 이렇게 고쳐서")을 담는다 */
+.approval-note {
+  width: 100%; margin-top: 8px; padding: 7px 9px; box-sizing: border-box;
+  background: var(--bg-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; font-size: 12.5px; font-family: inherit; line-height: 1.5; resize: vertical;
+}
+.approval-note::placeholder { color: var(--text-dim); }
+.approval-note:focus { outline: none; border-color: rgba(139, 124, 246, 0.55); }
 .approval-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .approval-add { display: flex; gap: 8px; margin-top: 14px; }
 .approval-add input { flex: 1; background: var(--bg-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 13px; font-family: inherit; }
 .approval-add input:focus { outline: none; border-color: var(--accent); }
 .approval-history { margin-top: 14px; font-size: 12.5px; }
 .approval-history summary { cursor: pointer; }
-.approval-hist-item { padding: 4px 2px; display: flex; align-items: center; gap: 6px; }
+/* 코멘트가 붙으면 줄바꿈되어야 하므로 wrap — 안 그러면 한 줄에 눌려 잘린다 */
+.approval-hist-item { padding: 4px 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .approval-hist-item .approval-run { margin-left: auto; flex: none; }
+.approval-hist-note {
+  flex-basis: 100%; margin: 2px 0 4px 18px; padding: 4px 8px;
+  background: var(--panel-2); border-left: 2px solid rgba(139, 124, 246, 0.5);
+  border-radius: 0 6px 6px 0; font-size: 11.5px; line-height: 1.5; white-space: pre-wrap;
+}
 /* ⚡ 승인 시 자동 실행 토글 */
 .approval-autorun {
   display: flex; align-items: center; gap: 7px; flex-wrap: wrap;

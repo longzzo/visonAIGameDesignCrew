@@ -814,9 +814,12 @@ export const useVE = create<VEState>()((set, get) => {
    * 승인 안건 실행 — PM이 승인 내용을 지시로 삼아 담당 본부에 배정하는 포커스 회의를 착수한다.
    * 이미 회의 중이면 예약해 두고 종료 후 이어서 실행. (자동 실행 on/off와 수동 "▶ 지금 실행"이 공유)
    */
-  const launchApproval = (item: { title: string; detail?: string }) => {
+  const launchApproval = (item: { title: string; detail?: string; note?: string }) => {
+    // 오너 코멘트("이것만 이렇게 고쳐서 승인")는 안건 제목보다 우선하는 지시다 — 맨 앞에 둔다.
+    // 안 그러면 담당이 원안대로 실행해 수정 조건이 조용히 사라진다(오너 요청 2026-07-15).
     const directive =
       `오너가 승인한 안건을 즉시 실행하라: "${item.title}".` +
+      (item.note ? ` ⚠️ 오너 수정 지시(원안보다 우선): "${item.note}" — 이 조건을 반드시 반영해 실행하라.` : "") +
       (item.detail ? ` (배경: ${item.detail})` : "") +
       ` 관련 담당 본부가 이 결정을 GDD에 반영하고, 필요한 후속 작업(수치·시스템·콘텐츠·일정)을 구체화해 확정하라.`;
     if (get().orchRunning) {
@@ -3096,13 +3099,15 @@ export const useVE = create<VEState>()((set, get) => {
           text: `${status === "approved" ? "✅ 오너 승인" : "❌ 오너 반려"}: ${item.title.slice(0, 80)}${note ? ` — ${note.slice(0, 60)}` : ""}`,
         });
         if (status === "approved") {
-          // 승인 = 결정 원장에 적립 → 이후 모든 회의가 자동 참조
-          await appendDecisions(project, [`(오너 승인) ${item.title}`], "approval");
+          // 승인 = 결정 원장에 적립 → 이후 모든 회의가 자동 참조.
+          // 오너 코멘트는 반드시 함께 적립한다 — 원장은 다음 회의가 자동 참조하는 조직의 기억이라,
+          // 여기서 코멘트가 빠지면 "조건부 승인"이 "원안 승인"으로 굳어 전파된다(오너 요청 2026-07-15).
+          await appendDecisions(project, [`(오너 승인) ${item.title}${note ? ` — ⚠️ 오너 수정 지시: ${note}` : ""}`], "approval");
           await get().loadDecisions();
           // 자동 실행이 켜져 있으면 PM이 곧바로 실행 회의를 착수한다.
           // (원장 적립만 하고 끝나면 "다음 회의까지 아무 일도 안 일어나" 무용지물이었다 — 그래서 기본값 on)
           if (get().approvalAutoRun) {
-            launchApproval(item);
+            launchApproval({ ...item, note });
           } else {
             pushFeed({
               from: "pm",
