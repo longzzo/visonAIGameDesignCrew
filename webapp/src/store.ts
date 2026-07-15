@@ -962,13 +962,9 @@ export const useVE = create<VEState>()((set, get) => {
     approvals: [],
     approvalsOpen: false,
     pendingApprovalRuns: [],
-    approvalAutoRun: ((): boolean => {
-      try {
-        return localStorage.getItem("ve-approval-autorun") !== "off";
-      } catch {
-        return true;
-      }
-    })(),
+    // 자동 실행은 세션 한정 — 항상 꺼진 상태로 시작한다. 켜둔 채 일괄 결재하면 승인 수만큼
+    // 회의가 연쇄 착수되는 사고(2026-07-15 실사고: 11건 연쇄)가 나므로 켜는 행위는 그때그때 명시적으로.
+    approvalAutoRun: false,
     kitFiles: [],
     devKitBusy: false,
     devKitPhase: "",
@@ -3058,14 +3054,8 @@ export const useVE = create<VEState>()((set, get) => {
 
     setApprovalsOpen: (b) => set({ approvalsOpen: b }),
 
-    setApprovalAutoRun: (b) => {
-      try {
-        localStorage.setItem("ve-approval-autorun", b ? "on" : "off");
-      } catch {
-        /* noop */
-      }
-      set({ approvalAutoRun: b });
-    },
+    // 세션 한정 — 저장하지 않는다 (새로고침하면 다시 꺼짐)
+    setApprovalAutoRun: (b) => set({ approvalAutoRun: b }),
 
     runApproval: (id) => {
       const item = get().approvals.find((a) => a.id === id);
@@ -3104,8 +3094,7 @@ export const useVE = create<VEState>()((set, get) => {
           // 여기서 코멘트가 빠지면 "조건부 승인"이 "원안 승인"으로 굳어 전파된다(오너 요청 2026-07-15).
           await appendDecisions(project, [`(오너 승인) ${item.title}${note ? ` — ⚠️ 오너 수정 지시: ${note}` : ""}`], "approval");
           await get().loadDecisions();
-          // 자동 실행이 켜져 있으면 PM이 곧바로 실행 회의를 착수한다.
-          // (원장 적립만 하고 끝나면 "다음 회의까지 아무 일도 안 일어나" 무용지물이었다 — 그래서 기본값 on)
+          // 자동 실행이 켜져 있으면 PM이 곧바로 실행 회의를 착수한다 (세션 한정 옵트인 — 기본 꺼짐).
           if (get().approvalAutoRun) {
             launchApproval({ ...item, note });
           } else {
