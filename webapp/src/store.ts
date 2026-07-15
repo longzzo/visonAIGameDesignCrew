@@ -3392,6 +3392,20 @@ export const useVE = create<VEState>()((set, get) => {
             pushFeed({ from: "system", kind: "status", text: `🛡️ 1장 개요에 정본 테이블이 있어 자동 반영을 건너뜁니다 — 정본은 오너·메인 헤드가 관리합니다.` });
             return;
           }
+          // 축소 방어 — 회의 초안이 기존 정본을 절반 미만으로 줄이면 반영하지 않는다.
+          // 실사례(2026-07-15 냥빙고): 회의 1회가 2~11장을 초안으로 덮어써 GDD 109KB→22KB,
+          // 조합식 51종·진화 체계·사망 규칙·아트 물량표가 통째로 유실됐다(git 복구).
+          // 위 1장 가드는 1장만 지켰다 — 모든 섹션에 같은 방어를 건다.
+          // 다듬어 발행(publishNotionStyled)의 "절반 미만이면 원문 유지"와 같은 원칙.
+          const prevBody = getSectionBody(cur.markdown, agent.section) ?? "";
+          if (prevBody.length >= 800 && text.length < prevBody.length * 0.5) {
+            pushFeed({
+              from: "system",
+              kind: "status",
+              text: `🛡️ ${agent.name}의 산출물(${text.length}자)이 기존 "${agent.sectionTitle}" 정본(${prevBody.length}자)의 절반 미만이라 자동 반영을 건너뜁니다 — 유실 방어. 산출물은 피드·회의록에 남아 있으니 메인 헤드가 판단해 수동 반영하세요.`,
+            });
+            return;
+          }
           const md = replaceSection(cur.markdown, agent.section, agent.sectionTitle, text);
           const mtime = await saveGdd(project, md);
           set({ gdd: md, gddMtime: mtime });
