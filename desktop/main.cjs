@@ -83,6 +83,7 @@ async function trySpawnLocalServer() {
   const webappDir = findWebappDir();
   if (!webappDir) return false;
   console.log("⏳ 로컬 서버 기동 중…", webappDir);
+  showSplash("로컬 서버를 기동하고 있습니다…");
   try {
     // Windows: Node 20+(CVE-2024-27980)는 .cmd/.bat을 shell:false로 spawn하면 EINVAL로 죽는다.
     // 반드시 shell:true 로 실행해야 npm.cmd가 뜬다. 실패해도 설정 화면으로 안전하게 폴백.
@@ -122,6 +123,32 @@ async function resolveTarget() {
 function openSettings(message = "") {
   if (!win) return;
   void win.loadFile(path.join(__dirname, "settings.html"), { query: message ? { msg: message } : undefined });
+}
+
+/**
+ * 준비 중 화면 — 서버를 찾고/기동하는 동안(최초 실행은 1분 가까이 걸린다) 창이 새까맣게
+ * 비어 있으면 "앱이 검은 화면만 뜬다"로 보인다. 곧바로 이 화면을 띄워 진행 상태를 알린다.
+ */
+function showSplash(note = "로컬 서버를 찾고 있습니다…") {
+  if (!win) return;
+  const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><style>
+    html,body{height:100%;margin:0}
+    body{background:#12151c;color:#c3cbdb;display:flex;align-items:center;justify-content:center;
+      font-family:"Malgun Gothic","Segoe UI",system-ui,sans-serif;-webkit-user-select:none}
+    .box{text-align:center;line-height:1.7}
+    .logo{font-size:34px;margin-bottom:10px}
+    .t{font-size:16px;font-weight:700;color:#e8edf5}
+    .s{font-size:12.5px;color:#8b94a7;margin-top:6px}
+    .bar{width:210px;height:3px;border-radius:2px;background:#232838;overflow:hidden;margin:16px auto 0}
+    .bar i{display:block;width:38%;height:100%;border-radius:2px;background:#8b7cf6;animation:slide 1.1s ease-in-out infinite}
+    @keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(360%)}}
+  </style></head><body><div class="box">
+    <div class="logo">🏢</div><div class="t">Vision Engine 준비 중…</div>
+    <div class="s">${note}</div>
+    <div class="s">최초 실행은 1분 정도 걸릴 수 있습니다</div>
+    <div class="bar"><i></i></div>
+  </div></body></html>`;
+  void win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
 }
 
 async function connect() {
@@ -180,6 +207,7 @@ function createWindow() {
 function showWindow() {
   if (!win) {
     createWindow();
+    showSplash();
     void connect();
   } else {
     if (win.isMinimized()) win.restore();
@@ -233,6 +261,7 @@ app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   setupTray();
   createWindow();
+  showSplash(); // 서버 탐색·기동 동안 빈 창(검은 화면)이 보이지 않게 즉시 표시
   await connect();
   // 글로벌 단축키 — 어디서든 Ctrl+Shift+V 로 창을 띄운다
   globalShortcut.register("CommandOrControl+Shift+V", showWindow);
