@@ -489,6 +489,8 @@ button { font-family: inherit; }
 .approval-hist-item .approval-hist-run { margin-left: auto; flex: none; display: flex; align-items: center; gap: 7px; }
 /* 이미 실행된 안건 — 실행 시각을 눈에 띄게 남겨 중복 클릭을 막는다 */
 .approval-ran { font-size: 11px; color: #34d399; white-space: nowrap; }
+/* 실행 완료된 안건 — 버튼 대신 잠긴 상태를 보여준다 */
+.approval-done { font-size: 11px; color: #34d399; white-space: nowrap; opacity: 0.9; }
 .approval-hist-note {
   flex-basis: 100%; margin: 2px 0 4px 18px; padding: 4px 8px;
   background: var(--panel-2); border-left: 2px solid rgba(139, 124, 246, 0.5);

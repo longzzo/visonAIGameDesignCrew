@@ -241,12 +241,20 @@ function growthApiPlugin(): Plugin {
             }
             const g = all[agentId] ?? { xp: 0, level: 1, skills: [], lessons: [] };
             let leveledUp = false;
-            if (typeof j.addXp === "number" && j.addXp > 0) {
-              g.xp += Math.min(100, Math.round(j.addXp));
+            let demoted = false;
+            // 경험치는 깎일 수도 있다 — 예전엔 `addXp > 0`만 반영해서 QA 반려도 손해가 없었다
+            // (오너 지적 2026-07-16: "에이전트들이 실수에 대한 책임이 너무 없다"). 이제 음수도 반영하고,
+            // XP가 임계 아래로 떨어지면 레벨도 내려간다. XP는 0 미만으로는 안 내려간다.
+            if (typeof j.addXp === "number" && j.addXp !== 0) {
+              const delta = Math.max(-100, Math.min(100, Math.round(j.addXp)));
+              g.xp = Math.max(0, (g.xp ?? 0) + delta);
               const nl = levelOf(g.xp);
               if (nl > (g.level ?? 1)) {
                 g.level = nl;
                 leveledUp = true;
+              } else if (nl < (g.level ?? 1)) {
+                g.level = nl;
+                demoted = true;
               }
             }
             if (typeof j.lesson === "string" && j.lesson.trim()) {
@@ -262,7 +270,7 @@ function growthApiPlugin(): Plugin {
             all[agentId] = g;
             fs.mkdirSync(path.dirname(GROWTH_FILE), { recursive: true });
             fs.writeFileSync(GROWTH_FILE, JSON.stringify(all, null, 2), "utf-8");
-            res.end(JSON.stringify({ ok: true, agent: g, leveledUp }));
+            res.end(JSON.stringify({ ok: true, agent: g, leveledUp, demoted }));
           } catch (e: any) {
             res.statusCode = 500;
             res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 200) }));

@@ -33,24 +33,25 @@ export function ApprovalPanel() {
    * 수동 실행 — 회의를 실제로 띄우는 무거운 동작이라 **항상 확인을 거친다.**
    * 이미 실행된 안건이면 중복이라는 사실을 명시하고 force로만 재실행한다.
    */
+  /**
+   * 수동 실행 — 회의를 실제로 띄우는 무거운 동작이라 확인을 거친다.
+   * 이미 실행된 안건은 버튼 자체가 없어 여기 도달하지 않는다(재실행 경로 없음).
+   */
   const run = async (a: ApprovalItem) => {
-    const already = !!a.ranTs;
-    const ok = await uiConfirm(already ? "이미 실행된 안건을 다시 실행할까요?" : "이 안건을 지금 실행할까요?", {
+    const ok = await uiConfirm("이 안건을 지금 실행할까요?", {
       message:
         `"${a.title}"\n\n` +
-        (already
-          ? `⚠️ 이 안건은 ${fmtTs(a.ranTs!)}에 이미 실행됐습니다${(a.ranCount ?? 1) > 1 ? ` (${a.ranCount}회)` : ""}.\n다시 실행하면 담당 본부에 같은 지시가 중복으로 나갑니다.\n\n`
-          : "") +
         (orchRunning
           ? "지금 회의가 진행 중이라, 현재 회의가 끝난 뒤 이어서 착수합니다."
-          : "PM이 담당 본부에 배정해 곧바로 회의를 착수합니다."),
-      confirmLabel: already ? "↻ 중복 실행" : "▶ 실행",
+          : "PM이 담당 본부에 배정해 곧바로 회의를 착수합니다.") +
+        "\n\n한 번 실행하면 이 안건은 작업 완료로 잠깁니다.",
+      confirmLabel: "▶ 실행",
       cancelLabel: "취소",
     });
     if (!ok) return;
     setBusy(a.id);
     try {
-      await runApproval(a.id, already);
+      await runApproval(a.id);
     } finally {
       setBusy("");
     }
@@ -185,30 +186,31 @@ export function ApprovalPanel() {
                 {/* 이미 실행된 안건은 실행 시각을 보여주고, 재실행은 확인을 거친다.
                     조건 없이 "지금 실행"을 노출했다가 오너가 자동 실행된 건을 다시 눌러
                     중복 지시가 나간 실사고가 있었다 (2026-07-15). */}
-                {a.status === "approved" && (
-                  <span className="approval-hist-run">
-                    {a.ranTs && (
-                      <span className="approval-ran" title={`${a.ranCount ?? 1}회 실행됨`}>
-                        ▶ 실행됨 {fmtTs(a.ranTs)}
-                        {(a.ranCount ?? 1) > 1 ? ` ·${a.ranCount}회` : ""}
+                {/* 한 번 실행된 안건은 버튼을 아예 죽이고 "작업 완료"로 끝낸다 (오너 지시 2026-07-16).
+                    재실행 경로를 남겨두면 결국 실수로 눌러 중복 지시가 나간다 — 확인창보다 비활성화가 확실하다. */}
+                {a.status === "approved" &&
+                  (a.ranTs ? (
+                    <span className="approval-hist-run">
+                      <span className="approval-done" title={`${fmtTs(a.ranTs)}에 담당 본부에 배정되어 실행됨`}>
+                        ✅ 작업 완료 · {fmtTs(a.ranTs)}
                       </span>
-                    )}
-                    <button
-                      className="btn tiny approval-run"
-                      disabled={busy === a.id}
-                      onClick={() => void run(a)}
-                      title={
-                        a.ranTs
-                          ? "이미 실행된 안건입니다 — 다시 실행하면 같은 지시가 중복으로 나갑니다 (확인을 거칩니다)"
-                          : orchRunning
+                    </span>
+                  ) : (
+                    <span className="approval-hist-run">
+                      <button
+                        className="btn tiny approval-run"
+                        disabled={busy === a.id}
+                        onClick={() => void run(a)}
+                        title={
+                          orchRunning
                             ? "회의 중입니다 — 현재 회의가 끝나면 이어서 실행하도록 예약됩니다 (확인을 거칩니다)"
                             : "PM이 이 승인 안건을 지시로 담당 본부에 배정해 착수합니다 (확인을 거칩니다)"
-                      }
-                    >
-                      {a.ranTs ? "↻ 다시 실행" : "▶ 지금 실행"}
-                    </button>
-                  </span>
-                )}
+                        }
+                      >
+                        ▶ 지금 실행
+                      </button>
+                    </span>
+                  ))}
               </div>
             ))}
           </details>

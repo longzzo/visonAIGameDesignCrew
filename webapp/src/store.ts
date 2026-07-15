@@ -1730,8 +1730,15 @@ export const useVE = create<VEState>()((set, get) => {
               } else {
                 const scoreLine = Object.entries(verdict.scores).map(([k, v]) => `${k} ${v}`).join(" · ");
                 if (verdict.pass) {
-                  pushFeed({ from: "qa", to: agent.id, kind: "review", text: `✅ 품질 통과 (평균 ${verdict.avg.toFixed(1)}/10) — ${scoreLine}\n${verdict.summary}` });
-                  get().recordGrowth(agent.id, "qaPass");
+                  // "완벽하게 수행하면 경험치를 준다" (오너 지시) — 평균 9+ & 최저 8+ 이면 만점권 보상
+                  const perfect = verdict.avg >= 9 && verdict.min >= 8;
+                  pushFeed({
+                    from: "qa",
+                    to: agent.id,
+                    kind: "review",
+                    text: `${perfect ? "🏆 완벽 통과" : "✅ 품질 통과"} (평균 ${verdict.avg.toFixed(1)}/10) — ${scoreLine}\n${verdict.summary}`,
+                  });
+                  get().recordGrowth(agent.id, perfect ? "qaPerfect" : "qaPass");
                 } else {
                   get().recordGrowth(agent.id, "qaFail", { lesson: (verdict.notes || verdict.summary).slice(0, 280) });
                   pushFeed({ from: "qa", to: agent.id, kind: "review", text: `🔴 반려 (평균 ${verdict.avg.toFixed(1)}/10) — ${scoreLine}\n${verdict.notes || verdict.summary}` });
@@ -1766,6 +1773,8 @@ export const useVE = create<VEState>()((set, get) => {
                 const redo = /\[재지시\]\s*([^\n]{4,220})/.exec(evalText);
                 if (redo && !get().stopRequested) {
                   pushFeed({ from: boss, to: agent.id, kind: "instruction", text: `🔁 재지시: ${redo[1].trim()}` });
+                  // 상사 검증 실패 = 감점. 재지시 사유는 교훈으로 남겨 다음 회의 프롬프트에 주입된다.
+                  get().recordGrowth(agent.id, "bossRedo", { lesson: redo[1].trim().slice(0, 280) });
                   updateCard(agent.id, { phase: "재지시 반영 중" });
                   setAgentStatus(agent.id, "running");
                   const rr2 = await runAgentSafe(agent.id, redoPrompt(agent, redo[1], final), runTag, signal);
@@ -2616,7 +2625,9 @@ export const useVE = create<VEState>()((set, get) => {
 
     recordGrowth: (agentId, kind, opts) => {
       const xp = XP_RULES[kind] ?? 0;
-      if (xp <= 0 && !opts?.lesson) return;
+      // 0점이면서 교훈도 없을 때만 건너뛴다 — 감점(음수)은 반드시 반영해야 한다.
+      // 예전 조건(`xp <= 0`)이면 감점이 통째로 무시됐다.
+      if (xp === 0 && !opts?.lesson) return;
       void (async () => {
         const out = await postGrowth(agentId, { addXp: xp || undefined, lesson: opts?.lesson });
         if (!out) return;
@@ -2625,6 +2636,22 @@ export const useVE = create<VEState>()((set, get) => {
           setGrowthCache(growth);
           return { growth };
         });
+        // 감점·강등은 오너에게 보여야 책임이 생긴다 (조용히 깎으면 아무 의미가 없다)
+        if (xp < 0) {
+          const a = AGENT_MAP[agentId];
+          pushFeed({
+            from: "system",
+            kind: "status",
+            text: `📉 ${a?.name ?? agentId} 경험치 ${xp} (${kind === "qaFail" ? "QA 반려" : kind === "bossRedo" ? "상사 재지시" : kind}) — 현재 ${out.agent.xp} XP · Lv.${out.agent.level}`,
+          });
+          if (out.demoted) {
+            pushFeed({
+              from: "system",
+              kind: "error",
+              text: `⬇️ ${a?.name ?? agentId}이(가) Lv.${out.agent.level}로 강등됐습니다 — 검증 실패가 누적됐습니다.`,
+            });
+          }
+        }
         if (!out.leveledUp) return;
         const a = AGENT_MAP[agentId];
         set({ levelUpAgent: { id: agentId, level: out.agent.level } });

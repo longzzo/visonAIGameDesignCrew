@@ -14,12 +14,20 @@ export interface AgentGrowth {
 }
 export type GrowthMap = Record<string, AgentGrowth>;
 
-/** 작업 종류별 경험치 — 산출물이 클수록, 실패에서 배울수록 */
+/**
+ * 작업 종류별 경험치 — 잘하면 오르고 **못하면 깎인다**.
+ *
+ * 오너 지적(2026-07-16): "에이전트들이 실수에 대한 책임이 너무 없다". 실제로 예전 규칙은
+ * `qaFail: 5`였다 — QA에 반려당해도 경험치를 벌었고, 서버도 `addXp > 0`만 반영해 감점이 아예 불가능했다.
+ * 이제 QA·상사 검증 결과가 성적표처럼 작동한다: 완벽하면 크게 주고, 반려·재지시는 깎는다.
+ */
 export const XP_RULES: Record<string, number> = {
   draft: 20, // 오케스트레이션 산출물 확정
   review: 10, // 동료 초안 검토 수행
-  qaPass: 8, // QA 게이트 통과 보너스
-  qaFail: 5, // 반려도 경험 — 교훈과 함께 적립
+  qaPerfect: 15, // QA 만점권(평균 9+) — "완벽하게 수행"에 대한 보상
+  qaPass: 6, // QA 통과 (평균 7~9)
+  qaFail: -12, // QA 반려 — 감점. 교훈은 그대로 적립해 다음 회의에 쓰게 한다
+  bossRedo: -8, // 상사가 [재지시]로 되돌려보냄 = 검증 실패
   talk: 6, // 협업 회의 발언
   conclusion: 12, // 협업 결론 작성 (리드)
   report: 25, // 정식 보고서
@@ -44,7 +52,7 @@ export async function fetchGrowth(): Promise<GrowthMap> {
 export async function postGrowth(
   agentId: string,
   patch: { addXp?: number; lesson?: string; skill?: string; removeSkill?: number }
-): Promise<{ agent: AgentGrowth; leveledUp: boolean } | null> {
+): Promise<{ agent: AgentGrowth; leveledUp: boolean; demoted: boolean } | null> {
   try {
     const r = await fetch("/api/growth", {
       method: "POST",
@@ -52,7 +60,7 @@ export async function postGrowth(
       body: JSON.stringify({ agentId, ...patch }),
     });
     const j = await r.json();
-    return j?.ok ? { agent: j.agent, leveledUp: !!j.leveledUp } : null;
+    return j?.ok ? { agent: j.agent, leveledUp: !!j.leveledUp, demoted: !!j.demoted } : null;
   } catch {
     return null;
   }
