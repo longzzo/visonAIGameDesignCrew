@@ -1379,6 +1379,27 @@ export function chatPrompt(agent: AgentDef, context: string, question: string): 
   ].join("\n");
 }
 
+/**
+ * 언어 누수 복구 — 누수가 실제로 감지됐을 때만 1회 호출한다.
+ *
+ * 왜 필요한가: KO_RULE(프롬프트 규칙)을 붙여도 122b/80b는 여전히 한자·러시아어를 흘린다
+ * (2026-07-15 실측: 규칙을 넣은 브리핑이 "点·雪地·成立"을 흘렸다). 규칙은 1차, 탐지는 2차,
+ * 이 복구가 3차 방어다. **번역이 아니라 치환** — 섞인 단어만 한국어로 바꾸고 나머지는 손대지 않는다.
+ */
+export function koRepairPrompt(text: string, leak: string): string {
+  return [
+    `아래 글은 한국어 문서인데 다른 언어 단어가 섞여 들어갔다 (감지: ${leak}).`,
+    ``,
+    `[원문]`,
+    text.slice(0, 4000),
+    ``,
+    `[할 일]`,
+    `- 섞여 들어간 한자·러시아어·일본어 단어만 문맥에 맞는 한국어로 바꿔라.`,
+    `- **나머지는 한 글자도 바꾸지 마라.** 재작성·요약·추가 금지. 마크다운 구조·수치·영어 기술용어(HUD, Unity, DPS 등)·코드 식별자(ice_shard 등)는 그대로 둔다.`,
+    `- 결과 전문만 출력해라. 설명·사족·코드펜스·도구 호출 금지.`,
+  ].join("\n");
+}
+
 export function bossReviewPrompt(boss: AgentDef, worker: AgentDef, request: string, final: string): string {
   return [
     `너는 ${boss.name}, ${worker.name}의 상사다. 부하가 확정 직전까지 다듬은 "${worker.sectionTitle}" 산출물을 상사로서 평가해라.`,

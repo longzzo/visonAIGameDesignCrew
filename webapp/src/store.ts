@@ -49,6 +49,7 @@ import {
   balanceSheetPrompt,
   bossReviewPrompt,
   chatPrompt,
+  koRepairPrompt,
   redoPrompt,
   uiMockupPrompt,
   staticUiMockup,
@@ -982,6 +983,27 @@ export const useVE = create<VEState>()((set, get) => {
       });
     }
     return r;
+  };
+
+  /**
+   * 언어 누수 3차 방어 — 누수가 감지됐을 때만 1회 호출해 섞인 단어를 한국어로 되돌린다.
+   * 실측(2026-07-15): KO_RULE을 붙인 브리핑도 "点·雪地·成立"을 흘렸다 — 규칙만으론 못 막는다.
+   * 복구가 실패하거나 내용이 크게 줄면(재작성 사고) 원문을 그대로 쓴다.
+   */
+  const repairLangLeak = async (text: string, agentId = "pm"): Promise<{ text: string; repaired: boolean; leak: string }> => {
+    const leak = detectLangLeak(text);
+    if (!leak) return { text, repaired: false, leak: "" };
+    try {
+      const r = await gateway.runAgent(agentId, koRepairPrompt(text, leak), `korepair-${Date.now().toString(36)}`);
+      const fixed = sanitizeAgentOutput(r.text);
+      addUsage(r.usage, fixed);
+      // 재작성·유실 방어 — 복구본이 원문의 60% 미만이면 신뢰하지 않는다
+      if (!fixed || isGatewayErrorText(fixed) || fixed.length < text.length * 0.6) return { text, repaired: false, leak };
+      const still = detectLangLeak(fixed);
+      return { text: fixed, repaired: !still, leak: still || leak };
+    } catch {
+      return { text, repaired: false, leak };
+    }
   };
 
   /** 오류함 적립 — 실패해도 회의를 막지 않는다 */
@@ -2920,9 +2942,15 @@ export const useVE = create<VEState>()((set, get) => {
         );
         let text = sanitizeAgentOutput(r.text) || "(빈 브리핑)";
         addUsage(r.usage, text);
-        // 브리핑에 러시아어·한자가 섞여 나온 실사고(2026-07-15 오너 스크린샷) — 알아볼 수 있게 꼬리말로 알린다.
-        const leak = detectLangLeak(text);
-        if (leak) text += `\n\n---\n🈳 *이 브리핑에 다른 언어가 섞였습니다 — ${leak}. 모델 언어 누수이니 그 부분은 걸러 읽으세요.*`;
+        // 브리핑에 러시아어·한자가 섞여 나온 실사고(2026-07-15 오너 스크린샷).
+        // 규칙(KO_RULE)으로도 새는 걸 실측했으므로, 누수가 있으면 실제로 고쳐서 보여준다.
+        if (detectLangLeak(text)) {
+          const fix = await repairLangLeak(text, "pm");
+          text = fix.text;
+          if (!fix.repaired && fix.leak) {
+            text += `\n\n---\n🈳 *다른 언어가 섞였는데 자동 복구에 실패했습니다 — ${fix.leak}. 그 부분은 걸러 읽으세요.*`;
+          }
+        }
         set((s) => ({
           chats: {
             ...s.chats,
