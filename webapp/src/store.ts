@@ -1913,11 +1913,23 @@ export const useVE = create<VEState>()((set, get) => {
                 .slice(Math.max(0, at - 320), Math.min(src.text.length, at + m[0].length + 320))
                 .replace(/\s+/g, " ")
                 .trim();
+              // 마커 아래에 붙은 "바뀌는 것/장점/단점" 3줄을 수집 — 결재창만 보고 판단이 안 된다는 오너 지적(2026-07-15)
+              const after = src.text.slice(at, Math.min(src.text.length, at + 900));
+              const grab = (label: string) =>
+                new RegExp(`^\\s*[-*]?\\s*\\*{0,2}${label}\\*{0,2}\\s*[:：]\\s*(.+)$`, "m").exec(after)?.[1]?.replace(/[*_`]+/g, "").trim();
+              const changes = grab("바뀌는 것");
+              const pros = grab("장점");
+              const cons = grab("단점");
               const detail = [
                 `상신: ${src.name} (${src.section} 작업 중)`,
                 `회의: "${req.slice(0, 80)}${req.length > 80 ? "…" : ""}"`,
+                changes ? `바뀌는 것: ${changes}` : "",
+                pros ? `장점: ${pros}` : "",
+                cons ? `단점: ${cons}` : "",
                 `근거 발췌: …${ctx}…`,
-              ].join("\n");
+              ]
+                .filter(Boolean)
+                .join("\n");
               await get().addApproval(title, detail, `meeting:${src.agentId}`);
               await postWorkLog(src.agentId, [
                 `🔔 **오너 승인 요청 상신** — ${new Date().toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}`,
