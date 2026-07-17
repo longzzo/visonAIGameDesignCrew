@@ -23,6 +23,14 @@
 - `drops.csv` — 요괴별 눈물·시그니처 드랍·확률·용도 (GDD 6-7·6-8).
 - `bosses.csv` — 소환 보스 4종(도깨비 대장·어미 불가사리·이무기·강철이) 소환템·HP·패턴·확정 드랍·교전 검증 (GDD 6-9).
 
+## 열 의미 규정 (v23.1 — 이중 적용 금지)
+- **파일 구성 = CSV 15종 + 이 README = 16파일.** (v23 회신의 "16종"은 README 포함 표기였다 — 이후 "CSV 15종"으로 통일)
+- **요괴 id 표준**: 어둑시니 = `eoduksini` (yokai-stats·day-curve spawn_composition 공통. `eoduk` 축약 표기는 폐지)
+- **day-curve.spawn_composition** = 그 밤의 **최종 스폰 조합**(배율 적용 후). 총합 = night_yokai_count × spawn_mult (max_active 상한). d15 백중 = `club:3,bulgasari:2,yakwang:7` — GDD 6-10 고정 조합(ΣHP 3,900).
+- **day-curve.drop_mult** = 예약 훅(전 행 1.0 고정). **백중 드랍 배율은 globals `baekjung_tears_mult`(1.5)·`baekjung_sig_mult`(2)가 유일 정본** — drop_mult와 중복 적용 금지.
+- **crafting-tree.mvp_scope** = A/B. **B는 제작 UI 미노출·데이터 로드만**(globals `crafting_b_ui`). 판정 규칙: 재료 사슬이 B급 보스(어미 불가사리·이무기) 소환/드랍에 닿으면 자동 B. 가뭄 부적·한파 코어는 강철이(A) 사슬이라 A.
+- **bosses.mvp_scope** = A(MVP 구현: 도깨비 대장·강철이) / B(CSV·FSM 파라미터만: 어미 불가사리·이무기) — 오너 확정 2026-07-16.
+
 ## 공식 (GDD 6-3)
 - 더위 단계 = ceil(Day / 10)
 - 밤 도깨비 수 = min(8, 1 + floor((Day-1)/4)) — 30일차 8마리 상한. 최종 도깨비는 30일차 밤 고정 1(상한에 포함)
