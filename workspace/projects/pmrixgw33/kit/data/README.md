@@ -13,7 +13,7 @@
 - `day-curve.csv` — 일차(1~30)별 더위단계·낮 화염·밤 도깨비 수·벽타격·권장 밀폐도/광물 티어 페이스. **차트로 보면 난이도 곡선이 한눈에.**
 - `yokai-stats.csv` — 한국 요괴 5종(방망이 도깨비·불가사리·야광귀·어둑시니·강철이 — 정본 4-1) HP·속도·벽DPS·접촉·눈물·시그니처 드랍 (GDD 6-7).
 - `player-combat.csv` — 발톱 3티어(맨발톱·무쇠·얼음강철) + 무기 2종(도깨비 방망이·서리발톱 장갑) + 진화 무기 철선(E1) 공격력·DPS·넉백 + 밤 540초 검증 (GDD 6-7).
-- `mineral-tiers.csv` — 자원 11종 × 발톱 3티어 채굴 매트릭스(초/타일·빈도·게이트) (GDD 6-4).
+- `mineral-tiers.csv` — **자원 12종** × 발톱 3티어 채굴 매트릭스(초/타일·빈도·게이트) (GDD 6-4). v24.1 교정: 구 '11종'은 v7 점토 추가 전 수치. GDD 4-1 총 자원은 13종인데 [드랍] 요괴 눈물은 채굴 대상이 아니라 이 표에서 제외 — 13 − 1 = 12행이 정합.
 - `equipment(armor)`은 crafting-tree.csv에 포함, `accessories.csv`(악세 6종 — 상자 전용)·`chests.csv`(보물 상자 20개 배치) 신설 (GDD 6-12).
 - `crafting-tree.csv` — **조합식 53종**(v24 교정 — 구 '51종'은 v20/v21 냉기원 2종(물단지·얼음 항아리) 신설 반영 누락. GDD 6-5도 동시 교정)(v12: +진화 4 — 철선·쇠 방울 금줄·무쇠 체·서리 등불)(v11: +유틸 2 — 합죽선·방울 금줄)(v8: +장비 9)(v7: 제작대 4단(+용광로)·발톱 2·단열 3·꾸미기 5, 곡괭이 폐지) + `smelting.csv` — 제련 3종(광석 2+석탄=주괴 1): 제작대 3·도구 3·설치물 3(등불·체·해태 석상)·무기 2·무쇠 차열벽·냉기 장치·모듈 5 (GDD 6-5).
 - `day-curve-ext.csv` — **확장(31~50일) 전용** 곡선 + 용해(ice_melt_dps)·열기 스며듦(heat_seep_pct, 실효 하강=0.15×(1+짚−스며듦)) — MVP day-curve.csv 무수정 원칙(확장 설계서 §3④).
@@ -25,11 +25,16 @@
 - `items.csv` — **(v24 신설) 아이템 마스터 85종 — 전 id의 유일 정본**. `id,name_ko,category,max_stack,mvp_scope,note`. category 8종: resource 12 · material 13 · tool 3 · weapon 4 · equipment 15 · station 4 · placeable 30 · summon 4. max_stack = 장착물 1 / 나머지 99 / `bare_claw`만 0(신체).
 
 ## 데이터 계약 (v24 — Unity 임포트 전 필독)
-- **파일 = CSV 16종 + 이 README = 17파일** (v24에서 `items.csv` 1종 신설). v23의 "16종"은 README 포함 표기였다 — v24부터 **CSV 16종 / 문서 1** 로 센다.
+- **파일 = CSV 17종 + 이 README = 18파일** (v24 `items.csv` + v24.1 `id-migration.csv` 신설). v23의 "16종"은 README 포함 표기였다 — v24부터 **CSV 16종 / 문서 1** 로 센다.
 - **`items.csv`가 전 아이템의 유일한 id 정본(85종)**. 모든 CSV·코드·세이브는 이 id를 참조하고 **한글 이름으로 매칭하지 않는다**. 정본 절 = GDD 6-4b.
 - **id 명명**: 전부 snake_case. 일반 명사 = 의미 영어(`iron_ore`·`stone`·`lantern`) / 한국 고유 문화어 = 로마자 음차(`hapjukseon`·`haetae_statue`·`yeouiju`·`eoduksini`).
 - **id 변경 금지** — 세이브·에셋이 id로 묶인다. 개명 시 새 id 추가 + 구 id 유지(마이그레이션 표 동반).
 - **재료 표기 = `item_id:count` 콤마 구분** (`stone:20,clay:12`). 구 한글 표기(`돌x20+점토x12`)는 v24에서 폐지.
+- **`id-migration.csv`(v24.1 신설) = 레거시 id → v24 id 공식 마이그레이션 표.** 세이브·SO 로드 시 이 표로 1회 변환한다. `(legacy_id, domain)` 쌍이 키 — **`gangcheori`는 도메인에 따라 갈린다**: 개체(스폰·킬 카운트·도감·드랍 이력) = `gangcheol` / 보스전(격퇴 플래그·재소환 이력) = `gangcheol_boss`. 강철이 격퇴 플래그(가뭄 부적 해금)는 30일차 내습 격퇴를 포함해 `gangcheol_boss` 도메인에 기록한다. `action=remove_refund`(여우비 부적)는 인벤 보유분을 note의 환불식대로 변환 후 폐기.
+- **드랍 기계 정본 = `drops.csv` 단일.** `bosses.csv`의 `drops_ko`는 기획자 확인용 표시 필드 — **임포터는 읽지 마라**(중복 지급 위험). 보스 환급분(조각2·비늘4·역린1)은 drops.csv `extra_drops`(item_id:count)로 구조화됨. 눈물 수량도 drops.csv `tears`가 정본.
+- **제련 레시피 id = smelting.csv `id` 열**(smelt_iron·smelt_copper·smelt_icesteel — 진행 중 제련 세이브의 recipeId). output_id·행 순서로 식별 금지. **계약: 같은 station_id에 속한 행들의 batch_cap은 반드시 동일**(화로 6·용광로 4 — 검증 스크립트가 강제).
+- **`crafting-ext.csv`·`day-curve-ext.csv`는 확장(31일~) 전용 — MVP 임포트 대상에서 제외한다**(데이터 계약 예외). 단 v24.1부터 crafting-ext도 id·`item_id:count` 형식이므로 확장 승격 시 출력 2종(seolpungseon·frost_bell_rope)을 items.csv에 등재만 하면 된다.
+- **accessories.csv는 수치 컬럼이 정본**(move_speed_bonus 등 7열) — `effect_ko`는 표시용. 스택 상한(체온 합연산 −35%·크리 합산 25%)은 GDD 6-12 검증 절이 정본.
 - **`-1` = 불가/해당 없음** (빈칸 = 값 미정과 구분). 예: mineral-tiers `claw_t1_sec=-1` = 그 발톱으론 못 캔다.
 - **⚠️ id 함정**: `ice_core`(얼음 저장고 — 모듈)와 `cold_wave_core`(한파 코어 — 냉각 설비)는 **다른 물건**. modules.csv 기존 id 5종은 개발 참조 보호를 위해 승계했다.
 

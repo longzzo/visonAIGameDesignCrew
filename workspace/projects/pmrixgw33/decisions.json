@@ -353,5 +353,15 @@
   "ts": 1784287921825,
   "text": "이무기 소환(얼음 제단 봉헌) = 서리정수x2 + 얼음강철 주괴x2 + 얼음 조각x10. 근거 = GDD 6-5 조합식 전체표 + 6-11 원석 환산 4(주괴2 x 원석2). GDD 6-9의 \"얼음강철x5\"는 오기로 교정됨. 제작 항목 총수 = 53종(구 51종은 v20/v21 냉기원 2종 반영 누락).",
   "source": "개발 검수 회신 v24 [메인 헤드 확정]"
+ },
+ {
+  "ts": 1784294212282,
+  "text": "레거시 id 마이그레이션 정본 = kit/data/id-migration.csv(27행). gangcheori는 도메인 분리: 개체(킬·도감·드랍)=gangcheol / 보스전(격퇴 플래그·재소환)=gangcheol_boss — 최초 격퇴 플래그는 30일차 내습 포함 gangcheol_boss 도메인. 제련 레시피 id = smelting.csv id 열(smelt_iron/smelt_copper/smelt_icesteel).",
+  "source": "개발 회신 v24.1 [메인 헤드 확정]"
+ },
+ {
+  "ts": 1784294212283,
+  "text": "여우비 부적(fox_rain_charm)은 오너 기각(7/14 22:47)으로 삭제 확정 — 대체재 없음. 세이브: 보유분 1개당 yokai_tear:3 환불 후 폐기. 드랍 기계 정본 = drops.csv 단일(tears+sig_drop+extra_drops), bosses.drops_ko는 표시용 — 임포터 금독.",
+  "source": "개발 회신 v24.1 [메인 헤드 확정]"
  }
 ]
