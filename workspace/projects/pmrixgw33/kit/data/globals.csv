@@ -68,3 +68,8 @@ layer_t1_depth,45,tile,상층 T1 하단 깊이(지표 기준) — balance 검증
 layer_t2_depth,90,tile,중층 T2 하단 깊이 — 얼음 조각·철·구리
 layer_t3_depth,135,tile,심층 T3 하단 깊이 — 진입=경계 빙암(경도3)=4-4 유일 하드 게이트(T2 발톱 필수). 어둑시니 상주
 bedrock_depth,140,tile,경계암 하단 = 맵 끝(surface_y 20 + 140 = 160 검증)
+multi_hit_defense,first_tick,rule,다단 히트기 방어 적용(v23) — 첫 틱에만 방어력 차감(최소1 보장·6-12) 나머지 틱은 방어 무시. 풀히트 시 '총피해-방어1회'와 수학적으로 동일하고 중도 이탈 시 자연스럽다
+boss_save_policy,no_serialize,rule,보스전 중 수동 저장 잠금 + 활성 보스 미직렬화(v23 확정 A안) — 구버전 세이브의 activeBoss는 읽되 무시
+boss_night_spawn,discard,rule,보스 소환 시 그날 밤 잔여 일반 스폰 폐기·격퇴/도주 후에도 재개 없음(v23) — 보스 밤은 보스가 주인공. 눈물 수급은 보스 확정 동봉이 대체(6-9)
+baekjung_wave_overflow,queue_until_dawn,rule,백중 웨이브 초과분 처리(v23 A안) — 대기열 보관 후 자리 나면 스폰. 새벽 도주 시점에 잔여 폐기. 총12·조합 보장이 눈물 경제와 까치 조건의 전제
+magpie_nest_limit,1,count,까치 둥지 맵당 1개 제한(v23) — 까치 1마리·보관함 1개라 복수 둥지는 무의미. 철거 시 까치 비활성·재설치 시 다음 아침 복귀(획득 플래그는 영구 저장)
