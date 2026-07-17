@@ -1,4 +1,4 @@
-station,output_ko,input,fuel_coal,time_sec_per_ingot,batch_cap,note
-화로,철 주괴,철 광석x2,1,20,6,풀배치 120초 방치 — 무쇠 발톱 재료 1배치
-화로,구리 주괴,구리 광석x2,1,20,6,철과 동일 규격 — 구현 1벌
-용광로,얼음강철 주괴,얼음강철 원석x2,2,45,4,상위 제련 석탄 2배 — 얼음 모루 재료 1배치
+station_id,output_id,output_ko,input_id,input_count,fuel_coal,time_sec_per_ingot,batch_cap,note
+furnace,iron_ingot,철 주괴,iron_ore,2,1,20,6,풀배치 120초 방치 — 무쇠 발톱 재료 1배치
+furnace,copper_ingot,구리 주괴,copper_ore,2,1,20,6,철과 동일 규격 — 구현 1벌
+blast_furnace,icesteel_ingot,얼음강철 주괴,icesteel_ore,2,2,45,4,상위 제련 석탄 2배 — 얼음 모루 재료 1배치

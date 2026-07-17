@@ -76,3 +76,6 @@ magpie_nest_limit,1,count,까치 둥지 맵당 1개 제한(v23) — 까치 1마�
 crafting_b_ui,hidden,rule,MVP 범위 B 레시피(crafting-tree.mvp_scope=B)는 제작 UI 미노출 — 데이터 로드만 한다. 오너 확정(v23 2026-07-16): MVP 보스 = 도깨비 대장·강철이 2종. B 사슬(무쇠 미끼 더미·얼음 제단 봉헌·신기전 화차·빙정 냉각로)은 31일~ 확장에서 승격
 baekjung_wave_size,4,count,백중 웨이브 1회 스폰 수 — 4마리 x 3웨이브(GDD 6-10)
 baekjung_wave_times_sec,0/150/300,sec,백중 웨이브 시작 시각(일몰 기준) — 총 12마리·조합은 day-curve d15 spawn_composition이 정본
+invasion_boss_in_cap,1,rule,내습 보스(30일차 강철이 고정)는 밤 스폰 상한에 포함한다(v24 — GDD 6-7 검증 소싱: 8마리 = 일반 7 + 강철이 1). 소환 보스(boss_night_spawn=discard)와 다른 규칙이니 혼동 금지 — 내습은 일반 요괴와 공존하고, 소환은 일반 스폰을 정지시킨다
+crafting_material_format,item_id:count,rule,crafting-tree/bosses/chests의 재료 표기 규칙(v24) — 콤마 구분. id는 items.csv가 유일 정본
+item_id_rule,snake_case,rule,아이템 id 명명(v24) — 일반 명사는 의미 영어(iron_ore·stone·lantern) 한국 고유 문화어는 로마자 음차(hapjukseon·haetae_statue·yeouiju). 전부 snake_case. 한번 정한 id는 세이브 호환 때문에 변경 금지

@@ -15,21 +15,39 @@
 - `player-combat.csv` — 발톱 3티어(맨발톱·무쇠·얼음강철) + 무기 2종(도깨비 방망이·서리발톱 장갑) + 진화 무기 철선(E1) 공격력·DPS·넉백 + 밤 540초 검증 (GDD 6-7).
 - `mineral-tiers.csv` — 자원 11종 × 발톱 3티어 채굴 매트릭스(초/타일·빈도·게이트) (GDD 6-4).
 - `equipment(armor)`은 crafting-tree.csv에 포함, `accessories.csv`(악세 6종 — 상자 전용)·`chests.csv`(보물 상자 20개 배치) 신설 (GDD 6-12).
-- `crafting-tree.csv` — 조합식 51종(v12: +진화 4 — 철선·쇠 방울 금줄·무쇠 체·서리 등불)(v11: +유틸 2 — 합죽선·방울 금줄)(v8: +장비 9)(v7: 제작대 4단(+용광로)·발톱 2·단열 3·꾸미기 5, 곡괭이 폐지) + `smelting.csv` — 제련 3종(광석 2+석탄=주괴 1): 제작대 3·도구 3·설치물 3(등불·체·해태 석상)·무기 2·무쇠 차열벽·냉기 장치·모듈 5 (GDD 6-5).
+- `crafting-tree.csv` — **조합식 53종**(v24 교정 — 구 '51종'은 v20/v21 냉기원 2종(물단지·얼음 항아리) 신설 반영 누락. GDD 6-5도 동시 교정)(v12: +진화 4 — 철선·쇠 방울 금줄·무쇠 체·서리 등불)(v11: +유틸 2 — 합죽선·방울 금줄)(v8: +장비 9)(v7: 제작대 4단(+용광로)·발톱 2·단열 3·꾸미기 5, 곡괭이 폐지) + `smelting.csv` — 제련 3종(광석 2+석탄=주괴 1): 제작대 3·도구 3·설치물 3(등불·체·해태 석상)·무기 2·무쇠 차열벽·냉기 장치·모듈 5 (GDD 6-5).
 - `day-curve-ext.csv` — **확장(31~50일) 전용** 곡선 + 용해(ice_melt_dps)·열기 스며듦(heat_seep_pct, 실효 하강=0.15×(1+짚−스며듦)) — MVP day-curve.csv 무수정 원칙(확장 설계서 §3④).
 - `crafting-ext.csv` — **확장 전용** 진화 2단계 2종(설풍선·서리 금줄 — 얼음 모루·원본 소모) — MVP crafting-tree.csv 무수정 원칙(확장 설계서 §3⑤).
 - `seal-whitelist.csv` — **밀폐 인정 화이트리스트**(요소별 seals 0/1) — SealSystem이 SO로 읽어 판정, 코드에 타일 종류 하드코딩 금지. 표에 없는 신규 설치물 기본값은 0(안전 기본값). GDD 4-7 표가 정본, 이 CSV는 그 기계 판독본(v15).
 - `modules.csv` — 석빙고 핵심 모듈 5종 건설 비용 (2026-07-14 오너 승인 확정).
 - `drops.csv` — 요괴별 눈물·시그니처 드랍·확률·용도 (GDD 6-7·6-8).
 - `bosses.csv` — 소환 보스 4종(도깨비 대장·어미 불가사리·이무기·강철이) 소환템·HP·패턴·확정 드랍·교전 검증 (GDD 6-9).
+- `items.csv` — **(v24 신설) 아이템 마스터 85종 — 전 id의 유일 정본**. `id,name_ko,category,max_stack,mvp_scope,note`. category 8종: resource 12 · material 13 · tool 3 · weapon 4 · equipment 15 · station 4 · placeable 30 · summon 4. max_stack = 장착물 1 / 나머지 99 / `bare_claw`만 0(신체).
 
-## 열 의미 규정 (v23.1 — 이중 적용 금지)
-- **파일 구성 = CSV 15종 + 이 README = 16파일.** (v23 회신의 "16종"은 README 포함 표기였다 — 이후 "CSV 15종"으로 통일)
-- **요괴 id 표준**: 어둑시니 = `eoduksini` (yokai-stats·day-curve spawn_composition 공통. `eoduk` 축약 표기는 폐지)
-- **day-curve.spawn_composition** = 그 밤의 **최종 스폰 조합**(배율 적용 후). 총합 = night_yokai_count × spawn_mult (max_active 상한). d15 백중 = `club:3,bulgasari:2,yakwang:7` — GDD 6-10 고정 조합(ΣHP 3,900).
-- **day-curve.drop_mult** = 예약 훅(전 행 1.0 고정). **백중 드랍 배율은 globals `baekjung_tears_mult`(1.5)·`baekjung_sig_mult`(2)가 유일 정본** — drop_mult와 중복 적용 금지.
-- **crafting-tree.mvp_scope** = A/B. **B는 제작 UI 미노출·데이터 로드만**(globals `crafting_b_ui`). 판정 규칙: 재료 사슬이 B급 보스(어미 불가사리·이무기) 소환/드랍에 닿으면 자동 B. 가뭄 부적·한파 코어는 강철이(A) 사슬이라 A.
-- **bosses.mvp_scope** = A(MVP 구현: 도깨비 대장·강철이) / B(CSV·FSM 파라미터만: 어미 불가사리·이무기) — 오너 확정 2026-07-16.
+## 데이터 계약 (v24 — Unity 임포트 전 필독)
+- **파일 = CSV 16종 + 이 README = 17파일** (v24에서 `items.csv` 1종 신설). v23의 "16종"은 README 포함 표기였다 — v24부터 **CSV 16종 / 문서 1** 로 센다.
+- **`items.csv`가 전 아이템의 유일한 id 정본(85종)**. 모든 CSV·코드·세이브는 이 id를 참조하고 **한글 이름으로 매칭하지 않는다**. 정본 절 = GDD 6-4b.
+- **id 명명**: 전부 snake_case. 일반 명사 = 의미 영어(`iron_ore`·`stone`·`lantern`) / 한국 고유 문화어 = 로마자 음차(`hapjukseon`·`haetae_statue`·`yeouiju`·`eoduksini`).
+- **id 변경 금지** — 세이브·에셋이 id로 묶인다. 개명 시 새 id 추가 + 구 id 유지(마이그레이션 표 동반).
+- **재료 표기 = `item_id:count` 콤마 구분** (`stone:20,clay:12`). 구 한글 표기(`돌x20+점토x12`)는 v24에서 폐지.
+- **`-1` = 불가/해당 없음** (빈칸 = 값 미정과 구분). 예: mineral-tiers `claw_t1_sec=-1` = 그 발톱으론 못 캔다.
+- **⚠️ id 함정**: `ice_core`(얼음 저장고 — 모듈)와 `cold_wave_core`(한파 코어 — 냉각 설비)는 **다른 물건**. modules.csv 기존 id 5종은 개발 참조 보호를 위해 승계했다.
+
+## 열 의미 규정 (이중 적용 금지)
+- **요괴 id 표준**: 어둑시니 = `eoduksini` (yokai-stats·day-curve 공통. `eoduk` 축약은 폐지)
+- **day-curve.spawn_composition** = 그 밤의 **최종 스폰 조합**(배율 적용 후). 총합 = night_yokai_count × spawn_mult (max_active 상한).
+  - d15 백중 = `club:3,bulgasari:2,yakwang:7` — GDD 6-10 고정 조합(ΣHP 3,900).
+  - **d30 = `club:2,bulgasari:2,yakwang:1,eoduksini:2,gangcheol:1` — 강철이가 상한 8에 포함된다**(v24 교정). 근거 = GDD 6-7 밤 540초 검증 "30일차 8마리(방망이2+불가사리2+야광귀1+어둑시니2+강철이1) Σ실효 6,150 ÷ 30 = 205초, 여유 62.0%". 실효 HP를 더하면 정확히 6,150(어둑시니는 등불 실효 800).
+- **내습 보스 ≠ 소환 보스** (v24 — 혼동 주의):
+  - **내습**(30일차 강철이 고정) = `invasion_boss_in_cap=1` — **상한 8에 포함**, 일반 요괴 7과 **공존**한다.
+  - **소환**(씨름 샅바·무쇠 미끼·얼음 제단·가뭄 부적) = `boss_night_spawn=discard` — 그날 밤 **일반 스폰 정지·잔여 폐기**.
+- **day-curve.drop_mult** = 예약 훅(전 행 1.0 고정). **백중 드랍 배율은 globals `baekjung_tears_mult`(1.5)·`baekjung_sig_mult`(2)가 유일 정본** — 중복 적용 금지.
+- **mvp_scope** = A(MVP 구현) / B(CSV·FSM 파라미터만, **제작 UI 미노출** — globals `crafting_b_ui=hidden`). 판정 규칙: 재료 사슬이 B급 보스(어미 불가사리·이무기)의 소환/드랍에 닿으면 자동 B. 가뭄 부적·한파 코어는 강철이(A) 사슬이라 A. 오너 확정 2026-07-16: MVP 보스 = 도깨비 대장·강철이 2종.
+- **조건부 수치는 컬럼으로 분리**(v24 — 자유 텍스트 금지):
+  - yokai-stats: `wall_dps_default`(돌·흙 차열벽·철 타일) / `wall_dps_ice`(얼음 타일) / `wall_dps_iron_wall`(무쇠 차열벽) — 불가사리 16/32/**0**(면역).
+  - yokai-stats: `dmg_taken_mult`+`dmg_taken_condition` — 어둑시니 2.0/`lantern_radius`(등불 반경 내 피해 2배 = 실효 800). `contact_dmg`(14) vs `contact_dmg_no_lantern`(21).
+  - yokai-stats: `steal_slots`·`steal_max_items` — 야광귀 1슬롯·최대 10개.
+  - mineral-tiers: `min_claw_tier`+`gate_type`(none/soft/hard) — '불가' 문자열 폐지.
 
 ## 공식 (GDD 6-3)
 - 더위 단계 = ceil(Day / 10)
