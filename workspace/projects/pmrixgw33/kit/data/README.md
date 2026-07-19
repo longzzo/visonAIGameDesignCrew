@@ -15,14 +15,14 @@
 - `player-combat.csv` — 발톱 3티어(맨발톱·무쇠·얼음강철) + 무기 2종(도깨비 방망이·서리발톱 장갑) + 진화 무기 철선(E1) 공격력·DPS·넉백 + 밤 540초 검증 (GDD 6-7).
 - `mineral-tiers.csv` — **자원 12종** × 발톱 3티어 채굴 매트릭스(초/타일·빈도·게이트) (GDD 6-4). v24.1 교정: 구 '11종'은 v7 점토 추가 전 수치. GDD 4-1 총 자원은 13종인데 [드랍] 요괴 눈물은 채굴 대상이 아니라 이 표에서 제외 — 13 − 1 = 12행이 정합.
 - `equipment(armor)`은 crafting-tree.csv에 포함, `accessories.csv`(악세 6종 — 상자 전용)·`chests.csv`(보물 상자 20개 배치) 신설 (GDD 6-12).
-- `crafting-tree.csv` — **조합식 53종**(v24 교정 — 구 '51종'은 v20/v21 냉기원 2종(물단지·얼음 항아리) 신설 반영 누락. GDD 6-5도 동시 교정)(v12: +진화 4 — 철선·쇠 방울 금줄·무쇠 체·서리 등불)(v11: +유틸 2 — 합죽선·방울 금줄)(v8: +장비 9)(v7: 제작대 4단(+용광로)·발톱 2·단열 3·꾸미기 5, 곡괭이 폐지) + `smelting.csv` — 제련 3종(광석 2+석탄=주괴 1): 제작대 3·도구 3·설치물 3(등불·체·해태 석상)·무기 2·무쇠 차열벽·냉기 장치·모듈 5 (GDD 6-5).
+- `crafting-tree.csv` — **조합식 54종**(v26 +벽지)(v24 교정 — 구 '51종'은 v20/v21 냉기원 2종(물단지·얼음 항아리) 신설 반영 누락. GDD 6-5도 동시 교정)(v12: +진화 4 — 철선·쇠 방울 금줄·무쇠 체·서리 등불)(v11: +유틸 2 — 합죽선·방울 금줄)(v8: +장비 9)(v7: 제작대 4단(+용광로)·발톱 2·단열 3·꾸미기 5, 곡괭이 폐지) + `smelting.csv` — 제련 3종(광석 2+석탄=주괴 1): 제작대 3·도구 3·설치물 3(등불·체·해태 석상)·무기 2·무쇠 차열벽·냉기 장치·모듈 5 (GDD 6-5).
 - `day-curve-ext.csv` — **확장(31~50일) 전용** 곡선 + 용해(ice_melt_dps)·열기 스며듦(heat_seep_pct, 실효 하강=0.15×(1+짚−스며듦)) — MVP day-curve.csv 무수정 원칙(확장 설계서 §3④).
 - `crafting-ext.csv` — **확장 전용** 진화 2단계 2종(설풍선·서리 금줄 — 얼음 모루·원본 소모) — MVP crafting-tree.csv 무수정 원칙(확장 설계서 §3⑤).
 - `seal-whitelist.csv` — **밀폐 인정 화이트리스트**(요소별 seals 0/1) — SealSystem이 SO로 읽어 판정, 코드에 타일 종류 하드코딩 금지. 표에 없는 신규 설치물 기본값은 0(안전 기본값). GDD 4-7 표가 정본, 이 CSV는 그 기계 판독본(v15).
 - `modules.csv` — 석빙고 핵심 모듈 5종 건설 비용 (2026-07-14 오너 승인 확정).
 - `drops.csv` — 요괴별 눈물·시그니처 드랍·확률·용도 (GDD 6-7·6-8).
 - `bosses.csv` — 소환 보스 4종(도깨비 대장·어미 불가사리·이무기·강철이) 소환템·HP·패턴·확정 드랍·교전 검증 (GDD 6-9).
-- `items.csv` — **(v24 신설) 아이템 마스터 85종 — 전 id의 유일 정본**. `id,name_ko,category,max_stack,mvp_scope,note`. category 8종: resource 12 · material 13 · tool 3 · weapon 4 · equipment 15 · station 4 · placeable 30 · summon 4. max_stack = 장착물 1 / 나머지 99 / `bare_claw`만 0(신체).
+- `items.csv` — **(v24 신설 · v26 갱신) 아이템 마스터 86종 — 전 id의 유일 정본**. `id,name_ko,category,max_stack,mvp_scope,note`. category 8종: resource 12 · material 13 · tool 3 · weapon 4 · equipment 15 · station 4 · placeable 31(v26 +벽지) · summon 4. max_stack = 장착물 1 / 나머지 99 / `bare_claw`만 0(신체).
 
 ## 데이터 계약 (v24 — Unity 임포트 전 필독)
 - **파일 = CSV 17종 + 이 README = 18파일** (v24 `items.csv` + v24.1 `id-migration.csv` 신설). v23의 "16종"은 README 포함 표기였다 — v24부터 **CSV 16종 / 문서 1** 로 센다.
@@ -35,6 +35,14 @@
 - **제련 레시피 id = smelting.csv `id` 열**(smelt_iron·smelt_copper·smelt_icesteel — 진행 중 제련 세이브의 recipeId). output_id·행 순서로 식별 금지. **계약: 같은 station_id에 속한 행들의 batch_cap은 반드시 동일**(화로 6·용광로 4 — 검증 스크립트가 강제).
 - **`crafting-ext.csv`·`day-curve-ext.csv`는 확장(31일~) 전용 — MVP 임포트 대상에서 제외한다**(데이터 계약 예외). 단 v24.1부터 crafting-ext도 id·`item_id:count` 형식이므로 확장 승격 시 출력 2종(seolpungseon·frost_bell_rope)을 items.csv에 등재만 하면 된다.
 - **accessories.csv는 수치 컬럼이 정본**(move_speed_bonus 등 7열) — `effect_ko`는 표시용. 스택 상한(체온 합연산 −35%·크리 합산 25%)은 GDD 6-12 검증 절이 정본.
+- **`output_count`(v26 신설) = 1회 제작 산출 개수.** `crafting-tree.csv`의 `materials` 바로 뒤에 있다. **기존 53행은 전부 `1`**, 벽지만 **`16`**이다 — 1회 제작에 여러 개가 나오는 첫 사례이므로 **제작 로직이 이 값을 반드시 읽어야 한다**(안 읽으면 벽지가 1장씩만 나온다).
+- **벽지(`wallpaper`) 규칙 (v26 신설)** — 정본 절 = GDD 8-3:
+  - `wallpaper_coverage=100` — 밀폐 구역의 빈 칸을 **100% 덮어야 발동**("전부 아니면 0", 부분 효과 없음). **지하 자연 배경벽(`t_bg_*`)이 이미 있는 칸은 덮인 것으로 계수**한다.
+  - `wallpaper_coldsource_bonus=25` — 발동 시 그 구역 **냉기원 지속시간 +25%**(물단지 180→225초 · 얼음 항아리 얼음 1개당 300→375초). ⚠️ **얼음 저장고·빙정 냉각로는 적용 대상이 아니다** — 연료를 먹지 않는 영구 설치물이라 duration 파라미터 자체가 없고 `cold_cap_*` 상한만 존재한다.
+  - `wallpaper_remove_rule=restore_original` — 제거 시 **원래 있던 것으로 복원**(지하 = 자연 배경벽 / 지상 = 빈 칸).
+  - **온도 산식(4-7)·냉기원 상한(`cold_cap_*` 25/50/100)은 불변.** 벽지는 "얼마나 시원한가"가 아니라 "얼마나 오래 가는가"만 바꾼다.
+  - **밀폐 판정 불참**(`seal-whitelist.csv`의 `배경벽(벽지)=0`) — 벽지만 발라서 밀폐를 만들 수는 없다.
+  - 렌더: 배경 전용 Tilemap 1장, **SortingLayer를 전경과 분리**할 것(안 나누면 지상 건물 내부가 가려진다).
 - **`-1` = 불가/해당 없음** (빈칸 = 값 미정과 구분). 예: mineral-tiers `claw_t1_sec=-1` = 그 발톱으론 못 캔다.
 - **⚠️ id 함정**: `ice_core`(얼음 저장고 — 모듈)와 `cold_wave_core`(한파 코어 — 냉각 설비)는 **다른 물건**. modules.csv 기존 id 5종은 개발 참조 보호를 위해 승계했다.
 
