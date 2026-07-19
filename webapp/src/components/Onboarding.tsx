@@ -47,7 +47,7 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
         // 로컬은 키 불필요 — 설치·모델 존재만 안내
         const info = await getModelsInfo();
         if (!info.providers.ollama) {
-          setMsg("⚠️ Ollama가 감지되지 않았습니다. ollama.com에서 설치하고 `ollama pull qwen2.5:7b` 후 다시 시도하세요.");
+          setMsg("⚠️ Ollama가 감지되지 않았습니다. ollama.com에서 설치하고 `ollama pull qwen3:8b` 후 다시 시도하세요.");
           setBusy(false);
           return;
         }
@@ -161,8 +161,8 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
             )}
             {provider === "ollama" && (
               <p className="onb-p dim">
-                Ollama가 설치돼 있고 모델(예: <code>qwen2.5:7b</code>)이 받아져 있으면 바로 시작됩니다.
-                아직이면 <b>ollama.com</b>에서 설치 후 <code>ollama pull qwen2.5:7b</code>.
+                Ollama가 설치돼 있고 모델(예: <code>qwen3:8b</code>)이 받아져 있으면 바로 시작됩니다.
+                아직이면 <b>ollama.com</b>에서 설치 후 <code>ollama pull qwen3:8b</code>.
               </p>
             )}
             {msg && <div className="onb-msg">{msg}</div>}

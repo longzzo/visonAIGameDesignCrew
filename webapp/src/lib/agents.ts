@@ -554,7 +554,11 @@ export function officeBgSdPrompt(request: string, overview: string): string {
  * PM 오늘의 브리핑 — 매일 아침 한 번 눌러 현황·오늘 할 일·리스크를 받아보는
  * 데일리 스탠드업 문서. GDD 전문과 최근 보고서 목록이 근거다.
  */
-export function briefingPrompt(projectName: string, gddFull: string, reportLines: string, knowledge = ""): string {
+/**
+ * @param english true면 **영어로** 브리핑을 생성한다 (뒤에 koTranslatePrompt로 번역하는 2단 방식).
+ *   모델이 한국어를 짜내다 코드스위칭하는 걸 피하는 오너 제안(2026-07-16). 비용 2배라 옵션이다.
+ */
+export function briefingPrompt(projectName: string, gddFull: string, reportLines: string, knowledge = "", english = false): string {
   const today = new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", weekday: "short" });
   return [
     `너는 PM 디렉터다. 오너가 출근해서 "오늘의 브리핑"을 요청했다. 오늘: ${today}`,
@@ -1386,6 +1390,32 @@ export function chatPrompt(agent: AgentDef, context: string, question: string): 
  * (2026-07-15 실측: 규칙을 넣은 브리핑이 "点·雪地·成立"을 흘렸다). 규칙은 1차, 탐지는 2차,
  * 이 복구가 3차 방어다. **번역이 아니라 치환** — 섞인 단어만 한국어로 바꾸고 나머지는 손대지 않는다.
  */
+/**
+ * 영어→한국어 번역 패스 (오너 제안 2026-07-16).
+ *
+ * 발상: 모델이 한국어를 "짜내다" 코드스위칭을 일으켜 今天·dropping이 튄다. 잘하는 언어(영어)로
+ * 생성하게 하고 **번역만 따로** 시키면 그 부담이 사라진다 — 번역은 생성보다 쉬운 과제라 같은 모델도 안정적이다.
+ * 비용은 2배(생성 1콜 + 번역 1콜)이므로 브리핑처럼 호출이 드문 곳에만 쓴다.
+ */
+export function koTranslatePrompt(englishText: string, style = ""): string {
+  return [
+    `아래 영어 문서를 한국어로 번역해라. 너는 번역가다 — 내용을 새로 쓰거나 요약·추가하지 마라.`,
+    ``,
+    `[영어 원문]`,
+    englishText.slice(0, 6000),
+    ``,
+    style.trim() ? `[문체 지침]\n${style.trim().slice(0, 600)}\n` : ``,
+    `[번역 규칙]`,
+    `- 마크다운 구조(헤딩·목록·볼드)와 수치는 원문 그대로 유지해라.`,
+    `- 영어 기술용어(HUD, Unity, DPS 등)와 코드 식별자(ice_shard 등)는 번역하지 말고 그대로 둔다.`,
+    `- 게임 고유명사(석빙고, 어둑시니 등)는 한국어 원래 이름을 쓴다.`,
+    KO_RULE,
+    `- 번역문 전문만 출력해라. 설명·사족·코드펜스·도구 호출 금지.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 export function koRepairPrompt(text: string, leak: string): string {
   return [
     `아래 글은 한국어 문서인데 다른 언어 단어가 섞여 들어갔다 (감지: ${leak}).`,
