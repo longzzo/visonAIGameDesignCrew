@@ -965,9 +965,22 @@ function stripInternalUrls(s: string): string {
   );
 }
 
-/** 볼트의 .md 파일 순회 — .obsidian/휴지통/산출물 폴더는 건너뛴다 */
+/**
+ * 볼트의 .md 파일 순회 — .obsidian/휴지통/산출물 폴더는 건너뛴다.
+ *
+ * `비전엔진 개발`은 **앱 자체의 엔지니어링 기록**(놓친 것 로그·프로파일 수치)이라 게임 기획 회의에
+ * 딸려 들어가면 오염이 된다 — 사서 검색에서 항상 제외한다 (오너 지시 2026-07-17).
+ */
+const LIBRARIAN_SKIP_DIRS = ["비전엔진 개발"];
 function walkVaultMd(root: string, includeExport = false): string[] {
-  const skip = new Set([".obsidian", ".trash", ".git", "node_modules", ...(includeExport ? [] : [OBSIDIAN_EXPORT_DIR])]);
+  const skip = new Set([
+    ".obsidian",
+    ".trash",
+    ".git",
+    "node_modules",
+    ...LIBRARIAN_SKIP_DIRS,
+    ...(includeExport ? [] : [OBSIDIAN_EXPORT_DIR]),
+  ]);
   const out: string[] = [];
   const stack = [root];
   let guard = 0;
