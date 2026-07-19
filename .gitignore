@@ -39,3 +39,6 @@ config/notion-edits/
 config/agent-growth.json
 # 오너의 디자인 레퍼런스 이미지 (비공개)
 Sample/
+
+# 노션 맵 백업 — 로컬 안전망(시크릿 없음이나 워크스페이스 id 포함)
+config/notion-map-backups/
