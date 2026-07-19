@@ -1939,3 +1939,52 @@ button { font-family: inherit; }
   white-space: pre-wrap; word-break: break-word; font-size: 11px; color: var(--text-dim);
   background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 7px; margin: 5px 0 0; max-height: 180px; overflow: auto;
 }
+
+/* 🔎 네이버 리서치 패널 */
+.naver-badge { border-color: rgba(52, 211, 153, 0.4); color: #6ee7b7; cursor: pointer; }
+.naver-badge:hover { border-color: #34d399; color: #fff; }
+.naver-card { max-width: 760px; width: 92vw; }
+.naver-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.naver-tabs button {
+  background: transparent; border: 1px solid var(--border); color: var(--text-dim);
+  border-radius: 8px; padding: 5px 11px; font-size: 12.5px; cursor: pointer; font-family: inherit;
+}
+.naver-tabs button.on { background: var(--accent-soft); color: var(--accent-2); border-color: rgba(139,124,246,0.45); }
+.naver-usage { font-size: 11.5px; margin-bottom: 8px; }
+.naver-exhausted { color: #fbbf24; }
+.naver-msg { font-size: 12.5px; padding: 7px 10px; border-radius: 8px; background: var(--bg-2); border: 1px solid var(--border); margin-bottom: 10px; }
+.naver-row { display: flex; gap: 7px; align-items: center; margin-bottom: 10px; }
+.naver-row input, .naver-row select {
+  background: var(--bg-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 7px 9px; font-size: 13px; font-family: inherit;
+}
+.naver-row input { flex: 1; }
+.naver-row label { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-dim); }
+.naver-row label input { width: 90px; flex: none; }
+.naver-actions { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 12px; }
+.naver-actions .btn { margin-left: auto; }
+.naver-results { max-height: 46vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.naver-item {
+  display: flex; gap: 9px; align-items: flex-start; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: 9px; background: var(--bg-2); cursor: pointer;
+}
+.naver-item.on { border-color: var(--accent); background: var(--accent-soft); }
+.naver-item-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.naver-item-body b { font-size: 13px; }
+.naver-item-body .dim { font-size: 11.5px; line-height: 1.5; }
+.naver-item-body a { font-size: 11px; color: var(--accent-2); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.naver-item-body img { max-width: 120px; border-radius: 6px; margin-bottom: 4px; }
+.naver-chart { margin-top: 6px; color: var(--text); }
+.naver-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; margin-top: 6px; }
+.naver-legend i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+.naver-note { font-size: 11px; margin-top: 6px; }
+.naver-key-state { font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #fbbf24; }
+.naver-key-state.ok { color: #34d399; }
+.naver-steps { font-size: 12px; line-height: 1.9; padding-left: 18px; margin: 0 0 8px; }
+.naver-steps a { color: var(--accent-2); }
+.naver-cmd {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px;
+  font-size: 11px; white-space: pre-wrap; word-break: break-all; color: var(--text-dim); margin: 0 0 10px;
+}
+.naver-caps { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.naver-caps > .dim { font-size: 11.5px; }

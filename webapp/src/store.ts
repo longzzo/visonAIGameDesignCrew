@@ -90,6 +90,7 @@ import {
   type ObsidianStatus,
   type ObsidianNoteInfo,
 } from "./lib/obsidian";
+import { naverResearchBlock } from "./lib/naver";
 import {
   listReports,
   fetchReport,
@@ -391,6 +392,8 @@ interface VEState {
   /** 🗂️ 오류함 — 재시도까지 실패한 게이트웨이 호출 (오너가 나중에 물어볼 수 있게 디스크 보관) */
   failures: FailureItem[];
   failuresOpen: boolean;
+  /** 🔎 네이버 리서치 패널 */
+  naverOpen: boolean;
   /** 개발 착수 킷 */
   kitFiles: KitFile[];
   devKitBusy: boolean;
@@ -541,7 +544,10 @@ interface VEState {
   decideApproval: (id: string, status: "approved" | "rejected", note?: string) => Promise<void>;
   setApprovalAutoRun: (b: boolean) => void;
   loadFailures: () => Promise<void>;
+  /** 임의 마크다운을 보고서함에 저장 (네이버 리서치 등 외부 수집물용) */
+  saveReportFromText: (title: string, markdown: string, agentId?: string) => Promise<void>;
   setFailuresOpen: (b: boolean) => void;
+  setNaverOpen: (b: boolean) => void;
   clearFailures: () => Promise<void>;
   /** 이미 승인된 안건을 지금 실행 (자동 실행이 꺼져 있을 때 수동 착수) */
   /** 이미 승인된 안건을 지금 실행 (force=true는 오너가 중복 실행을 확인한 재실행) */
@@ -1170,6 +1176,7 @@ export const useVE = create<VEState>()((set, get) => {
     pendingApprovalRuns: [],
     failures: [],
     failuresOpen: false,
+    naverOpen: false,
     // 자동 실행은 세션 한정 — 항상 꺼진 상태로 시작한다. 켜둔 채 일괄 결재하면 승인 수만큼
     // 회의가 연쇄 착수되는 사고(2026-07-15 실사고: 11건 연쇄)가 나므로 켜는 행위는 그때그때 명시적으로.
     approvalAutoRun: false,
@@ -1661,6 +1668,28 @@ export const useVE = create<VEState>()((set, get) => {
       } catch {
         /* 사서 실패는 회의를 막지 않는다 */
       }
+      // 🔎 네이버 리서치 — 웹 리서치가 켜져 있으면 국내 검색 근거를 먼저 붙인다.
+      // 한국 게임 시장 자료는 블로그·카페·지식iN이 압도적이라 Brave/DDG보다 네이버가 강하다.
+      // **무료 한도에 닿으면 exhausted로 폴백** — 회의를 멈추지 않고 기존 웹 리서치(web 모드)로 넘어간다(오너 요청).
+      let naverBlock = "";
+      if (st.webResearch) {
+        try {
+          const nr = await naverResearchBlock(req);
+          if (nr.text) {
+            naverBlock = nr.text;
+            pushFeed({ from: "system", kind: "status", text: `🔎 네이버 리서치: 국내 검색 ${nr.used}종에서 근거를 모아 회의에 배포했습니다.` });
+          }
+          if (nr.exhausted) {
+            pushFeed({
+              from: "system",
+              kind: "status",
+              text: `⚠️ 네이버 무료 한도에 도달해 이번 회의 리서치는 웹 검색으로 전환합니다 (한도는 🔎 네이버 패널에서 조정).`,
+            });
+          }
+        } catch {
+          /* 네이버 실패도 회의를 막지 않는다 — 웹 리서치가 그대로 돈다 */
+        }
+      }
       // 🎨 톤앤매너 가이드 — 볼트 정본을 전 섹션 생산 프롬프트에 주입 (오너 지시 2026-07-14: 문체 널뜀 교정)
       let style = "";
       try {
@@ -1669,7 +1698,7 @@ export const useVE = create<VEState>()((set, get) => {
       } catch {
         /* 가이드 실패도 회의를 막지 않는다 */
       }
-      const decisionsText = [decisionsBlock(get().decisions), style, librarian].filter(Boolean).join("\n\n");
+      const decisionsText = [decisionsBlock(get().decisions), style, librarian, naverBlock].filter(Boolean).join("\n\n");
       // 회의 전 스냅샷 — 끝난 뒤 "🔍 변경 확인"(diff)과 "⏪ 되돌리기"의 기준이 된다
       set({ orchBaseline: baseMd, meetingDiffOpen: false });
 
@@ -3332,6 +3361,13 @@ export const useVE = create<VEState>()((set, get) => {
     // 세션 한정 — 저장하지 않는다 (새로고침하면 다시 꺼짐)
     setApprovalAutoRun: (b) => set({ approvalAutoRun: b }),
 
+    saveReportFromText: async (title, markdown, agentId = "research") => {
+      const project = get().activeProject;
+      if (!project) throw new Error("프로젝트가 선택되지 않았습니다");
+      await saveReport(project, agentId, title.slice(0, 110), markdown);
+      await get().loadReports();
+    },
+
     loadFailures: async () => {
       const project = get().activeProject;
       if (!project) return;
@@ -3340,6 +3376,8 @@ export const useVE = create<VEState>()((set, get) => {
     },
 
     setFailuresOpen: (b) => set({ failuresOpen: b }),
+
+    setNaverOpen: (b) => set({ naverOpen: b }),
 
     clearFailures: async () => {
       const project = get().activeProject;

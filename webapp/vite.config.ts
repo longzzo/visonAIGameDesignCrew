@@ -1355,6 +1355,237 @@ function restartGateway(): void {
 
 /* ── 플러그인: Brave 검색 키 등록 (웹앱에서 붙여넣기) ──── */
 
+/* ── 네이버 검색 API (API Hub) ─────────────────────────────
+ * 한국 게임 시장 조사는 Brave/DDG보다 네이버가 압도적으로 강하다 — 블로그·카페·지식iN·뉴스.
+ * 무료 티어: 검색 API 일 25,000회 / 월 775,000회, 데이터랩 월 50,000회.
+ * **한도에 닿으면 조용히 실패하지 않고 exhausted를 돌려준다** — 호출부가 웹 검색으로 자동 폴백한다(오너 요청).
+ */
+const NAVER_CFG = path.resolve(__dirname, "..", "config", "naver.json");
+const NAVER_USAGE = path.resolve(__dirname, "..", "config", "naver-usage.json");
+/** 오너가 건 안전 한도 — 실제 무료 한도보다 낮게 잡아 초과 과금·차단을 피한다 */
+const NAVER_DEFAULT_CAPS = { daily: 20000, monthly: 700000, trendMonthly: 45000 };
+const NAVER_SERVICES = new Set(["blog", "news", "cafearticle", "kin", "image", "encyc", "doc", "webkr", "book", "shop", "errata"]);
+
+function naverCfg(): { clientId?: string; clientSecret?: string; caps?: typeof NAVER_DEFAULT_CAPS } {
+  try {
+    return JSON.parse(fs.readFileSync(NAVER_CFG, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+
+/** 사용량 카운터 — 날짜/월이 바뀌면 자동 리셋 */
+function naverUsage(): { day: string; month: string; daily: number; monthly: number; trendMonthly: number } {
+  const now = new Date();
+  const day = now.toISOString().slice(0, 10);
+  const month = day.slice(0, 7);
+  let u: any = {};
+  try {
+    u = JSON.parse(fs.readFileSync(NAVER_USAGE, "utf-8"));
+  } catch {
+    /* 없으면 새로 */
+  }
+  if (u.day !== day) {
+    u.day = day;
+    u.daily = 0;
+  }
+  if (u.month !== month) {
+    u.month = month;
+    u.monthly = 0;
+    u.trendMonthly = 0;
+  }
+  return { day, month, daily: u.daily ?? 0, monthly: u.monthly ?? 0, trendMonthly: u.trendMonthly ?? 0 };
+}
+
+function naverBump(kind: "search" | "trend"): void {
+  const u = naverUsage();
+  if (kind === "trend") u.trendMonthly += 1;
+  else {
+    u.daily += 1;
+    u.monthly += 1;
+  }
+  try {
+    fs.mkdirSync(path.dirname(NAVER_USAGE), { recursive: true });
+    fs.writeFileSync(NAVER_USAGE, JSON.stringify(u, null, 1), "utf-8");
+  } catch {
+    /* 카운터 실패가 검색을 막지는 않는다 */
+  }
+}
+
+/** 한도 초과 여부 — 초과면 호출부가 웹 검색으로 폴백한다 */
+function naverExhausted(kind: "search" | "trend"): string {
+  const caps = { ...NAVER_DEFAULT_CAPS, ...(naverCfg().caps ?? {}) };
+  const u = naverUsage();
+  if (kind === "trend") return u.trendMonthly >= caps.trendMonthly ? `데이터랩 월 한도(${caps.trendMonthly}) 도달` : "";
+  if (u.daily >= caps.daily) return `일 한도(${caps.daily}) 도달`;
+  if (u.monthly >= caps.monthly) return `월 한도(${caps.monthly}) 도달`;
+  return "";
+}
+
+function naverApiPlugin(): Plugin {
+  return {
+    name: "vision-engine-naver-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/naver", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          const sub = (req.url ?? "/").split("?")[0].replace(/\/$/, "") || "/";
+          try {
+            const cfg = naverCfg();
+            const hasKey = !!(cfg.clientId && cfg.clientSecret);
+
+            // 상태 — 키 등록 여부와 사용량(키 자체는 절대 내보내지 않는다)
+            if (sub === "/status" && req.method === "GET") {
+              const caps = { ...NAVER_DEFAULT_CAPS, ...(cfg.caps ?? {}) };
+              const u = naverUsage();
+              res.end(JSON.stringify({ ok: true, configured: hasKey, usage: u, caps, exhausted: naverExhausted("search") }));
+              return;
+            }
+
+            // 키 등록 — 오너가 앱에서 직접 입력한다 (서버에만 저장, 응답에 키 없음)
+            if (sub === "/key" && req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
+              const j = JSON.parse((await readBody(req)) || "{}");
+              const clientId = String(j.clientId ?? "").trim();
+              const clientSecret = String(j.clientSecret ?? "").trim();
+              if (!clientId || !clientSecret) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: "clientId와 clientSecret이 모두 필요합니다" }));
+                return;
+              }
+              const next = { ...cfg, clientId, clientSecret };
+              if (j.caps && typeof j.caps === "object") next.caps = { ...NAVER_DEFAULT_CAPS, ...j.caps };
+              fs.mkdirSync(path.dirname(NAVER_CFG), { recursive: true });
+              fs.writeFileSync(NAVER_CFG, JSON.stringify(next, null, 1), "utf-8");
+              res.end(JSON.stringify({ ok: true, configured: true }));
+              return;
+            }
+
+            // 한도만 변경
+            if (sub === "/caps" && req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
+              const j = JSON.parse((await readBody(req)) || "{}");
+              const caps = { ...NAVER_DEFAULT_CAPS, ...(cfg.caps ?? {}) };
+              for (const k of ["daily", "monthly", "trendMonthly"] as const) {
+                if (typeof j[k] === "number" && j[k] > 0) caps[k] = Math.round(j[k]);
+              }
+              fs.mkdirSync(path.dirname(NAVER_CFG), { recursive: true });
+              fs.writeFileSync(NAVER_CFG, JSON.stringify({ ...cfg, caps }, null, 1), "utf-8");
+              res.end(JSON.stringify({ ok: true, caps }));
+              return;
+            }
+
+            if (!hasKey) {
+              res.end(JSON.stringify({ ok: false, needKey: true, error: "네이버 API 키가 등록되지 않았습니다" }));
+              return;
+            }
+
+            // 검색 — /search?type=blog&query=…
+            if (sub === "/search" && req.method === "POST") {
+              if (rateLimited(req, res, "네이버 검색", 300)) return;
+              const j = JSON.parse((await readBody(req)) || "{}");
+              const type = String(j.type ?? "blog");
+              const query = String(j.query ?? "").trim();
+              if (!NAVER_SERVICES.has(type) || !query) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: "type/query 확인 필요" }));
+                return;
+              }
+              const cap = naverExhausted("search");
+              if (cap) {
+                // 폴백 신호 — 호출부가 웹 검색으로 넘어간다
+                res.end(JSON.stringify({ ok: false, exhausted: true, error: cap }));
+                return;
+              }
+              const qs = new URLSearchParams({
+                query,
+                display: String(Math.min(100, Math.max(1, Number(j.display) || 10))),
+                start: String(Math.min(1000, Math.max(1, Number(j.start) || 1))),
+              });
+              if (j.sort) qs.set("sort", String(j.sort));
+              if (type === "image" && j.filter) qs.set("filter", String(j.filter));
+              const r = await fetch(`https://openapi.naver.com/v1/search/${type}?${qs}`, {
+                headers: { "X-Naver-Client-Id": cfg.clientId!, "X-Naver-Client-Secret": cfg.clientSecret! },
+                signal: AbortSignal.timeout(15000),
+              });
+              const body = await r.json().catch(() => null);
+              if (!r.ok) {
+                // 인증·한도 오류도 폴백 대상 — 회의가 멈추면 안 된다
+                res.end(
+                  JSON.stringify({
+                    ok: false,
+                    exhausted: r.status === 429 || r.status === 403,
+                    error: `네이버 ${r.status}: ${String(body?.errorMessage ?? "").slice(0, 120)}`,
+                  })
+                );
+                return;
+              }
+              naverBump("search");
+              res.end(JSON.stringify({ ok: true, type, total: body?.total ?? 0, items: body?.items ?? [] }));
+              return;
+            }
+
+            // 데이터랩 검색어 트렌드
+            if (sub === "/trend" && req.method === "POST") {
+              if (rateLimited(req, res, "네이버 트렌드", 100)) return;
+              const j = JSON.parse((await readBody(req)) || "{}");
+              const cap = naverExhausted("trend");
+              if (cap) {
+                res.end(JSON.stringify({ ok: false, exhausted: true, error: cap }));
+                return;
+              }
+              const payload = {
+                startDate: String(j.startDate ?? ""),
+                endDate: String(j.endDate ?? ""),
+                timeUnit: ["date", "week", "month"].includes(String(j.timeUnit)) ? String(j.timeUnit) : "month",
+                keywordGroups: (Array.isArray(j.keywordGroups) ? j.keywordGroups : []).slice(0, 5),
+                ...(j.device ? { device: String(j.device) } : {}),
+                ...(j.gender ? { gender: String(j.gender) } : {}),
+                ...(Array.isArray(j.ages) && j.ages.length ? { ages: j.ages.map(String) } : {}),
+              };
+              if (!payload.startDate || !payload.endDate || payload.keywordGroups.length === 0) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: "startDate/endDate/keywordGroups 확인 필요" }));
+                return;
+              }
+              const r = await fetch("https://openapi.naver.com/v1/datalab/search", {
+                method: "POST",
+                headers: {
+                  "X-Naver-Client-Id": cfg.clientId!,
+                  "X-Naver-Client-Secret": cfg.clientSecret!,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify(payload),
+                signal: AbortSignal.timeout(20000),
+              });
+              const body = await r.json().catch(() => null);
+              if (!r.ok) {
+                res.end(
+                  JSON.stringify({
+                    ok: false,
+                    exhausted: r.status === 429 || r.status === 403,
+                    error: `데이터랩 ${r.status}: ${String(body?.errorMessage ?? "").slice(0, 120)}`,
+                  })
+                );
+                return;
+              }
+              naverBump("trend");
+              res.end(JSON.stringify({ ok: true, ...body }));
+              return;
+            }
+
+            res.statusCode = 404;
+            res.end(JSON.stringify({ ok: false, error: "알 수 없는 경로" }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 200) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
 function braveKeyPlugin(): Plugin {
   const cfgPath = OPENCLAW_CFG;
   return {
@@ -3468,6 +3699,7 @@ export default defineConfig({
     obsidianApiPlugin(),
     healthApiPlugin(),
     braveKeyPlugin(),
+    naverApiPlugin(),
     modelsApiPlugin(),
     agentBridgePlugin(),
     mcpApiPlugin(),

@@ -28,6 +28,10 @@ config/ocr-cache/
 config/custom-agents.json
 # 노션 연동 토큰·페이지 매핑 (시크릿 — 커밋 금지)
 config/notion.json
+
+# 네이버 검색 API 자격증명 + 사용량 카운터 (커밋 금지)
+config/naver.json
+config/naver-usage.json
 config/notion-map.json
 # 노션 편집실 — 수정 전 원본 백업
 config/notion-edits/

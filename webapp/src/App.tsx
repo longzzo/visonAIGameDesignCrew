@@ -15,6 +15,7 @@ import { DocViewer } from "./components/DocViewer";
 import { ArtStudio } from "./components/ArtStudio";
 import { ApprovalPanel } from "./components/ApprovalPanel";
 import { FailurePanel } from "./components/FailurePanel";
+import { NaverPanel } from "./components/NaverPanel";
 
 export default function App() {
   const {
@@ -35,6 +36,8 @@ export default function App() {
     setArtStudioOpen,
     approvalsOpen,
     failuresOpen,
+    naverOpen,
+    setNaverOpen,
   } = useVE();
 
   const [onboard, setOnboard] = useState(false);
@@ -95,6 +98,7 @@ export default function App() {
       {artStudioOpen && <ArtStudio onClose={() => setArtStudioOpen(false)} />}
       {approvalsOpen && <ApprovalPanel />}
       {failuresOpen && <FailurePanel />}
+      {naverOpen && <NaverPanel onClose={() => setNaverOpen(false)} />}
       <DialogHost />
       {/* 모바일 전용 하단 탭 (900px 이하에서만 표시) */}
       <nav className="mobile-tabs">

@@ -134,6 +134,7 @@ export function TopBar() {
     setApprovalsOpen,
     failures,
     setFailuresOpen,
+    setNaverOpen,
   } = useVE();
   const pendingApprovals = approvals.filter((a) => a.status === "pending").length;
   const price = priceFor(modelName);
@@ -258,6 +259,13 @@ export function TopBar() {
           title="승인 대기 — PM이 상신한 초중대 사항 결재함"
         >
           🔔{pendingApprovals > 0 ? ` ${pendingApprovals}` : ""}
+        </button>
+        <button
+          className="badge naver-badge"
+          onClick={() => setNaverOpen(true)}
+          title="네이버 리서치 — 국내 블로그·카페·지식iN·뉴스 검색과 검색어 트렌드"
+        >
+          🔎 네이버
         </button>
         {/* 🗂️ 오류함 — 재시도(5초→2분)까지 실패한 호출이 있을 때만 보인다 */}
         {failures.length > 0 && (
