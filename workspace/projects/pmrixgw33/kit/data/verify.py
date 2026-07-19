@@ -192,7 +192,8 @@ REQUIRED = ["start_at_night", "player_move_speed", "surface_y", "yokai_cap",
             "baekjung_spawn_cap", "invasion_boss_in_cap", "boss_night_spawn",
             "boss_field_yokai", "wallpaper_coverage", "wallpaper_coldsource_bonus",
             "wallpaper_remove_rule", "furniture_mvp_scope", "cave_max_height",
-            "crafting_b_ui", "item_id_rule"]
+            "crafting_b_ui", "item_id_rule",
+            "dev_speed_mult", "badge_wall_count", "badge_window_days"]  # 심사 시연·온보딩 배지 상수 (R4)
 missing = [k for k in REQUIRED if f"\n{k}," not in g and not g.startswith(f"{k},")]
 if missing:
     err(f"globals.csv 필수 키 누락: {missing}")
