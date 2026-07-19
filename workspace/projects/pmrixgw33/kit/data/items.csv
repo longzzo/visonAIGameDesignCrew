@@ -84,3 +84,4 @@ tiger_eye_bead,호랑이 눈 구슬,equipment,1,A,시야 반경 +3타일 — 상
 ice_heart_norigae,얼음 심장 노리개,equipment,1,A,낮 체온 상승 -15% — 상자 전용
 bokjumeoni,복주머니,equipment,1,A,채굴 크리티컬 +10%p — 상자 전용
 dokkaebi_gamtu,도깨비 감투,equipment,1,A,야광귀 인벤 절도 무효 — 상자 전용
+wallpaper,벽지,placeable,99,A,플레이어가 바르는 배경 벽지(v26) — 밀폐 구역 빈 칸을 100% 덮으면 그 구역 냉기원 지속시간 +25%. 1회 제작 16장 산출(crafting-tree output_count). 지하 자연 배경벽(t_bg_*)은 이미 덮인 것으로 계수한다
