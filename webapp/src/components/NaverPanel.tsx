@@ -4,6 +4,7 @@ import {
   naverSearch,
   naverTrend,
   saveNaverCaps,
+  saveNaverKey,
   stripNaverHtml,
   NAVER_SERVICE_LABEL,
   type NaverItem,
@@ -297,6 +298,28 @@ function NaverKeyForm({
   const [daily, setDaily] = useState(String(caps?.daily ?? 20000));
   const [monthly, setMonthly] = useState(String(caps?.monthly ?? 700000));
   const [note, setNote] = useState("");
+  // 키 입력은 오너가 이 앱에서 직접 한다 (Brave 키와 같은 방식) — 값은 서버로만 가고 화면에 남지 않는다
+  const [cid, setCid] = useState("");
+  const [csec, setCsec] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [keyNote, setKeyNote] = useState("");
+
+  const submitKey = async () => {
+    if (!cid.trim() || !csec.trim()) return;
+    setSaving(true);
+    setKeyNote("");
+    try {
+      await saveNaverKey(cid.trim(), csec.trim());
+      setCid("");
+      setCsec(""); // 입력값은 즉시 비운다 — 화면에 자격증명을 남기지 않는다
+      setKeyNote("✅ 등록했습니다. 🔍 검색 탭에서 바로 쓸 수 있습니다.");
+      onSaved();
+    } catch (e: any) {
+      setKeyNote(`실패: ${String(e?.message ?? e).slice(0, 100)}`);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   useEffect(() => {
     if (caps) {
@@ -310,25 +333,43 @@ function NaverKeyForm({
       <div className={`naver-key-state ${configured ? "ok" : ""}`}>
         {configured ? "✅ 키가 등록되어 있습니다" : "⚠️ 키가 등록되지 않았습니다"}
       </div>
-      <ol className="naver-steps dim">
-        <li>
-          <a href="https://developers.naver.com/apps/#/list" target="_blank" rel="noreferrer">
-            네이버 개발자센터 → 내 애플리케이션
-          </a>
-          에서 <b>Client ID</b>와 <b>Client Secret</b>을 복사합니다.
-        </li>
-        <li>
-          아래 명령을 <b>직접</b> 실행해 등록하세요 — 키는 대화창에 붙여넣지 마시고, 서버의{" "}
-          <code>config/naver.json</code>에만 저장됩니다(git 제외됨).
-        </li>
-      </ol>
-      <pre className="naver-cmd">{`curl -X POST http://127.0.0.1:5199/api/naver/key \\
-  -H "Content-Type: application/json" \\
-  -H "Origin: http://127.0.0.1:5199" \\
-  -d '{"clientId":"발급받은_ID","clientSecret":"발급받은_SECRET"}'`}</pre>
-      <button className="btn small" onClick={onSaved}>
-        ↻ 등록 상태 새로고침
-      </button>
+      <div className="naver-steps dim">
+        <a href="https://developers.naver.com/apps/#/list" target="_blank" rel="noreferrer">
+          네이버 개발자센터 → 내 애플리케이션
+        </a>
+        에서 <b>Client ID</b>와 <b>Client Secret</b>을 복사해 아래에 붙여넣으세요. 값은 이 PC의{" "}
+        <code>config/naver.json</code>에만 저장되고(git 제외), 화면으로 다시 나오지 않습니다.
+      </div>
+      <div className="naver-keyrow">
+        <label>
+          Client ID
+          <input
+            value={cid}
+            onChange={(e) => setCid(e.target.value)}
+            placeholder="예: AbCdEf1234…"
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </label>
+        <label>
+          Client Secret
+          <input
+            type="password"
+            value={csec}
+            onChange={(e) => setCsec(e.target.value)}
+            placeholder="••••••••••"
+            autoComplete="off"
+            spellCheck={false}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void submitKey();
+            }}
+          />
+        </label>
+        <button className="btn small primary" onClick={() => void submitKey()} disabled={saving || !cid.trim() || !csec.trim()}>
+          {saving ? "저장 중…" : "🔑 등록"}
+        </button>
+      </div>
+      {keyNote && <div className="naver-msg">{keyNote}</div>}
 
       <div className="naver-caps">
         <b>안전 한도</b>
