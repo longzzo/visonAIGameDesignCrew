@@ -296,7 +296,12 @@ function notionPayload(projectId: string) {
     const repDir = path.join(projectDir(projectId), "reports");
     const reports: { ts: number; title: string; markdown: string; kind?: string }[] = [];
     if (fs.existsSync(repDir)) {
-      const files = fs.readdirSync(repDir).filter((f) => /^\d+\.json$/.test(f)).sort().reverse().slice(0, 20);
+      // ⚠️ slice 상한은 notion-publish.mjs의 reports.slice(0, 40)과 반드시 같아야 한다.
+      // 여기가 20이던 시절, 자동 발행이 돌 때마다 21번째 이후 문서가 "이번 발행 목록에 없는 옛 페이지"로
+      // 분류돼 '사라진 문서 정리'(notion-publish.mjs)가 휴지통으로 보냈다 → notion-map 키가 51→31로 줄고,
+      // 다음 수동 발행이 그 문서들을 새 URL로 재생성해 **공유한 링크가 죽었다**(2026-07-16·19 3회 재발,
+      // HANDOFF 함정 44의 진짜 원인). 캡을 줄이려면 양쪽을 함께 고칠 것.
+      const files = fs.readdirSync(repDir).filter((f) => /^\d+\.json$/.test(f)).sort().reverse().slice(0, 40);
       for (const f of files) {
         try {
           const r = JSON.parse(fs.readFileSync(path.join(repDir, f), "utf-8"));
