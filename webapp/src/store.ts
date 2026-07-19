@@ -934,6 +934,38 @@ export const useVE = create<VEState>()((set, get) => {
    * 실측: idle timeout이 수정본·QA 채점에 오류 문자열로 들어와 검증이 뚫리는 사고 방지 (오너 요청).
    */
   /** 중단(⏹) 버튼을 누르면 긴 대기도 즉시 깨지는 sleep */
+  /**
+   * 동시 실행 풀 — 최대 limit개씩 겹쳐 돌린다.
+   *
+   * 왜: 에이전트 호출 1회마다 OpenClaw CLI가 새로 뜨느라 **호출당 ~11초 고정 오버헤드**가 붙는다
+   * (실측: 직접 API 0.5초 / LLM 실행 3~4.5초 / 왕복 15초). 순차로 돌면 이 11초가 인원수만큼 쌓인다.
+   * 병렬로 돌리면 대기가 서로 겹쳐 벽시계 시간에서 대부분 사라진다 — CLI를 걷어내는 것보다 훨씬 싼 처방.
+   *
+   * 주의: **순서 의존이 없는 구간에만** 쓸 것. 회의는 팀장 배분 → 주니어 기여 → 시니어 완성 → 팀장 취합
+   * 순서가 의미를 가지므로, 각 단계 "안"의 서로 독립적인 담당자들만 겹친다.
+   * 각 작업은 자체 try/catch를 갖고 있어야 한다 — 하나가 던지면 나머지가 죽지 않게.
+   */
+  const runPooled = async <T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> => {
+    const n = Math.max(1, Math.min(limit, items.length));
+    if (n <= 1) {
+      for (const it of items) {
+        if (get().stopRequested) return;
+        await fn(it);
+      }
+      return;
+    }
+    let cursor = 0;
+    const worker = async () => {
+      for (;;) {
+        if (get().stopRequested) return;
+        const i = cursor++;
+        if (i >= items.length) return;
+        await fn(items[i]);
+      }
+    };
+    await Promise.all(Array.from({ length: n }, worker));
+  };
+
   const abortableSleep = (ms: number, signal?: AbortSignal) =>
     new Promise<void>((res) => {
       if (signal?.aborted) return res();
@@ -1041,7 +1073,16 @@ export const useVE = create<VEState>()((set, get) => {
 
     orchRequest: "",
     selected: Object.fromEntries(SPECIALISTS.map((a) => [a.id, true])),
-    concurrency: 1,
+    // 동시 실행 — localStorage 영속. 기본 3: 호출당 ~11초인 CLI 오버헤드를 겹쳐 없애면서도
+    // NVIDIA 무료 티어 큐를 과하게 때리지 않는 선. 로컬 모델(ollama, GPU 1개)이면 1로 내릴 것.
+    concurrency: ((): number => {
+      try {
+        const v = Number(localStorage.getItem("ve-concurrency"));
+        return v >= 1 && v <= 7 ? v : 3;
+      } catch {
+        return 3;
+      }
+    })(),
     // 기본 OFF — 오너 지시(2026-07-15). 회의 초안이 정본을 덮어써 GDD를 109KB→22KB로
     // 파괴한 실사고(HANDOFF 함정 40) 이후 확정된 운용 방식: 회의는 검토 의견·리서치·검증을
     // 얻는 데 쓰고, 정본 반영은 메인 헤드가 대조 후 수동으로 한다.
@@ -1509,7 +1550,14 @@ export const useVE = create<VEState>()((set, get) => {
 
     setOrchRequest: (t) => set({ orchRequest: t }),
     toggleSelected: (id) => set((s) => ({ selected: { ...s.selected, [id]: !s.selected[id] } })),
-    setConcurrency: (n) => set({ concurrency: n }),
+    setConcurrency: (n) => {
+      try {
+        localStorage.setItem("ve-concurrency", String(n));
+      } catch {
+        /* noop */
+      }
+      set({ concurrency: n });
+    },
     setAutoReflect: (b) => set({ autoReflect: b }),
     setCrossReview: (b) => set({ crossReview: b }),
     setWebResearch: (b) => set({ webResearch: b }),
@@ -1911,43 +1959,39 @@ export const useVE = create<VEState>()((set, get) => {
           }
         }
 
-        // 2b) 주니어·인턴이 멘토 시니어에게 기여 초안을 올린다
-        for (const o of owners) {
-          if (get().stopRequested) break;
-          for (const jr of contributorsOf(o.id)) {
-            if (get().stopRequested) break;
-            try {
-              setAgentStatus(jr.id, "running");
-              updateCard(jr.id, { state: "running", phase: `${o.name} 파트 지원`, startedAt: Date.now() });
-              const cr = await gateway.runAgent(
-                jr.id,
-                contribPrompt(req, jr, o, getSectionBody(baseMd, o.section), juniorFocus[jr.id] ?? directive, overview),
-                `${runTag}-contrib`,
-                signal
-              );
-              const ctext = sanitizeAgentOutput(cr.text);
-              addUsage(cr.usage, ctext);
-              if (ctext && ctext.length > 20) {
-                contribCache[o.id] = (contribCache[o.id] ? contribCache[o.id] + "\n\n" : "") + `[${jr.name}] ${ctext}`;
-              }
-              pushFeed({ from: jr.id, to: o.id, kind: "draft", text: ctext });
-              updateCard(jr.id, { state: "done", phase: undefined, output: ctext, endedAt: Date.now() });
-              setAgentStatus(jr.id, "done");
-              get().recordGrowth(jr.id, "talk");
-            } catch (e: any) {
-              if (get().stopRequested) break;
-              setAgentStatus(jr.id, "idle");
-              pushFeed({ from: "system", kind: "status", text: `⚠️ ${jr.name} 기여 실패 (${String(e?.message ?? e).slice(0, 60)}) — 건너뜁니다.` });
+        // 2b) 주니어·인턴이 멘토 시니어에게 기여 초안을 올린다.
+        // (멘토, 주니어) 쌍은 서로 독립적이라 평탄화해서 동시 실행한다 — 기여는 2c 시작 전에만 끝나면 된다.
+        const contribPairs = owners.flatMap((o) => contributorsOf(o.id).map((jr) => ({ o, jr })));
+        await runPooled(contribPairs, get().concurrency, async ({ o, jr }) => {
+          try {
+            setAgentStatus(jr.id, "running");
+            updateCard(jr.id, { state: "running", phase: `${o.name} 파트 지원`, startedAt: Date.now() });
+            const cr = await gateway.runAgent(
+              jr.id,
+              contribPrompt(req, jr, o, getSectionBody(baseMd, o.section), juniorFocus[jr.id] ?? directive, overview),
+              `${runTag}-contrib`,
+              signal
+            );
+            const ctext = sanitizeAgentOutput(cr.text);
+            addUsage(cr.usage, ctext);
+            if (ctext && ctext.length > 20) {
+              contribCache[o.id] = (contribCache[o.id] ? contribCache[o.id] + "\n\n" : "") + `[${jr.name}] ${ctext}`;
             }
+            pushFeed({ from: jr.id, to: o.id, kind: "draft", text: ctext });
+            updateCard(jr.id, { state: "done", phase: undefined, output: ctext, endedAt: Date.now() });
+            setAgentStatus(jr.id, "done");
+            get().recordGrowth(jr.id, "talk");
+          } catch (e: any) {
+            // 중단이면 조용히 빠진다 — 병렬 콜백이라 여기서 루프를 깰 수 없다(풀이 stopRequested를 본다)
+            if (get().stopRequested) return;
+            setAgentStatus(jr.id, "idle");
+            pushFeed({ from: "system", kind: "status", text: `⚠️ ${jr.name} 기여 실패 (${String(e?.message ?? e).slice(0, 60)}) — 건너뜁니다.` });
           }
-        }
+        });
 
-        // 2c) 시니어(오너)가 섹션을 완성한다
+        // 2c) 시니어(오너)가 섹션을 완성한다 — 서로 다른 섹션이라 독립적이므로 동시 실행 설정만큼 겹친다
         const before = results.length;
-        for (const o of owners) {
-          if (get().stopRequested) break;
-          await produceSection(o, assignFocus[o.id] ?? directive);
-        }
+        await runPooled(owners, get().concurrency, (o) => produceSection(o, assignFocus[o.id] ?? directive));
         const deptOut = results.slice(before);
 
         // 2d) 팀장이 취합·검수해 대표에 상신 (본부에 오너 2명 이상일 때)
