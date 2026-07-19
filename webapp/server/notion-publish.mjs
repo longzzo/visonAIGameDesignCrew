@@ -547,7 +547,7 @@ export async function publishProject({ projectId, projectName, gddMd, reports, k
     if (/명세서|규칙|스펙|사양/.test(t)) return "spec";
     return "report";
   };
-  const all = (reports ?? []).slice(0, 40);
+  const all = (reports ?? []).slice(0, 60); // 40이던 시절 핵심 문서 11건(개발·아트 명세서 등)이 캡 밖으로 밀려 휴지통행(2026-07-20 실사고) — 캡은 총 보고서 수를 여유 있게 덮어야 한다
   const specList = all.filter((r) => kindOf(r) === "spec");
   const repList = all.filter((r) => kindOf(r) !== "spec");
   const fmtD = (ts) => new Date(ts).toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" });
