@@ -3,7 +3,7 @@
 // 무료 티어 한도에 닿으면 서버가 { exhausted: true }를 돌려주고, 호출부는 웹 검색으로 폴백한다
 // (오너 요청 2026-07-19: "무료티어 다 쓰면 Brave로 자동 전환").
 
-export type NaverService = "blog" | "news" | "cafearticle" | "kin" | "image" | "encyc" | "doc" | "webkr";
+export type NaverService = "blog" | "news" | "cafearticle" | "kin" | "image" | "encyc" | "webkr" | "local";
 
 export const NAVER_SERVICE_LABEL: Record<NaverService, string> = {
   blog: "블로그",
@@ -12,8 +12,8 @@ export const NAVER_SERVICE_LABEL: Record<NaverService, string> = {
   kin: "지식iN",
   image: "이미지",
   encyc: "백과사전",
-  doc: "웹문서",
-  webkr: "웹",
+  webkr: "웹문서",
+  local: "지역",
 };
 
 export interface NaverItem {

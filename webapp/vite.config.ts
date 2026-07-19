@@ -1364,7 +1364,14 @@ const NAVER_CFG = path.resolve(__dirname, "..", "config", "naver.json");
 const NAVER_USAGE = path.resolve(__dirname, "..", "config", "naver-usage.json");
 /** 오너가 건 안전 한도 — 실제 무료 한도보다 낮게 잡아 초과 과금·차단을 피한다 */
 const NAVER_DEFAULT_CAPS = { daily: 20000, monthly: 700000, trendMonthly: 45000 };
-const NAVER_SERVICES = new Set(["blog", "news", "cafearticle", "kin", "image", "encyc", "doc", "webkr", "book", "shop", "errata"]);
+/**
+ * API Hub(ncloud)의 실제 경로 — `naverapihub.apigw.ntruss.com/search/v1/<서비스>`.
+ * 주의: developers.naver.com의 `openapi.naver.com/v1/search/<서비스>`와 **호스트도 경로 순서도 다르고**,
+ * 헤더도 X-Naver-Client-* 가 아니라 **X-NCP-APIGW-API-KEY-ID / X-NCP-APIGW-API-KEY**다.
+ * 전부 실측 확인함(2026-07-19). `doc`은 API Hub에 없다 — 웹문서는 `webkr`.
+ */
+const NAVER_HOST = "https://naverapihub.apigw.ntruss.com";
+const NAVER_SERVICES = new Set(["blog", "news", "cafearticle", "kin", "image", "encyc", "webkr", "local", "errata", "adult"]);
 
 function naverCfg(): { clientId?: string; clientSecret?: string; caps?: typeof NAVER_DEFAULT_CAPS } {
   try {
@@ -1504,8 +1511,9 @@ function naverApiPlugin(): Plugin {
               });
               if (j.sort) qs.set("sort", String(j.sort));
               if (type === "image" && j.filter) qs.set("filter", String(j.filter));
-              const r = await fetch(`https://openapi.naver.com/v1/search/${type}?${qs}`, {
-                headers: { "X-Naver-Client-Id": cfg.clientId!, "X-Naver-Client-Secret": cfg.clientSecret! },
+              qs.set("format", "json");
+              const r = await fetch(`${NAVER_HOST}/search/v1/${type}?${qs}`, {
+                headers: { "X-NCP-APIGW-API-KEY-ID": cfg.clientId!, "X-NCP-APIGW-API-KEY": cfg.clientSecret! },
                 signal: AbortSignal.timeout(15000),
               });
               const body = await r.json().catch(() => null);
@@ -1548,11 +1556,11 @@ function naverApiPlugin(): Plugin {
                 res.end(JSON.stringify({ ok: false, error: "startDate/endDate/keywordGroups 확인 필요" }));
                 return;
               }
-              const r = await fetch("https://openapi.naver.com/v1/datalab/search", {
+              const r = await fetch(`${NAVER_HOST}/search-trend/v1/search`, {
                 method: "POST",
                 headers: {
-                  "X-Naver-Client-Id": cfg.clientId!,
-                  "X-Naver-Client-Secret": cfg.clientSecret!,
+                  "X-NCP-APIGW-API-KEY-ID": cfg.clientId!,
+                  "X-NCP-APIGW-API-KEY": cfg.clientSecret!,
                   "Content-Type": "application/json",
                 },
                 body: JSON.stringify(payload),
