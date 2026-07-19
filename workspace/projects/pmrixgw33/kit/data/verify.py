@@ -158,6 +158,34 @@ for day, (comp, expect, label) in fixed.items():
         err(f"{label}: {tot} ≠ {expect}")
 ok("밸런스 고정점 — 백중 3,900 · 30일차 6,150")
 
+# ── 5b. 제작대 사다리 — 순환·데드락 금지 (R3 추가) ─────────
+TIERS = {"none": 0, "workbench": 1, "furnace": 2, "blast_furnace": 3, "ice_anvil": 4}
+for r in ct[1:]:
+    if r[0] in TIERS and r[0] != "none":
+        need = TIERS.get(r[h["station_id"]], 99)
+        if need >= TIERS[r[0]]:
+            err(f"제작대 사다리 위반: `{r[0]}`(티어{TIERS[r[0]]})가 `{r[h['station_id']]}`(티어{need})에서 제작됨 — 데드락")
+ok("제작대 사다리 (작업대→화로→용광로→모루, 순환 없음)")
+
+# ── 5c. 자동 B 규칙 — B 보스 '전용' 드랍을 쓰는 레시피는 B (R3 추가) ──
+# ⚠️ 배타성 조건 필수: 일반 요괴·A 보스도 주는 재료(예: 무쇠 비늘 = 불가사리 50%)는 대상 아님.
+#    조건 없이 검사하면 오탐 3건(무쇠 차열벽·철선·무쇠 체)이 난다 — R3에서 실측한 함정.
+b_bosses = {r[0] for r in bs[1:] if r[hb["mvp_scope"]] == "B"}
+b_drops, a_drops = set(), set()
+for r in dr[1:]:
+    tgt = b_drops if r[0] in b_bosses else a_drops
+    tgt.add(r[hd["sig_drop_id"]])
+    for tok in (r[hd["extra_drops"]] or "").split(","):
+        if tok:
+            tgt.add(tok.split(":")[0])
+b_only = b_drops - a_drops  # B 보스에서만 나오는 재료
+for r in ct[1:]:
+    mats = {t.split(":")[0] for t in r[h["materials"]].split(",")}
+    hit = mats & b_only
+    if hit and r[h["mvp_scope"]] != "B":
+        err(f"자동 B 위반: `{r[0]}`이 B 전용 드랍 {sorted(hit)}을 쓰는데 scope={r[h['mvp_scope']]}")
+ok(f"자동 B 규칙 (B 전용 드랍 {sorted(b_only)} → 레시피 전부 B)")
+
 # ── 6. globals — 필수 키 존재 ────────────────────────────────
 g = open("globals.csv", encoding="utf-8").read()
 REQUIRED = ["start_at_night", "player_move_speed", "surface_y", "yokai_cap",
