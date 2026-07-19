@@ -493,14 +493,20 @@ export function OfficeView() {
     void startOrch();
   };
 
-  // 회의가 시작되면(참가자 모임) 자동으로 회의실로 시선 이동 — 모이는 모습을 보여준다
-  const prevMeetingCount = useRef(0);
+  // 회의가 "지금 막 시작될 때"만 회의실로 시선 이동 — 모이는 모습을 보여준다.
+  //
+  // 마운트는 시작이 아니다. prevMeetingCount를 useRef(0)로 두면 탭을 새로 열 때마다
+  // 진행 중인 회의가 0→N 전환으로 오인돼 매번 회의실로 튄다(오너 발견 2026-07-19).
+  // 첫 실행에서는 현재 인원을 기준값으로만 심고 카메라는 건드리지 않는다.
+  const prevMeetingCount = useRef<number | null>(null);
   useEffect(() => {
-    if (meetingMembers.length > 0 && prevMeetingCount.current === 0) {
+    const prev = prevMeetingCount.current;
+    prevMeetingCount.current = meetingMembers.length;
+    if (prev === null) return; // 마운트 직후 — 기준값만 심는다
+    if (meetingMembers.length > 0 && prev === 0) {
       if (mode3d) focusZone("meet");
       else goFloor("meeting");
     }
-    prevMeetingCount.current = meetingMembers.length;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meetingMembers.length]);
   const [mode3d, setMode3d] = useState<boolean>(() => {

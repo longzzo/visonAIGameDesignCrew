@@ -48,7 +48,8 @@ const DESK_POS: Record<string, V3> = {
   review: [11.9, 0, 8],
   testeng: [14.6, 0, 8],
 };
-const MEETING_CENTER: V3 = [3.5, 0, -8.5];
+// 대표실(x ≤ -8.5)과 휴게실(x ≥ 8.9) 사이 빈 공간으로 서편 확장 — 14석+입석을 담으려면 폭이 필요하다
+const MEETING_CENTER: V3 = [1.0, 0, -8.5];
 
 /** 채용 직원(게스트) 책상 앞줄 기준선 — 부서별 [시작x, 간격x, z, 방향(+1 오른쪽)] */
 const GUEST_ROW: Record<string, [number, number, number]> = {
@@ -74,15 +75,38 @@ const homeOf = (id: string): V3 => {
   const d = deskFor(id);
   return [d[0], 0, d[2] - 0.9];
 };
-/** 회의 좌석 — 긴 테이블 양쪽 + 양 끝 */
-const MEET_SEATS: [number, number][] = [
-  [-1.9, 1.35], [0, 1.35], [1.9, 1.35],
-  [-1.9, -1.35], [0, -1.35], [1.9, -1.35],
-  [-3.1, 0], [3.1, 0],
+/**
+ * 회의 좌석 — 착석 14석(테이블 양쪽 6+6, 양 끝 2) + 넘치면 뒤쪽 입석 2줄.
+ *
+ * 예전엔 좌석이 8개 고정이고 `i % 8`로 감쌌다 — 참석자가 9명을 넘으면 9번째가 1번 자리에
+ * **정확히 겹쳐** 캐릭터가 포개져 보였다(오너 발견 2026-07-19). 계층 오케스트레이션은
+ * PM+팀장+담당+기여자로 20명이 넘게 모이므로, 좌석은 반드시 인원수 n에서 계산해야 한다.
+ */
+const MEET_CHAIRS: [number, number][] = [
+  [-3.6, -1.5], [-2.16, -1.5], [-0.72, -1.5], [0.72, -1.5], [2.16, -1.5], [3.6, -1.5],
+  [-3.6, 1.5], [-2.16, 1.5], [-0.72, 1.5], [0.72, 1.5], [2.16, 1.5], [3.6, 1.5],
+  [-5.2, 0], [5.2, 0],
 ];
-const meetingSeat = (i: number): V3 => {
-  const [dx, dz] = MEET_SEATS[i % MEET_SEATS.length];
-  return [MEETING_CENTER[0] + dx, 0, MEETING_CENTER[2] + dz];
+/** 입석 줄 — 착석이 다 차면 여기로. 간격은 인원에 따라 좁아질 뿐 겹치지 않는다. */
+const STAND_ROWS: { z: number; half: number }[] = [
+  { z: -2.95, half: 5.6 },
+  { z: 2.95, half: 5.6 },
+];
+/** i번째 참석자의 자리 (총 n명) — n이 몇이든 좌표가 유일하다 */
+const meetingSeat = (i: number, n: number): V3 => {
+  const [cx, , cz] = MEETING_CENTER;
+  if (i < MEET_CHAIRS.length) {
+    const [dx, dz] = MEET_CHAIRS[i];
+    return [cx + dx, 0, cz + dz];
+  }
+  const k = i - MEET_CHAIRS.length; // 입석 인원 중 몇 번째
+  const standing = Math.max(1, n - MEET_CHAIRS.length);
+  const row = STAND_ROWS[k % STAND_ROWS.length];
+  const perRow = Math.ceil(standing / STAND_ROWS.length);
+  const slot = Math.floor(k / STAND_ROWS.length);
+  // 줄 안에서 균등 분배 — 1명이면 가운데, 여럿이면 폭 전체에 펼친다
+  const t = perRow <= 1 ? 0.5 : slot / (perRow - 1);
+  return [cx + (t * 2 - 1) * row.half, 0, cz + row.z];
 };
 /** 대표실 앞 보고 지점 — id 해시로 분산 */
 const pmFront = (id: string): V3 => {
@@ -219,7 +243,7 @@ const FOCUS: Record<string, { pos: V3; tgt: V3 }> = {
   biz: { pos: [-9.5, 7, 14.5], tgt: [-9.5, 0.4, 8] },
   art: { pos: [-1.5, 7, 14.5], tgt: [-1.5, 0.4, 8] },
   qa: { pos: [11.75, 7, 14.5], tgt: [11.75, 0.4, 8] },
-  meet: { pos: [3.5, 8, -0.5], tgt: [3.5, 0.6, -8.5] },
+  meet: { pos: [1.0, 9, 0.5], tgt: [1.0, 0.6, -8.5] },
   lounge: { pos: [13.4, 7.5, -1.4], tgt: [13.4, 0.5, -8.5] },
 };
 
@@ -292,7 +316,9 @@ function Person({
       if (!walking) setWalking(true);
     } else {
       g.position.y = st === "running" ? Math.abs(Math.sin(t * 7 + phase)) * 0.05 : Math.sin(t * 1.6 + phase) * 0.02;
-      const atMeeting = Math.hypot(g.position.x - MEETING_CENTER[0], g.position.z - MEETING_CENTER[2]) < 3.6;
+      // 방을 넓히면서 반경도 함께 키운다 — 안 키우면 서편 끝 참석자가 회의실 안인데 정면을 안 본다
+      const atMeeting =
+        Math.abs(g.position.x - MEETING_CENTER[0]) < 7 && Math.abs(g.position.z - MEETING_CENTER[2]) < 3.7;
       const atLounge = Math.hypot(g.position.x - LOUNGE_TABLE[0], g.position.z - LOUNGE_TABLE[2]) < 3.2;
       const face = atMeeting
         ? Math.atan2(MEETING_CENTER[0] - g.position.x, MEETING_CENTER[2] - g.position.z)
@@ -667,24 +693,24 @@ function MeetingRoom({ P, active }: { P: Pal; active: boolean }) {
   return (
     <group>
       {/* 유리 벽 (앞쪽 문 비움) */}
-      <Glass pos={[cx, 0.9, cz - 3.15]} size={[9.2, 1.8, 0.1]} P={P} />
-      <Glass pos={[cx - 4.65, 0.9, cz]} size={[0.1, 1.8, 6.3]} P={P} />
-      <Glass pos={[cx + 4.65, 0.9, cz]} size={[0.1, 1.8, 6.3]} P={P} />
-      <Glass pos={[cx - 3.1, 0.9, cz + 3.15]} size={[3, 1.8, 0.1]} P={P} />
-      <Glass pos={[cx + 3.1, 0.9, cz + 3.15]} size={[3, 1.8, 0.1]} P={P} />
-      {/* 우드 테이블 */}
+      <Glass pos={[cx, 0.9, cz - 3.75]} size={[14, 1.8, 0.1]} P={P} />
+      <Glass pos={[cx - 7.05, 0.9, cz]} size={[0.1, 1.8, 7.5]} P={P} />
+      <Glass pos={[cx + 7.05, 0.9, cz]} size={[0.1, 1.8, 7.5]} P={P} />
+      <Glass pos={[cx - 4.75, 0.9, cz + 3.75]} size={[4.6, 1.8, 0.1]} P={P} />
+      <Glass pos={[cx + 4.75, 0.9, cz + 3.75]} size={[4.6, 1.8, 0.1]} P={P} />
+      {/* 우드 테이블 — 좌석 12석(양쪽 6+6)에 맞춰 길게 */}
       <mesh castShadow position={[cx, 0.44, cz]}>
-        <boxGeometry args={[5.4, 0.09, 1.7]} />
+        <boxGeometry args={[8.8, 0.09, 1.9]} />
         <meshStandardMaterial color={P.wood} />
       </mesh>
-      {[-2.2, 2.2].map((dx) => (
+      {[-3.9, 3.9].map((dx) => (
         <mesh key={dx} position={[cx + dx, 0.22, cz]}>
           <boxGeometry args={[0.12, 0.44, 1.3]} />
           <meshStandardMaterial color="#8a6a44" />
         </mesh>
       ))}
       {/* 스크린 (회의 중 발광) */}
-      <group position={[cx, 1.35, cz - 3.05]}>
+      <group position={[cx, 1.35, cz - 3.65]}>
         <mesh>
           <boxGeometry args={[3.2, 1.5, 0.06]} />
           <meshStandardMaterial
@@ -700,8 +726,8 @@ function MeetingRoom({ P, active }: { P: Pal; active: boolean }) {
           </mesh>
         ))}
       </group>
-      {/* 의자 8 */}
-      {MEET_SEATS.map(([dx, dz], i) => (
+      {/* 의자 14 (착석 정원) — 넘치는 인원은 뒤쪽에 선다 */}
+      {MEET_CHAIRS.map(([dx, dz], i) => (
         <group key={i} position={[cx + dx, 0, cz + dz * 0.62]}>
           <mesh position={[0, 0.27, 0]}>
             <boxGeometry args={[0.38, 0.06, 0.38]} />
@@ -714,13 +740,18 @@ function MeetingRoom({ P, active }: { P: Pal; active: boolean }) {
         </group>
       ))}
       {/* 펜던트 조명 */}
-      <mesh position={[cx, 2.6, cz]}>
-        <cylinderGeometry args={[0.45, 0.56, 0.14, 20]} />
-        <meshStandardMaterial color="#3a4150" emissive="#ffe6a8" emissiveIntensity={active ? 0.8 : 0.3} />
-      </mesh>
-      <pointLight position={[cx, 2.4, cz]} intensity={active ? 15 : 7} color="#ffe9c4" distance={9} />
+      {/* 펜던트 3등 — 폭 14짜리 방을 1등으로 비추면 양 끝 참석자가 어둠에 묻힌다 */}
+      {[-4.4, 0, 4.4].map((dx) => (
+        <group key={dx}>
+          <mesh position={[cx + dx, 2.6, cz]}>
+            <cylinderGeometry args={[0.4, 0.5, 0.14, 20]} />
+            <meshStandardMaterial color="#3a4150" emissive="#ffe6a8" emissiveIntensity={active ? 0.8 : 0.3} />
+          </mesh>
+          <pointLight position={[cx + dx, 2.4, cz]} intensity={active ? 10 : 5} color="#ffe9c4" distance={8} />
+        </group>
+      ))}
       {active && speaker && (
-        <Html center position={[cx, 2.35, cz - 2.9]} distanceFactor={13}>
+        <Html center position={[cx, 2.35, cz - 3.5]} distanceFactor={13}>
           <div className="o3d-speaker-cap" style={{ borderColor: `${speaker.color}aa` }}>
             🗣 {speaker.emoji} {speaker.name} 발언 중
           </div>
@@ -1246,7 +1277,7 @@ function OfficeScene({
     const br = breaksRef.current[a.id];
     const wi = greeters.indexOf(a.id);
     if (mi >= 0) {
-      targets[a.id] = meetingSeat(mi);
+      targets[a.id] = meetingSeat(mi, meetingMembers.length);
     } else if (welcomeDesk && wi >= 0) {
       const [dx, dz] = WELCOME_SPOTS[wi % WELCOME_SPOTS.length];
       targets[a.id] = [welcomeDesk[0] + dx, 0, welcomeDesk[2] + dz];

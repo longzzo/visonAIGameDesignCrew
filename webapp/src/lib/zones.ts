@@ -17,7 +17,7 @@ export const ZONES: ZoneDef[] = [
   { id: "biz", label: "사업 데스크", dot: "#fbbf24", rug: [-9.5, 8, 9.4, 4.8], rugDay: "#f8ecd2", rugNight: "#544a33" },
   { id: "art", label: "아트 스튜디오", dot: "#e879f9", rug: [-1.5, 8, 6, 4.8], rugDay: "#f7dcee", rugNight: "#523a52" },
   { id: "qa", label: "품질 검수", dot: "#f87171", rug: [11.75, 8, 8.6, 4.8], rugDay: "#f9dcdc", rugNight: "#573a3c" },
-  { id: "meet", label: "회의실", dot: "#a78bfa", rug: [3.5, -8.5, 9.4, 6.4], rugDay: "#e7e2f6", rugNight: "#413a5c" },
+  { id: "meet", label: "회의실", dot: "#a78bfa", rug: [1.0, -8.5, 14.2, 7.6], rugDay: "#e7e2f6", rugNight: "#413a5c" },
   // 휴게실 — 소속 에이전트 없음. 대기 중인 직원들이 놀러 와 잡담하는 연출 공간.
   { id: "lounge", label: "휴게실", dot: "#fb923c", rug: [13.4, -8.5, 9, 6.4], rugDay: "#f5e6d3", rugNight: "#4d4234" },
 ];
