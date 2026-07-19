@@ -129,9 +129,25 @@ for r in dc[1:]:
         err(f"day-curve d{d}: 조합 총합 {tot} ≠ count {cnt} × mult {mult} (상한 {ma})")
 ok(f"day-curve {len(dc)-1}행 · 조합 총량 검산")
 
+# ── 4b. day-curve 공식·게이트·토큰 (R2 추가) ───────────────
+APPEAR = {"club": 1, "bulgasari": 6, "yakwang": 11, "eoduksini": 16, "gangcheol": 30}
+for r in dc[1:]:
+    d, cnt = int(r[0]), int(r[hc["night_yokai_count"]])
+    if d != 15 and cnt != min(8, 1 + (d - 1) // 4):
+        err(f"day-curve d{d}: count {cnt} ≠ 공식 min(8,1+floor((d-1)/4)) (백중 d15만 예외)")
+    for tok in r[hc["spawn_composition"]].split(","):
+        k, c = tok.split(":")
+        if int(c) == 0:
+            err(f"day-curve d{d}: 0마리 토큰 `{tok}` — 빼고 쓸 것(파서 혼란)")
+        if k in APPEAR and d < APPEAR[k]:
+            err(f"day-curve d{d}: `{k}`는 {APPEAR[k]}일차부터")
+ok("day-curve 공식·등장일 게이트·0토큰")
+
 # ── 5. 밸런스 고정점 — GDD 확정값 (틀리면 원장이 무너진다) ──
 HP = {"club": 450, "bulgasari": 750, "yakwang": 150, "eoduksini": 800, "gangcheol": 2000}
-fixed = {15: ("club:3,bulgasari:2,yakwang:7", 3900, "백중 ΣHP(GDD 6-10)"),
+fixed = {10: ("club:2,bulgasari:1", 1650, "10일차 ΣHP(GDD 6-7)"),
+         20: ("club:1,bulgasari:2,eoduksini:2", 3550, "20일차 Σ실효(GDD 6-7)"),
+         15: ("club:3,bulgasari:2,yakwang:7", 3900, "백중 ΣHP(GDD 6-10)"),
          30: ("club:2,bulgasari:2,yakwang:1,eoduksini:2,gangcheol:1", 6150, "30일차 Σ실효(GDD 6-7)")}
 for day, (comp, expect, label) in fixed.items():
     row = [r for r in dc[1:] if r[0] == str(day)][0]
