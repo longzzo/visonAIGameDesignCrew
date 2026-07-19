@@ -146,14 +146,21 @@ export async function naverResearchBlock(
   query: string,
   types: NaverService[] = ["blog", "news", "cafearticle"],
   perType = 4
-): Promise<{ text: string; exhausted: boolean; used: number }> {
+): Promise<{ text: string; exhausted: boolean; used: number; authError: string }> {
   const chunks: string[] = [];
   let exhausted = false;
   let used = 0;
+  let authError = "";
   for (const t of types) {
     const r = await naverSearch(t, query, { display: perType, sort: "sim" });
     if (r.exhausted) {
       exhausted = true;
+      break;
+    }
+    // 인증 실패(401)는 키가 잘못됐다는 뜻 — 조용히 넘기면 회의마다 헛호출하고 오너는 영영 모른다.
+    // 한 번 알리고 남은 종류는 시도하지 않는다.
+    if (!r.ok && /401|인증/.test(r.error ?? "")) {
+      authError = r.error ?? "인증 실패";
       break;
     }
     if (!r.ok || r.items.length === 0) continue;
@@ -165,7 +172,7 @@ export async function naverResearchBlock(
     });
     chunks.push(`[네이버 ${NAVER_SERVICE_LABEL[t]}]\n${lines.join("\n")}`);
   }
-  if (chunks.length === 0) return { text: "", exhausted, used };
+  if (chunks.length === 0) return { text: "", exhausted, used, authError };
   return {
     text:
       `[국내 검색 근거 — 네이버 "${query}"]\n` +
@@ -173,5 +180,6 @@ export async function naverResearchBlock(
       chunks.join("\n\n"),
     exhausted,
     used,
+    authError,
   };
 }

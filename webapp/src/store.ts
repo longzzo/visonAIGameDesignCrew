@@ -1686,6 +1686,14 @@ export const useVE = create<VEState>()((set, get) => {
               text: `⚠️ 네이버 무료 한도에 도달해 이번 회의 리서치는 웹 검색으로 전환합니다 (한도는 🔎 네이버 패널에서 조정).`,
             });
           }
+          if (nr.authError) {
+            // 조용한 실패 방지 — 키가 틀리면 회의마다 헛호출만 하고 오너는 모른다
+            pushFeed({
+              from: "system",
+              kind: "error",
+              text: `🔑 네이버 인증 실패 — 국내 검색을 건너뜁니다. 🔎 네이버 패널의 키·한도 탭에서 Client ID/Secret을 다시 확인하세요. (${nr.authError.slice(0, 60)})`,
+            });
+          }
         } catch {
           /* 네이버 실패도 회의를 막지 않는다 — 웹 리서치가 그대로 돈다 */
         }
