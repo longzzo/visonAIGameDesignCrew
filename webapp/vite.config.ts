@@ -1445,7 +1445,26 @@ function naverApiPlugin(): Plugin {
             if (sub === "/status" && req.method === "GET") {
               const caps = { ...NAVER_DEFAULT_CAPS, ...(cfg.caps ?? {}) };
               const u = naverUsage();
-              res.end(JSON.stringify({ ok: true, configured: hasKey, usage: u, caps, exhausted: naverExhausted("search") }));
+              const c = (cfg as any).credit;
+              let credit = null;
+              if (c && c.total > 0) {
+                // 이 앱을 통한 호출 증가분 × 단가 = 추정 소모. 단가 0이면 금액 계산은 하지 않는다.
+                const callsSince = Math.max(0, u.monthly - (c.baseCalls ?? 0));
+                const spent = (c.spentBefore ?? 0) + callsSince * (c.unitPrice ?? 0);
+                const remain = Math.max(0, c.total - spent);
+                const days = Math.max(1, (Date.now() - (c.startedAt ?? Date.now())) / 86400000);
+                const perDay = spent / days;
+                credit = {
+                  ...c,
+                  callsSince,
+                  spent,
+                  remain,
+                  pctUsed: c.total > 0 ? Math.min(100, (spent / c.total) * 100) : 0,
+                  // 소진 예상일 — 최근 소모 속도 기준(단가 미입력이면 null)
+                  daysLeft: perDay > 0 ? Math.floor(remain / perDay) : null,
+                };
+              }
+              res.end(JSON.stringify({ ok: true, configured: hasKey, usage: u, caps, credit, exhausted: naverExhausted("search") }));
               return;
             }
 
@@ -1475,6 +1494,31 @@ function naverApiPlugin(): Plugin {
               fs.mkdirSync(path.dirname(NAVER_CFG), { recursive: true });
               fs.writeFileSync(NAVER_CFG, JSON.stringify(rest, null, 1), "utf-8");
               res.end(JSON.stringify({ ok: true, configured: false }));
+              return;
+            }
+
+            /**
+             * 크레딧 잔액 — 오너가 받은 네이버 크레딧을 추적한다.
+             * **단가는 내가 지어내지 않는다** — API Hub는 종량제인데 건당 단가가 공개 문서에 없어서,
+             * 오너가 ncloud 콘솔의 실제 단가를 넣으면 앱은 계산만 한다(단가 0이면 호출 수만 보여준다).
+             * 우리 카운터는 "이 앱을 통한 호출"만 세므로 콘솔 청구액과 다를 수 있다 — UI에 명시.
+             */
+            if (sub === "/credit" && req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
+              const j = JSON.parse((await readBody(req)) || "{}");
+              const cur = (cfg as any).credit ?? {};
+              const credit = {
+                total: typeof j.total === "number" && j.total >= 0 ? j.total : (cur.total ?? 0),
+                spentBefore: typeof j.spentBefore === "number" && j.spentBefore >= 0 ? j.spentBefore : (cur.spentBefore ?? 0),
+                unitPrice: typeof j.unitPrice === "number" && j.unitPrice >= 0 ? j.unitPrice : (cur.unitPrice ?? 0),
+                currency: String(j.currency ?? cur.currency ?? "원").slice(0, 8),
+                // 추적 시작 시점의 누적 호출 수 — 이후 증가분만 소모로 센다
+                baseCalls: typeof j.baseCalls === "number" ? j.baseCalls : (cur.baseCalls ?? naverUsage().monthly),
+                startedAt: cur.startedAt ?? Date.now(),
+              };
+              fs.mkdirSync(path.dirname(NAVER_CFG), { recursive: true });
+              fs.writeFileSync(NAVER_CFG, JSON.stringify({ ...cfg, credit }, null, 1), "utf-8");
+              res.end(JSON.stringify({ ok: true, credit }));
               return;
             }
 

@@ -4,6 +4,7 @@ import {
   naverSearch,
   naverTrend,
   saveNaverCaps,
+  saveNaverCredit,
   saveNaverKey,
   clearNaverKey,
   stripNaverHtml,
@@ -11,6 +12,7 @@ import {
   type NaverItem,
   type NaverService,
   type NaverStatus,
+  type NaverCredit,
   type TrendGroup,
 } from "../lib/naver";
 import { useVE } from "../store";
@@ -281,7 +283,12 @@ export function NaverPanel({ onClose }: { onClose: () => void }) {
           </>
         )}
 
-        {tab === "key" && <NaverKeyForm configured={!!st?.configured} caps={st?.caps} onSaved={refresh} />}
+        {tab === "key" && (
+          <>
+            <NaverKeyForm configured={!!st?.configured} caps={st?.caps} onSaved={refresh} />
+            <NaverCreditForm credit={st?.credit ?? null} monthlyCalls={st?.usage.monthly ?? 0} onSaved={refresh} />
+          </>
+        )}
       </div>
     </div>
   );
@@ -431,6 +438,114 @@ function NaverKeyForm({
           </button>
         </div>
         {note && <div className="dim">{note}</div>}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 💰 크레딧 잔액 — 오너가 받은 네이버 크레딧을 추적한다.
+ *
+ * 단가를 앱이 지어내지 않는 이유: API Hub는 종량제인데 건당 단가가 공개 문서에 없다.
+ * 내가 추측한 값을 넣으면 잔액이 조용히 틀린 채로 신뢰를 얻는다 — 오너가 콘솔 값을 넣게 하고 앱은 계산만 한다.
+ */
+function NaverCreditForm({
+  credit,
+  monthlyCalls,
+  onSaved,
+}: {
+  credit: NaverCredit | null;
+  monthlyCalls: number;
+  onSaved: () => void;
+}) {
+  const [total, setTotal] = useState(String(credit?.total ?? 100000));
+  const [unit, setUnit] = useState(String(credit?.unitPrice ?? 0));
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (credit) {
+      setTotal(String(credit.total));
+      setUnit(String(credit.unitPrice));
+    }
+  }, [credit?.total, credit?.unitPrice]);
+
+  const won = (n: number) => Math.round(n).toLocaleString() + (credit?.currency ?? "원");
+  const low = credit ? credit.pctUsed >= 80 : false;
+
+  const save = async (extra: { baseCalls?: number } = {}) => {
+    setSaving(true);
+    setNote("");
+    try {
+      await saveNaverCredit({ total: Number(total) || 0, unitPrice: Number(unit) || 0, ...extra });
+      setNote("✅ 저장했습니다.");
+      onSaved();
+    } catch (e: any) {
+      setNote(`실패: ${String(e?.message ?? e).slice(0, 80)}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="naver-caps naver-credit">
+      <b>💰 네이버 크레딧</b>
+      <span className="dim">
+        받은 크레딧과 건당 단가를 넣으면 남은 잔액·소진 예상을 계산합니다. 단가는{" "}
+        <a href="https://www.ncloud.com/charge/price" target="_blank" rel="noreferrer">
+          ncloud 요금표
+        </a>
+        에서 확인해 넣어주세요 — 앱이 임의로 추정하지 않습니다.
+      </span>
+
+      {credit && credit.total > 0 && (
+        <div className={`naver-credit-box ${low ? "low" : ""}`}>
+          <div className="naver-credit-bar">
+            <i style={{ width: `${Math.min(100, credit.pctUsed)}%` }} />
+          </div>
+          <div className="naver-credit-nums">
+            <span>
+              남은 크레딧 <b>{won(credit.remain)}</b> / {won(credit.total)}
+            </span>
+            <span className="dim">
+              사용 {won(credit.spent)} ({credit.pctUsed.toFixed(1)}%) · 추적 이후 호출 {credit.callsSince.toLocaleString()}회
+              {credit.daysLeft !== null && <> · 이 속도면 약 {credit.daysLeft.toLocaleString()}일 남음</>}
+            </span>
+          </div>
+          {credit.unitPrice === 0 && (
+            <div className="dim naver-note">
+              ※ 단가가 0이라 금액이 줄지 않습니다 — 콘솔의 건당 단가를 넣으면 잔액이 계산됩니다.
+            </div>
+          )}
+          {low && <div className="naver-credit-warn">⚠️ 크레딧을 80% 이상 썼습니다 — 소진되면 API가 막힐 수 있습니다.</div>}
+        </div>
+      )}
+
+      <div className="naver-row">
+        <label>
+          받은 크레딧
+          <input value={total} onChange={(e) => setTotal(e.target.value)} inputMode="numeric" />
+        </label>
+        <label>
+          건당 단가
+          <input value={unit} onChange={(e) => setUnit(e.target.value)} inputMode="decimal" placeholder="예: 0.5" />
+        </label>
+        <button className="btn small" disabled={saving} onClick={() => void save()}>
+          저장
+        </button>
+        <button
+          className="btn small"
+          disabled={saving}
+          title="지금까지의 호출을 소모에서 제외하고 현재 시점부터 다시 셉니다"
+          onClick={() => void save({ baseCalls: monthlyCalls })}
+        >
+          ↻ 지금부터 재계산
+        </button>
+      </div>
+      {note && <div className="dim">{note}</div>}
+      <div className="dim naver-note">
+        ※ 이 카운터는 <b>이 앱을 통한 호출</b>만 셉니다. 다른 곳에서 같은 키를 쓰면 실제 청구와 달라지므로, 정확한 잔액은 ncloud
+        콘솔이 정답입니다.
       </div>
     </div>
   );

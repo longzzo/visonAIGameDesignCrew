@@ -28,11 +28,44 @@ export interface NaverItem {
   sizeheight?: string;
 }
 
+/** 크레딧 잔액 — 단가는 오너가 ncloud 콘솔 값을 넣는다(앱이 지어내지 않는다) */
+export interface NaverCredit {
+  total: number;
+  spentBefore: number;
+  unitPrice: number;
+  currency: string;
+  baseCalls: number;
+  startedAt: number;
+  callsSince: number;
+  spent: number;
+  remain: number;
+  pctUsed: number;
+  /** 최근 소모 속도 기준 소진 예상 — 단가 미입력이면 null */
+  daysLeft: number | null;
+}
+
 export interface NaverStatus {
   configured: boolean;
   usage: { day: string; month: string; daily: number; monthly: number; trendMonthly: number };
   caps: { daily: number; monthly: number; trendMonthly: number };
+  credit: NaverCredit | null;
   exhausted: string;
+}
+
+export async function saveNaverCredit(c: {
+  total?: number;
+  unitPrice?: number;
+  spentBefore?: number;
+  currency?: string;
+  baseCalls?: number;
+}): Promise<void> {
+  const r = await fetch("/api/naver/credit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(c),
+  });
+  const j = await r.json();
+  if (!r.ok || !j.ok) throw new Error(j.error || "크레딧 저장 실패");
 }
 
 export interface NaverSearchResult {
