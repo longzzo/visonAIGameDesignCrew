@@ -66,6 +66,13 @@ export async function saveNaverKey(clientId: string, clientSecret: string): Prom
   if (!r.ok || !j.ok) throw new Error(j.error || "키 등록 실패");
 }
 
+/** 키 삭제 — 잘못 등록했을 때 되돌린다 (한도 설정은 유지) */
+export async function clearNaverKey(): Promise<void> {
+  const r = await fetch("/api/naver/key", { method: "DELETE" });
+  const j = await r.json();
+  if (!r.ok || !j.ok) throw new Error(j.error || "키 삭제 실패");
+}
+
 export async function saveNaverCaps(caps: Partial<NaverStatus["caps"]>): Promise<void> {
   const r = await fetch("/api/naver/caps", {
     method: "POST",

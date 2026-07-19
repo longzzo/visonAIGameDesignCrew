@@ -1995,3 +1995,4 @@ button { font-family: inherit; }
   border-radius: 8px; padding: 7px 9px; font-size: 13px; font-family: inherit; width: 100%;
 }
 .naver-keyrow input:focus { outline: none; border-color: var(--accent); }
+.naver-key-del { margin-left: 10px; }

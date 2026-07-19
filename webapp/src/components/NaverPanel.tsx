@@ -5,6 +5,7 @@ import {
   naverTrend,
   saveNaverCaps,
   saveNaverKey,
+  clearNaverKey,
   stripNaverHtml,
   NAVER_SERVICE_LABEL,
   type NaverItem,
@@ -13,6 +14,7 @@ import {
   type TrendGroup,
 } from "../lib/naver";
 import { useVE } from "../store";
+import { uiConfirm } from "../lib/dialog";
 
 /** 검색어 트렌드 꺾은선 — 외부 라이브러리 없이 SVG로 (데이터 탭 CSV 차트와 같은 방식) */
 function TrendChart({ groups }: { groups: TrendGroup[] }) {
@@ -332,13 +334,46 @@ function NaverKeyForm({
     <div className="naver-key">
       <div className={`naver-key-state ${configured ? "ok" : ""}`}>
         {configured ? "✅ 키가 등록되어 있습니다" : "⚠️ 키가 등록되지 않았습니다"}
+        {configured && (
+          <button
+            className="btn tiny naver-key-del"
+            disabled={saving}
+            onClick={() => {
+              void uiConfirm("등록된 네이버 키를 삭제할까요?", {
+                message: "삭제하면 국내 검색이 꺼지고 회의 리서치는 웹 검색만 씁니다. 한도 설정은 그대로 유지됩니다.",
+                confirmLabel: "🗑 삭제",
+                danger: true,
+              }).then((ok) => {
+                if (!ok) return;
+                setSaving(true);
+                void clearNaverKey()
+                  .then(() => {
+                    setKeyNote("🗑 키를 삭제했습니다.");
+                    onSaved();
+                  })
+                  .catch((e) => setKeyNote(`삭제 실패: ${String(e?.message ?? e).slice(0, 80)}`))
+                  .finally(() => setSaving(false));
+              });
+            }}
+          >
+            🗑 삭제
+          </button>
+        )}
       </div>
       <div className="naver-steps dim">
-        <a href="https://developers.naver.com/apps/#/list" target="_blank" rel="noreferrer">
-          네이버 개발자센터 → 내 애플리케이션
-        </a>
-        에서 <b>Client ID</b>와 <b>Client Secret</b>을 복사해 아래에 붙여넣으세요. 값은 이 PC의{" "}
-        <code>config/naver.json</code>에만 저장되고(git 제외), 화면으로 다시 나오지 않습니다.
+        {configured ? (
+          <>
+            키를 <b>바꾸려면</b> 아래에 새 값을 넣고 저장하세요 — 기존 값을 덮어씁니다. (보안상 등록된 값은 화면에 표시하지 않습니다.)
+          </>
+        ) : (
+          <>
+            <a href="https://www.ncloud.com/mypage/manage/authkey" target="_blank" rel="noreferrer">
+              ncloud 콘솔 → API Hub
+            </a>
+            에서 <b>Client ID</b>(X-NCP-APIGW-API-KEY-ID)와 <b>Client Secret</b>(X-NCP-APIGW-API-KEY)을 복사해 붙여넣으세요.
+          </>
+        )}{" "}
+        값은 이 PC의 <code>config/naver.json</code>에만 저장됩니다(git 제외).
       </div>
       <div className="naver-keyrow">
         <label>
@@ -366,7 +401,7 @@ function NaverKeyForm({
           />
         </label>
         <button className="btn small primary" onClick={() => void submitKey()} disabled={saving || !cid.trim() || !csec.trim()}>
-          {saving ? "저장 중…" : "🔑 등록"}
+          {saving ? "저장 중…" : configured ? "🔁 키 교체" : "🔑 등록"}
         </button>
       </div>
       {keyNote && <div className="naver-msg">{keyNote}</div>}

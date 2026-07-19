@@ -1468,6 +1468,16 @@ function naverApiPlugin(): Plugin {
               return;
             }
 
+            // 키 삭제 — 잘못 넣었을 때 되돌릴 수단 (한도 설정은 남긴다)
+            if (sub === "/key" && req.method === "DELETE") {
+              if (blockRemoteWrite(req, res)) return;
+              const { clientId: _a, clientSecret: _b, ...rest } = cfg as any;
+              fs.mkdirSync(path.dirname(NAVER_CFG), { recursive: true });
+              fs.writeFileSync(NAVER_CFG, JSON.stringify(rest, null, 1), "utf-8");
+              res.end(JSON.stringify({ ok: true, configured: false }));
+              return;
+            }
+
             // 한도만 변경
             if (sub === "/caps" && req.method === "POST") {
               if (blockRemoteWrite(req, res)) return;
