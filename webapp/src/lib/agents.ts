@@ -1569,6 +1569,68 @@ export function dataExplainPrompt(fileName: string, content: string, readme: str
     .join("\n");
 }
 
+/**
+ * 컨셉 게이트 — 회의를 열기 전에 "이 지시가 기존 게임과 같은 게임인가"만 판정한다.
+ *
+ * 왜 별도 호출인가(실사고 2026-07-20): 예전엔 이 판단을 pmSummaryPrompt 마지막 줄의
+ * 소프트 지시("양립 불가면 섞지 말고 신고해라")로만 걸었다. 그런데 PM은 그 지시를 무시하고
+ * 개요는 옛것(카페)으로 두면서 팀원 18명은 새 지시(전투)로 표류시켜, GDD가 절마다 다른 게임이
+ * 되고 오너에게 충돌이 한 번도 안 올라갔다(approvals=[]). 통합 단계는 이미 너무 늦다.
+ * 판단 하나만 시키는 전용 호출은 모델이 훨씬 안정적으로 따른다. 충돌이면 호출부가 팀을
+ * 돌리지 않고 오너 결재로 올린다.
+ *
+ * 오탐(양립인데 충돌로 오판)이 회의를 막으므로 **보수적으로** — 애매하면 "양립"이 기본.
+ * 기능 추가·모드 추가·밸런싱·콘텐츠 확장은 전부 양립이다. 장르와 배경이 근본적으로 다른
+ * "사실상 다른 게임을 만들자"일 때만 충돌.
+ */
+export function conceptGatePrompt(request: string, overview: string): string {
+  return [
+    `너는 이 게임 스튜디오의 PM 디렉터다. 팀 회의를 소집하기 전, 딱 하나만 판정해라.`,
+    ``,
+    `[현재 이 스튜디오가 만들고 있는 게임 — "1. 개요"]`,
+    overview.trim().slice(0, 900),
+    ``,
+    `[오너의 새 지시]`,
+    request.trim(),
+    ``,
+    `질문: 이 지시는 **위 게임에 대한 작업**인가, 아니면 **사실상 다른 게임을 만들자**는 것인가?`,
+    `- 기능·모드·시스템 추가, 밸런싱, 콘텐츠·스토리 확장, 세부 설계 → **양립** (기본값). 애매하면 양립.`,
+    `- 장르와 배경이 근본적으로 달라 같은 제품으로 성립할 수 없음(예: 힐링 카페 퍼즐 ↔ 전투 액션) → **충돌**.`,
+    ``,
+    `아래 형식으로만 답해라. 다른 말·설명·도구 호출 금지. 반드시 한국어.`,
+    `판정: 양립` + ` 또는 ` + `충돌`,
+    `기존: <현재 게임을 한 줄로>`,
+    `지시: <새 지시가 원하는 것을 한 줄로>`,
+    `이유: <왜 그렇게 판정했는지 한 줄>`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** 컨셉 게이트 응답 파싱 — 판정이 명확히 "충돌"일 때만 conflict=true (기본 양립, fail-open) */
+export function parseConceptGate(text: string): {
+  conflict: boolean;
+  existing: string;
+  directive: string;
+  reason: string;
+} {
+  // 라벨 앞뒤에 붙는 마크다운(**판정**:, - 판정:)을 허용 — 모델이 굵게·글머리표로 쓰면 놓친다
+  const grab = (label: string) =>
+    new RegExp(`^\\s*[-*]?\\s*\\*{0,2}${label}\\*{0,2}\\s*[:：]\\s*(.+)$`, "m")
+      .exec(text)?.[1]
+      ?.replace(/[*_`]+/g, "")
+      .trim() ?? "";
+  const verdict = grab("판정");
+  // "충돌"이 명시됐을 때만 막는다 — 형식이 깨지거나 애매하면 회의를 진행(오탐이 회의를 막는 게 더 나쁘다)
+  const conflict = /충돌/.test(verdict) && !/양립/.test(verdict);
+  return {
+    conflict,
+    existing: grab("기존"),
+    directive: grab("지시"),
+    reason: grab("이유"),
+  };
+}
+
 export function pmSummaryPrompt(
   request: string,
   outputs: { agent: AgentDef; text: string }[],

@@ -1,4 +1,0 @@
-id,name_ko,base_rate_pct,pity_threshold,note
-gacha_common,일반 레시피,90,-,확정 — 레시피 뽑기 시스템 문서(채택안)
-gacha_rare,희귀 레시피,9,-,확정
-gacha_secret,비밀 레시피,1,50,확정 — 50회 내 미출현 시 확정 지급(천장)

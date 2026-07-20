@@ -12,6 +12,8 @@ import {
   reviewPrompt,
   revisePrompt,
   pmSummaryPrompt,
+  conceptGatePrompt,
+  parseConceptGate,
   pmVerifyPrompt,
   stripInternalUrls,
   pmDeptRoutePrompt,
@@ -1655,6 +1657,51 @@ export const useVE = create<VEState>()((set, get) => {
         /* 저장본을 못 읽으면 화면의 최신 상태 사용 */
       }
       const overview = getSectionBody(baseMd, "## 1.");
+
+      // 🚦 컨셉 게이트 — 팀 18명을 돌리기 전에 "이 지시가 기존 게임과 같은 게임인가"만 판정한다.
+      // 개요가 이미 있는 프로젝트에서만 검사한다(빈 프로젝트의 첫 지시는 그 자체가 컨셉을 정의).
+      // 충돌이면 회의를 열지 않고 오너 결재로 올린다 — 예전엔 이 판단이 최종 통합의 소프트 지시뿐이라
+      // PM이 무시하고 개요는 옛것, 팀원은 새 지시로 표류시켜 GDD가 절마다 다른 게임이 됐다
+      // (실사고 2026-07-20: 카페 게임에 "전투 시스템" 지시 → 충돌이 오너에게 한 번도 안 올라감).
+      // 가져온 기획 통합처럼 "충돌 시 문서 우선"이 이미 정해진 흐름은 건너뛴다.
+      if (overview.trim().length > 40 && !req.startsWith("[가져온 기획")) {
+        updateCard("pm", { state: "running", phase: "지시-기획 정합 확인 중", startedAt: Date.now() });
+        setAgentStatus("pm", "running");
+        try {
+          const g = await gateway.runAgent("pm", conceptGatePrompt(req, overview), `${runTag}-gate`, signal);
+          addUsage(g.usage, g.text);
+          const verdict = parseConceptGate(sanitizeAgentOutput(g.text));
+          if (verdict.conflict) {
+            updateCard("pm", { state: "done", phase: undefined, output: sanitizeAgentOutput(g.text), endedAt: Date.now() });
+            setAgentStatus("pm", "done");
+            pushFeed({
+              from: "pm",
+              kind: "status",
+              text:
+                `🚦 이 지시는 지금 만들고 있는 게임과 컨셉이 충돌합니다 — 회의를 열지 않고 오너 결재로 올립니다.\n` +
+                `· 기존: ${verdict.existing || "(현재 게임)"}\n· 지시: ${verdict.directive || req.slice(0, 60)}\n· 이유: ${verdict.reason || "장르·배경이 근본적으로 다름"}`,
+            });
+            await get().addApproval(
+              `컨셉 충돌 — 새 프로젝트로 시작할까요?`,
+              [
+                `상신: ${AGENT_MAP["pm"]?.name ?? "PM 디렉터"} (회의 개시 전 정합 확인)`,
+                `회의: "${req.slice(0, 80)}${req.length > 80 ? "…" : ""}"`,
+                `바뀌는 것: 지금 게임(${verdict.existing || "현재 개요"}) → 지시가 요구하는 게임(${verdict.directive || req.slice(0, 40)})`,
+                `이유: ${verdict.reason || "장르·배경이 근본적으로 달라 같은 제품으로 성립하기 어렵습니다."}`,
+                ``,
+                `승인하면: 이 지시를 새 게임의 방향으로 받아들여 진행합니다(기존 개요는 오너가 별도 정리).`,
+                `반려하면: 기존 게임을 유지합니다. 다른 게임이라면 상단 "새 프로젝트"로 빈 기획에서 시작하세요.`,
+              ].join("\n"),
+              "meeting:pm-gate"
+            );
+            endMeeting();
+            return;
+          }
+        } catch {
+          // 게이트 호출 실패는 회의를 막지 않는다(fail-open) — 오탐으로 전체 회의를 못 여는 게 더 나쁘다
+        }
+      }
+
       // 전체 조감도(비-LLM 요약) + 결정사항 원장 — 에이전트가 조각이 아닌 전체 그림을 보고 쓴다
       const panorama = buildGddPanorama(baseMd);
       // 📚 옵시디언 사서 — 오너 볼트에서 지시와 관련된 노트를 찾아 회의에 주입 (볼트 없거나 무관하면 빈 문자열)
