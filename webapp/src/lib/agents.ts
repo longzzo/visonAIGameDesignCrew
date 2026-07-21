@@ -1638,6 +1638,12 @@ export function parseConceptGate(text: string): {
  * 만든다. AI 티가 나지 않도록: 슬라이드당 핵심 하나, 이모지 불릿 금지, GDD의 실제 수치를 쓴다.
  * 출력은 코드펜스 없이 순수 마크다운(프론트매터부터). 도구 호출 금지.
  */
+/**
+ * 발표 생성 전용 모델 — 오너 지시(2026-07-21): 발표 생성만 gpt-oss-120b로.
+ * qwen3-next-80b(팀원 기본)보다 빠르고, 긴 구조적 출력에 강하다. 이 호출만 오버라이드.
+ */
+export const DECK_MODEL = "nvidia/openai/gpt-oss-120b";
+
 export function deckPrompt(projectName: string, gddText: string): string {
   const gdd = (gddText ?? "").trim().slice(0, 9000);
   return [

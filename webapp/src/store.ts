@@ -52,6 +52,7 @@ import {
   bossReviewPrompt,
   chatPrompt,
   deckPrompt,
+  DECK_MODEL,
   extractDeckMarkdown,
   koRepairPrompt,
   redoPrompt,
@@ -998,12 +999,12 @@ export const useVE = create<VEState>()((set, get) => {
       signal?.addEventListener("abort", done, { once: true });
     });
 
-  const runAgentSafe = async (agentId: string, prompt: string, tag: string, signal?: AbortSignal) => {
+  const runAgentSafe = async (agentId: string, prompt: string, tag: string, signal?: AbortSignal, model?: string) => {
     // 5초 = 일시적 오류 흡수, 2분 = 오너 요청("게이트웨이 오류는 2분 간격으로 재시도").
     // 5초를 먼저 두는 이유: 대부분의 오류는 즉시 풀려서, 처음부터 2분을 기다리면 회의가 헛돈다.
     const waits = [5_000, 120_000];
     const name = AGENT_MAP[agentId]?.name ?? agentId;
-    let r = await gateway.runAgent(agentId, prompt, tag, signal);
+    let r = await gateway.runAgent(agentId, prompt, tag, signal, model);
     for (let i = 0; i < waits.length; i++) {
       if (!isGatewayErrorText(sanitizeAgentOutput(r.text)) || signal?.aborted) return r;
       const label = waits[i] >= 60_000 ? `${waits[i] / 60_000}분` : `${waits[i] / 1000}초`;
@@ -1014,7 +1015,7 @@ export const useVE = create<VEState>()((set, get) => {
       });
       await abortableSleep(waits[i], signal);
       if (signal?.aborted) return r;
-      r = await gateway.runAgent(agentId, prompt, `${tag}-retry${i + 1}`, signal);
+      r = await gateway.runAgent(agentId, prompt, `${tag}-retry${i + 1}`, signal, model);
     }
     // 여기까지 왔으면 재시도를 다 쓰고도 실패 — 오류함에 보관해 오너가 나중에 물어볼 수 있게 한다.
     const finalText = sanitizeAgentOutput(r.text);
@@ -3817,9 +3818,10 @@ export const useVE = create<VEState>()((set, get) => {
       try {
         const gddState = await fetchGdd(project);
         const gddText = (gddState?.markdown ?? "").trim();
-        set({ deckStatus: `${AGENT_MAP[designer]?.name ?? "발표 디자이너"}가 슬라이드를 구성하는 중…` });
-        pushFeed({ from: designer, kind: "status", text: `📊 "${projName}" 발표자료 슬라이드를 구성하는 중입니다…` });
-        const r = await runAgentSafe(designer, deckPrompt(projName, gddText), `deck-${Date.now().toString(36)}`);
+        set({ deckStatus: `${AGENT_MAP[designer]?.name ?? "발표 디자이너"}가 슬라이드를 구성하는 중… (gpt-oss-120b)` });
+        pushFeed({ from: designer, kind: "status", text: `📊 "${projName}" 발표자료 슬라이드를 구성하는 중입니다… (gpt-oss-120b)` });
+        // 발표 생성만 gpt-oss-120b로 오버라이드 — 아트 디렉터 기본 모델이 아니라.
+        const r = await runAgentSafe(designer, deckPrompt(projName, gddText), `deck-${Date.now().toString(36)}`, undefined, DECK_MODEL);
         const raw = sanitizeAgentOutput(r.text);
         if (isGatewayErrorText(raw)) {
           set({ deckBusy: false, deckStatus: "", deckError: "게이트웨이 오류로 슬라이드 생성에 실패했습니다. 잠시 후 다시 시도하세요." });

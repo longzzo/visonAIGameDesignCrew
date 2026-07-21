@@ -301,7 +301,13 @@ export class GatewayClient {
     }
   }
 
-  async runAgent(agentId: string, input: string, sessionSuffix: string, signal?: AbortSignal): Promise<RunResult> {
+  async runAgent(
+    agentId: string,
+    input: string,
+    sessionSuffix: string,
+    signal?: AbortSignal,
+    model?: string
+  ): Promise<RunResult> {
     this.checkCostGuard();
     this.callTimes.push(Date.now());
     // 창의성(온도) 튜닝 + 자가 학습 요령(스킬) — 모든 작업 프롬프트 앞에 주입
@@ -315,6 +321,8 @@ export class GatewayClient {
         agentId,
         message: input,
         sessionKey: `agent:${agentId}:${sessionSuffix}`,
+        // 이 호출만 다른 모델로 (예: 발표 생성 = gpt-oss-120b). 없으면 에이전트 기본.
+        ...(model ? { model } : {}),
       }),
     });
     const j = await r.json().catch(() => null);

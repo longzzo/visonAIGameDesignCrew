@@ -2757,17 +2757,27 @@ function normalizeDeckSlides(md: string): string {
   const lines = body.split(/\r?\n/);
   const out: string[] = [];
   let seenContent = false;
+  const prevNonBlank = () => {
+    let j = out.length - 1;
+    while (j >= 0 && out[j].trim() === "") j--;
+    return j >= 0 ? out[j].trim() : "";
+  };
   for (const line of lines) {
-    if (/^\s*<!--\s*_class:/.test(line)) {
-      let j = out.length - 1;
-      while (j >= 0 && out[j].trim() === "") j--;
-      const prev = j >= 0 ? out[j].trim() : "";
-      if (seenContent && prev !== "---") {
-        if (out.length && out[out.length - 1].trim() !== "") out.push("");
-        out.push("---", "");
-      }
+    const t = line.trim();
+    // 슬라이드 구분자 `---` 는 앞뒤에 빈 줄이 있어야 Marp가 슬라이드 경계로 인식한다.
+    // gpt-oss는 빈 줄 없이 붙여 써서(실측) 전체가 1장으로 뭉쳤다 → 빈 줄을 강제한다.
+    if (t === "---") {
+      if (out.length && out[out.length - 1].trim() !== "") out.push("");
+      out.push("---", "");
+      seenContent = true;
+      continue;
     }
-    if (line.trim() !== "") seenContent = true;
+    // _class 마커 앞에 구분자가 없으면 넣어준다(qwen은 --- 자체를 빠뜨렸다).
+    if (/^<!--\s*_class:/.test(t) && seenContent && prevNonBlank() !== "---") {
+      if (out.length && out[out.length - 1].trim() !== "") out.push("");
+      out.push("---", "");
+    }
+    if (t !== "") seenContent = true;
     out.push(line);
   }
   return head + out.join("\n");
@@ -2780,6 +2790,11 @@ function normalizeDeckSlides(md: string): string {
  * 마크다운으로 파싱한다. 한 줄짜리 인라인 div(예: <div class="meta">글</div>)는 건드리지 않는다.
  */
 function normalizeDeckHtmlBlocks(md: string): string {
+  // gpt-oss는 `<div class="cols"><div>` 처럼 여러 태그를 한 줄에 압축한다(실측) → 각 태그를 제 줄로.
+  md = md
+    .replace(/(<div\b[^>]*>)(?=<div\b)/g, "$1\n")
+    .replace(/(<\/div>)(?=<\/div>)/g, "$1\n")
+    .replace(/(<\/div>)(?=<div\b)/g, "$1\n");
   const lines = md.split(/\r?\n/);
   const out: string[] = [];
   const isOpenOnly = (s: string) => /^<div\b[^>]*>$/.test(s.trim());
@@ -3739,11 +3754,15 @@ function agentBridgePlugin(): Plugin {
           let agentId = "";
           let message = "";
           let sessionKey = "";
+          let modelOverride = "";
           try {
             const j = JSON.parse(body || "{}");
             agentId = String(j.agentId ?? "");
             message = String(j.message ?? "");
             sessionKey = String(j.sessionKey ?? "");
+            // 이 호출만 다른 모델로 (예: 발표 생성은 gpt-oss-120b). provider/model 형식만 허용.
+            const m = String(j.model ?? "").trim();
+            if (m && /^[a-z0-9][a-z0-9/._-]{1,80}$/i.test(m)) modelOverride = m;
           } catch {
             res.statusCode = 400;
             res.end(JSON.stringify({ ok: false, error: "잘못된 JSON 본문" }));
@@ -3772,6 +3791,7 @@ function agentBridgePlugin(): Plugin {
           }
           const args = [entry, "agent", "--agent", agentId, "--message", message, "--json", "--timeout", "420"];
           if (sessionKey) args.push("--session-key", sessionKey);
+          if (modelOverride) args.push("--model", modelOverride);
           const child = spawn(process.execPath, args, { shell: false, windowsHide: true });
           let out = "";
           let err = "";
