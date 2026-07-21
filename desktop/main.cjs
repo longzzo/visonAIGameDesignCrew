@@ -245,28 +245,34 @@ ipcMain.handle("ve:save", async (_e, url) => {
 // 로컬 개발 서버 콘텐츠 — HTTP 캐시가 손상되면 ERR_FAILED로 빈 창이 뜨므로 캐시를 끈다
 app.commandLine.appendSwitch("disable-http-cache");
 
-// 단일 인스턴스 — 두 번째 실행 시 기존 창을 띄운다
-if (!app.requestSingleInstanceLock()) {
-  app.quit();
+// 단일 인스턴스 — 창을 닫으면 트레이로 숨으므로(종료 아님), 바로가기를 다시 누르면
+// 두 번째 인스턴스가 뜬다. 이때 아래 whenReady까지 실행되면 두 인스턴스가 같은
+// userData의 Chromium 캐시를 다투다 "Unable to move the cache: 액세스 거부"로
+// 페이지 로드가 ERR_FAILED가 되고 빈/깨진 창이 뜬다(오너 신고 2026-07-19, 결정적 재현).
+// 반드시 락을 쥔 인스턴스만 창을 만들고, 못 쥔 쪽은 whenReady 자체를 등록하지 않는다.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit(); // 창·연결을 만들지 않고 즉시 물러난다. 기존 인스턴스가 second-instance로 창을 띄운다.
 } else {
+  // 두 번째 실행 = 기존 창을 앞으로. 트레이에 숨어 있던 창이 이걸로 다시 뜬다.
   app.on("second-instance", showWindow);
+
+  // 트레이 상주 — 모든 창이 닫혀도 앱은 살아있는다 (기본 동작은 종료라서 명시)
+  app.on("window-all-closed", () => {
+    /* noop — 트레이 메뉴의 "종료"로만 끝낸다 */
+  });
+
+  app.whenReady().then(async () => {
+    Menu.setApplicationMenu(null);
+    setupTray();
+    createWindow();
+    showSplash(); // 서버 탐색·기동 동안 빈 창(검은 화면)이 보이지 않게 즉시 표시
+    await connect();
+    // 글로벌 단축키 — 어디서든 Ctrl+Shift+V 로 창을 띄운다
+    globalShortcut.register("CommandOrControl+Shift+V", showWindow);
+    app.on("activate", showWindow);
+  });
 }
-
-// 트레이 상주 — 모든 창이 닫혀도 앱은 살아있는다 (기본 동작은 종료라서 명시)
-app.on("window-all-closed", () => {
-  /* noop — 트레이 메뉴의 "종료"로만 끝낸다 */
-});
-
-app.whenReady().then(async () => {
-  Menu.setApplicationMenu(null);
-  setupTray();
-  createWindow();
-  showSplash(); // 서버 탐색·기동 동안 빈 창(검은 화면)이 보이지 않게 즉시 표시
-  await connect();
-  // 글로벌 단축키 — 어디서든 Ctrl+Shift+V 로 창을 띄운다
-  globalShortcut.register("CommandOrControl+Shift+V", showWindow);
-  app.on("activate", showWindow);
-});
 
 app.on("will-quit", () => globalShortcut.unregisterAll());
 app.on("before-quit", () => { quitting = true; });
