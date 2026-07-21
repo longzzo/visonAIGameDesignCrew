@@ -135,6 +135,7 @@ export function TopBar() {
     failures,
     setFailuresOpen,
     setNaverOpen,
+    setDeckOpen,
   } = useVE();
   const pendingApprovals = approvals.filter((a) => a.status === "pending").length;
   const price = priceFor(modelName);
@@ -266,6 +267,13 @@ export function TopBar() {
           title="네이버 리서치 — 국내 블로그·카페·지식iN·뉴스 검색과 검색어 트렌드"
         >
           🔎 네이버
+        </button>
+        <button
+          className="badge deck-badge"
+          onClick={() => setDeckOpen(true)}
+          title="발표자료 — GDD를 게임 발표용 슬라이드(HTML·PDF·PPTX)로 생성. 디자인은 옵시디안에서 커스텀."
+        >
+          📊 발표자료
         </button>
         {/* 🗂️ 오류함 — 재시도(5초→2분)까지 실패한 호출이 있을 때만 보인다 */}
         {failures.length > 0 && (

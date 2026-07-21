@@ -51,6 +51,8 @@ import {
   balanceSheetPrompt,
   bossReviewPrompt,
   chatPrompt,
+  deckPrompt,
+  extractDeckMarkdown,
   koRepairPrompt,
   redoPrompt,
   uiMockupPrompt,
@@ -396,6 +398,8 @@ interface VEState {
   failuresOpen: boolean;
   /** 🔎 네이버 리서치 패널 */
   naverOpen: boolean;
+  deckOpen: boolean;
+  setDeckOpen: (b: boolean) => void;
   /** 개발 착수 킷 */
   kitFiles: KitFile[];
   devKitBusy: boolean;
@@ -566,6 +570,14 @@ interface VEState {
   dataExplain: Record<string, string>;
   dataExplainBusy: string;
   loadKit: () => Promise<void>;
+
+  /** 📊 발표자료 — GDD를 발표 디자이너(아트 디렉터)가 Marp 덱으로 만들고 HTML·PDF·PPTX로 렌더 */
+  generateDeck: () => Promise<void>;
+  deckBusy: boolean;
+  deckStatus: string;
+  deckFiles: { fmt: string; name: string; bytes: number }[];
+  deckThemeSource: string;
+  deckError: string;
 
   reflectToGdd: (agentId: string, text: string) => Promise<void>;
   loadGdd: () => Promise<void>;
@@ -1179,6 +1191,7 @@ export const useVE = create<VEState>()((set, get) => {
     failures: [],
     failuresOpen: false,
     naverOpen: false,
+    deckOpen: false,
     // 자동 실행은 세션 한정 — 항상 꺼진 상태로 시작한다. 켜둔 채 일괄 결재하면 승인 수만큼
     // 회의가 연쇄 착수되는 사고(2026-07-15 실사고: 11건 연쇄)가 나므로 켜는 행위는 그때그때 명시적으로.
     approvalAutoRun: false,
@@ -1189,6 +1202,12 @@ export const useVE = create<VEState>()((set, get) => {
     uiMockupBusy: false,
     dataExplain: {},
     dataExplainBusy: "",
+
+    deckBusy: false,
+    deckStatus: "",
+    deckFiles: [],
+    deckThemeSource: "",
+    deckError: "",
 
     gdd: "",
     gddMtime: 0,
@@ -3433,6 +3452,7 @@ export const useVE = create<VEState>()((set, get) => {
     setFailuresOpen: (b) => set({ failuresOpen: b }),
 
     setNaverOpen: (b) => set({ naverOpen: b }),
+    setDeckOpen: (b) => set({ deckOpen: b }),
 
     clearFailures: async () => {
       const project = get().activeProject;
@@ -3782,6 +3802,62 @@ export const useVE = create<VEState>()((set, get) => {
     },
 
     /* ── GDD + 버전 히스토리 ───────────────────────── */
+
+    generateDeck: async () => {
+      const project = get().activeProject;
+      if (!project) {
+        set({ deckError: "프로젝트를 먼저 선택하세요." });
+        return;
+      }
+      if (get().deckBusy) return;
+      const projName = get().projects.find((p) => p.id === project)?.name ?? project;
+      set({ deckBusy: true, deckError: "", deckFiles: [], deckStatus: "기획서를 읽는 중…" });
+      // 발표 디자이너 = 아트 디렉터(visual)의 발표 역할
+      const designer = "visual";
+      try {
+        const gddState = await fetchGdd(project);
+        const gddText = (gddState?.markdown ?? "").trim();
+        set({ deckStatus: `${AGENT_MAP[designer]?.name ?? "발표 디자이너"}가 슬라이드를 구성하는 중…` });
+        pushFeed({ from: designer, kind: "status", text: `📊 "${projName}" 발표자료 슬라이드를 구성하는 중입니다…` });
+        const r = await runAgentSafe(designer, deckPrompt(projName, gddText), `deck-${Date.now().toString(36)}`);
+        const raw = sanitizeAgentOutput(r.text);
+        if (isGatewayErrorText(raw)) {
+          set({ deckBusy: false, deckStatus: "", deckError: "게이트웨이 오류로 슬라이드 생성에 실패했습니다. 잠시 후 다시 시도하세요." });
+          return;
+        }
+        const markdown = extractDeckMarkdown(raw);
+        if (markdown.length < 40) {
+          set({ deckBusy: false, deckStatus: "", deckError: "생성된 슬라이드 내용이 비어 있습니다. 다시 시도하세요." });
+          return;
+        }
+        set({ deckStatus: "HTML·PDF·PPTX로 렌더링 중… (10~40초)" });
+        pushFeed({ from: designer, kind: "status", text: `🎨 발표자료를 HTML·PDF·PPTX로 렌더링하는 중입니다…` });
+        const resp = await fetch("/api/deck/render", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId: project, markdown }),
+        });
+        const j = await resp.json();
+        if (!resp.ok || !j.ok) {
+          const detail = Array.isArray(j.errors) && j.errors.length ? ` (${j.errors[0]})` : "";
+          set({ deckBusy: false, deckStatus: "", deckError: (j.error || "렌더 실패") + detail });
+          pushFeed({ from: "system", kind: "error", text: `⚠️ 발표자료 렌더에 실패했습니다${detail}.` });
+          return;
+        }
+        set({
+          deckBusy: false,
+          deckStatus: "",
+          deckFiles: j.files ?? [],
+          deckThemeSource: j.themeSource ?? "",
+          deckError: Array.isArray(j.errors) && j.errors.length ? `일부 포맷 실패: ${j.errors.join(" / ")}` : "",
+        });
+        const kinds = (j.files ?? []).map((f: any) => f.fmt.toUpperCase()).join("·");
+        const src = j.themeSource === "vault" ? "옵시디안 커스텀 테마" : "기본 테마";
+        pushFeed({ from: designer, kind: "summary", text: `📊 "${projName}" 발표자료 완성 — ${kinds} (${src}). 상단 📊에서 내려받으세요.` });
+      } catch (e: any) {
+        set({ deckBusy: false, deckStatus: "", deckError: String(e?.message ?? e).slice(0, 200) });
+      }
+    },
 
     reflectToGdd: async (agentId, text) => {
       const agent = AGENT_MAP[agentId];

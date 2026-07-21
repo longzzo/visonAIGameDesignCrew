@@ -1944,6 +1944,38 @@ button { font-family: inherit; }
 .naver-badge { border-color: rgba(52, 211, 153, 0.4); color: #6ee7b7; cursor: pointer; }
 .naver-badge:hover { border-color: #34d399; color: #fff; }
 .naver-card { max-width: 760px; width: 92vw; }
+
+/* 📊 발표자료 패널 */
+.deck-badge { border-color: rgba(255, 106, 61, 0.45); color: #ffb199; cursor: pointer; }
+.deck-badge:hover { border-color: #ff6a3d; color: #fff; }
+.deck-card { max-width: 620px; width: 92vw; }
+.deck-body { display: flex; flex-direction: column; gap: 14px; padding-top: 6px; }
+.deck-target { font-size: 13px; }
+.deck-gen { align-self: flex-start; padding: 9px 20px; font-size: 15px; }
+.deck-status { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--text-dim); }
+.deck-spinner {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid rgba(255, 106, 61, 0.3); border-top-color: #ff6a3d;
+  display: inline-block; animation: deck-spin 0.8s linear infinite;
+}
+@keyframes deck-spin { to { transform: rotate(360deg); } }
+.deck-error {
+  font-size: 13px; color: #fca5a5;
+  background: rgba(248, 113, 113, 0.08); border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: 8px; padding: 9px 12px;
+}
+.deck-files { display: flex; flex-direction: column; gap: 8px; }
+.deck-files-head { font-size: 12px; margin-bottom: 2px; }
+.deck-file-row {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--panel-2, rgba(255,255,255,0.03)); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 12px;
+}
+.deck-file-icon { font-size: 20px; }
+.deck-file-name { flex: 1; font-size: 14px; }
+.deck-file-size { font-size: 12px; }
+.deck-note { font-size: 12px; line-height: 1.6; border-top: 1px solid var(--border); padding-top: 12px; }
+.deck-note code { background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
 .naver-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
 .naver-tabs button {
   background: transparent; border: 1px solid var(--border); color: var(--text-dim);

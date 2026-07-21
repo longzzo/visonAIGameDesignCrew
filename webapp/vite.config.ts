@@ -976,7 +976,8 @@ function stripInternalUrls(s: string): string {
  * `비전엔진 개발`은 **앱 자체의 엔지니어링 기록**(놓친 것 로그·프로파일 수치)이라 게임 기획 회의에
  * 딸려 들어가면 오염이 된다 — 사서 검색에서 항상 제외한다 (오너 지시 2026-07-17).
  */
-const LIBRARIAN_SKIP_DIRS = ["비전엔진 개발"];
+// `발표 디자인`은 발표자료 테마·규칙(CSS/가이드)이라 게임 기획 회의 맥락이 아니다 — 사서에서 제외.
+const LIBRARIAN_SKIP_DIRS = ["비전엔진 개발", "발표 디자인"];
 function walkVaultMd(root: string, includeExport = false): string[] {
   const skip = new Set([
     ".obsidian",
@@ -2722,6 +2723,238 @@ function failuresApiPlugin(): Plugin {
   };
 }
 
+/**
+ * 발표자료(덱) 렌더 — 에이전트가 만든 Marp 마크다운을 HTML·PDF·PPTX로 굽는다.
+ *
+ * 디자인 규칙(theme-game.css)은 오너가 옵시디안 「발표 디자인」에서 고칠 수 있고,
+ * 없으면 앱 번들 기본(webapp/assets/deck/theme-game.css)을 쓴다. 렌더는 로컬 marp-cli를
+ * node로 직접 부른다(.cmd는 Node 20+에서 EINVAL이라 JS 엔트리를 실행).
+ */
+function deckThemeCss(): { css: string; source: "vault" | "bundled" | "none" } {
+  const vault = resolveVault();
+  if (vault) {
+    const p = path.join(vault, "발표 디자인", "theme-game.css");
+    try {
+      if (fs.existsSync(p)) return { css: fs.readFileSync(p, "utf-8"), source: "vault" };
+    } catch {
+      /* 볼트 접근 실패 시 번들로 */
+    }
+  }
+  const bundled = path.resolve(process.cwd(), "assets", "deck", "theme-game.css");
+  if (fs.existsSync(bundled)) return { css: fs.readFileSync(bundled, "utf-8"), source: "bundled" };
+  return { css: "", source: "none" };
+}
+
+/**
+ * 슬라이드 구분자 정규화 — 모델이 `<!-- _class: -->`만 넣고 `---` 구분을 빠뜨리면
+ * 전체가 한 슬라이드로 뭉친다(실측 2026-07-21: 12장이 1장으로). 각 `_class` 마커 앞에
+ * 구분자가 없으면 넣어준다. 프롬프트에만 의존하지 않는 결정론적 안전망.
+ */
+function normalizeDeckSlides(md: string): string {
+  const fm = /^(---\r?\n[\s\S]*?\r?\n---\r?\n?)/.exec(md);
+  const head = fm ? fm[1] : "";
+  const body = fm ? md.slice(fm[1].length) : md;
+  const lines = body.split(/\r?\n/);
+  const out: string[] = [];
+  let seenContent = false;
+  for (const line of lines) {
+    if (/^\s*<!--\s*_class:/.test(line)) {
+      let j = out.length - 1;
+      while (j >= 0 && out[j].trim() === "") j--;
+      const prev = j >= 0 ? out[j].trim() : "";
+      if (seenContent && prev !== "---") {
+        if (out.length && out[out.length - 1].trim() !== "") out.push("");
+        out.push("---", "");
+      }
+    }
+    if (line.trim() !== "") seenContent = true;
+    out.push(line);
+  }
+  return head + out.join("\n");
+}
+
+/**
+ * HTML 블록 안 마크다운 파싱 보정 — Marp(markdown-it)는 원시 `<div>` 안의 `##`·`-`를
+ * 기본적으로 파싱하지 않아 그대로 노출된다(실측 2026-07-21: 2단 슬라이드에서 발생).
+ * 단독 줄인 여는 `<div ...>` 뒤와 닫는 `</div>` 앞에 빈 줄을 넣으면 markdown-it가 다시
+ * 마크다운으로 파싱한다. 한 줄짜리 인라인 div(예: <div class="meta">글</div>)는 건드리지 않는다.
+ */
+function normalizeDeckHtmlBlocks(md: string): string {
+  const lines = md.split(/\r?\n/);
+  const out: string[] = [];
+  const isOpenOnly = (s: string) => /^<div\b[^>]*>$/.test(s.trim());
+  const isCloseOnly = (s: string) => s.trim() === "</div>";
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (isCloseOnly(line) && out.length && out[out.length - 1].trim() !== "") out.push("");
+    out.push(line);
+    if (isOpenOnly(line)) {
+      const next = lines[i + 1];
+      if (next !== undefined && next.trim() !== "") out.push("");
+    }
+  }
+  return out.join("\n");
+}
+
+const MARP_ENTRY = path.resolve(process.cwd(), "node_modules/@marp-team/marp-cli/marp-cli.js");
+
+function runMarp(args: string[], cwd: string, timeoutMs = 120_000): Promise<{ code: number; out: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [MARP_ENTRY, "--no-stdin", ...args], {
+      cwd,
+      windowsHide: true,
+    });
+    let out = "";
+    const cap = (d: Buffer) => (out += d.toString());
+    child.stdout.on("data", cap);
+    child.stderr.on("data", cap);
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        /* noop */
+      }
+      resolve({ code: 124, out: out + "\n[timeout]" });
+    }, timeoutMs);
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ code: code ?? 1, out });
+    });
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      resolve({ code: 1, out: String((e as any)?.message ?? e) });
+    });
+  });
+}
+
+const DECK_MIME: Record<string, string> = {
+  html: "text/html; charset=utf-8",
+  pdf: "application/pdf",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  md: "text/markdown; charset=utf-8",
+};
+
+function deckApiPlugin(): Plugin {
+  return {
+    name: "vision-engine-deck-api",
+    configureServer(server: ViteDevServer) {
+      // 생성된 파일 내려받기 (렌더보다 먼저 등록 — /api/deck 접두어 충돌 방지)
+      server.middlewares.use("/api/deck/file", (req, res) => {
+        try {
+          const url = new URL(req.url ?? "/", "http://local");
+          const id = url.searchParams.get("id") ?? "";
+          const f = url.searchParams.get("f") ?? "";
+          // f는 deck.html/deck.pdf/deck.pptx/deck.md 만 허용 — 경로 이탈 차단
+          if (!isSafeId(id) || !/^deck\.(html|pdf|pptx|md)$/.test(f)) {
+            res.statusCode = 400;
+            res.end("bad request");
+            return;
+          }
+          const fp = path.join(projectDir(id), "deck", f);
+          if (!fs.existsSync(fp)) {
+            res.statusCode = 404;
+            res.end("not found");
+            return;
+          }
+          const ext = f.split(".").pop()!;
+          res.setHeader("Content-Type", DECK_MIME[ext] ?? "application/octet-stream");
+          if (url.searchParams.get("dl") === "1")
+            res.setHeader("Content-Disposition", `attachment; filename="${f}"`);
+          res.end(fs.readFileSync(fp));
+        } catch (e: any) {
+          res.statusCode = 500;
+          res.end(String(e?.message ?? e));
+        }
+      });
+
+      // 현재 적용 중인 테마 미리보기·출처
+      server.middlewares.use("/api/deck/theme", (req, res) => {
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        const t = deckThemeCss();
+        res.end(JSON.stringify({ ok: true, source: t.source, css: t.css }));
+      });
+
+      server.middlewares.use("/api/deck/render", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            if (req.method !== "POST") {
+              res.statusCode = 405;
+              res.end(JSON.stringify({ ok: false, error: "POST only" }));
+              return;
+            }
+            if (blockRemoteWrite(req, res)) return;
+            const j = JSON.parse((await readBody(req)) || "{}");
+            const id = String(j.projectId ?? "");
+            if (!isSafeId(id) || !fs.existsSync(projectDir(id))) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: "projectId 확인 필요" }));
+              return;
+            }
+            let md = String(j.markdown ?? "").trim();
+            if (!md) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: "markdown 비어 있음" }));
+              return;
+            }
+            const formats: string[] = Array.isArray(j.formats)
+              ? j.formats.filter((f: string) => ["html", "pdf", "pptx"].includes(f))
+              : ["html", "pdf", "pptx"];
+
+            // Marp 프론트매터 보정 — marp:true 없으면 렌더가 안 된다. 테마는 파일로 강제하므로 이름만 맞춘다.
+            if (!/^---[\s\S]*?marp:\s*true/m.test(md)) {
+              md = `---\nmarp: true\npaginate: true\n---\n\n${md}`;
+            }
+            // 슬라이드 구분자 + HTML 블록 정규화 — 모델이 --- 를 빠뜨리거나 div 안 마크다운을
+            // 빈 줄 없이 써도 깨지지 않게 (둘 다 실측된 실패)
+            md = normalizeDeckHtmlBlocks(normalizeDeckSlides(md));
+
+            const theme = deckThemeCss();
+            const deckDir = path.join(projectDir(id), "deck");
+            fs.mkdirSync(deckDir, { recursive: true });
+            const themePath = path.join(deckDir, "theme-game.css");
+            if (theme.css) fs.writeFileSync(themePath, theme.css, "utf-8");
+            const mdPath = path.join(deckDir, "deck.md");
+            fs.writeFileSync(mdPath, md, "utf-8");
+
+            const results: { fmt: string; name: string; bytes: number }[] = [];
+            const errors: string[] = [];
+            const baseArgs = [
+              ...(theme.css ? ["--theme", themePath] : []),
+              "--allow-local-files",
+              "deck.md",
+            ];
+            // 포맷별로 각각 굽는다(marp는 1회 1포맷). PDF·PPTX는 헤드리스 크롬이라 느리다.
+            for (const fmt of formats) {
+              const outName = `deck.${fmt}`;
+              const fmtFlag = fmt === "pdf" ? ["--pdf"] : fmt === "pptx" ? ["--pptx"] : [];
+              const r = await runMarp([...fmtFlag, ...baseArgs, "-o", outName], deckDir, 150_000);
+              const outPath = path.join(deckDir, outName);
+              if (r.code === 0 && fs.existsSync(outPath)) {
+                results.push({ fmt, name: outName, bytes: fs.statSync(outPath).size });
+              } else {
+                errors.push(`${fmt}: ${r.out.slice(-200).replace(/\s+/g, " ").trim()}`);
+              }
+            }
+
+            res.end(
+              JSON.stringify({
+                ok: results.length > 0,
+                themeSource: theme.source,
+                files: results,
+                errors,
+              })
+            );
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 400) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
 function approvalsApiPlugin(): Plugin {
   const file = (id: string) => path.join(projectDir(id), "approvals.json");
   return {
@@ -3759,6 +3992,7 @@ export default defineConfig({
     decisionsApiPlugin(),
     approvalsApiPlugin(),
     failuresApiPlugin(),
+    deckApiPlugin(),
     liveApiPlugin(),
     kitApiPlugin(),
     officeBgPlugin(),

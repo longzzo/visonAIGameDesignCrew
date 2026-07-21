@@ -1,0 +1,255 @@
+/* @theme game-pitch
+ *
+ * 게임 발표 자료용 Marp 테마 — "AI 티가 안 나는" 편집 디자인.
+ *
+ * ── 오너가 커스텀하는 곳 = 맨 위 :root 토큰 한 곳 ──
+ * 색·폰트·여백만 바꾸면 전체 덱이 따라 바뀐다. 아래 레이아웃 규칙은 건드리지 않아도 된다.
+ * 옵시디안 「발표 디자인/theme-game.css」를 고치면 다음 생성부터 반영된다.
+ *
+ * 설계 의도(왜 AI 티가 안 나는가):
+ *  · 모든 슬라이드를 가운데 정렬 히어로로 만들지 않는다 — 좌측 정렬 편집 레이아웃이 기본.
+ *  · 제목은 그라디언트/글로우 금지. 얇은 액센트 규칙(rule) 하나로만 강조.
+ *  · 불릿은 이모지가 아니라 앙다시(–). 슬라이드마다 이모지 범벅을 피한다.
+ *  · 실제 타입 스케일(60/40/26/22/16)과 넉넉한 여백. 그림자 남발 금지.
+ *  · 액센트는 아껴 쓴다 — 한 슬라이드에 강조는 하나.
+ */
+
+/* Pretendard(한글 우선) — 네트워크가 되면 CDN, 안 되면 시스템 폰트로 폴백 */
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css");
+
+:root {
+  /* ── 팔레트 (여기만 바꾸면 됨) ── */
+  --bg:        #0e1116;  /* 배경(딥 슬레이트) */
+  --bg-soft:   #161b24;  /* 카드·박스 면 */
+  --ink:       #eceff4;  /* 본문 글자 */
+  --muted:     #97a2b4;  /* 보조 글자 */
+  --accent:    #ff6a3d;  /* 주 강조(따뜻한 앰버) — 게임마다 바꿔도 됨 */
+  --accent-2:  #57c3cf;  /* 보조 강조(아이스) */
+  --line:      #262c38;  /* 헤어라인·구분선 */
+
+  /* ── 타입 ── */
+  --font: "Pretendard", "Pretendard Variable", "Malgun Gothic", "Segoe UI", system-ui, sans-serif;
+  --h1: 60px;
+  --h2: 40px;
+  --h3: 26px;
+  --body: 22px;
+  --small: 16px;
+
+  /* ── 여백 ── */
+  --pad-x: 72px;
+  --pad-y: 60px;
+}
+
+/* ── 기본 슬라이드 ── */
+section {
+  width: 1280px;
+  height: 720px;
+  padding: var(--pad-y) var(--pad-x);
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: var(--body);
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+/* 제목: 좌측 정렬 + 얇은 액센트 규칙. 그라디언트·글로우 없음. */
+h1 {
+  font-size: var(--h1);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  margin: 0 0 0.35em;
+  color: var(--ink);
+}
+h2 {
+  font-size: var(--h2);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.5em;
+  color: var(--ink);
+  padding-bottom: 0.28em;
+  border-bottom: 2px solid var(--line);
+}
+h2::after {
+  /* 제목 밑줄 왼쪽에만 액센트 조각 — 절제된 강조 */
+  content: "";
+  display: block;
+  width: 64px;
+  height: 2px;
+  background: var(--accent);
+  margin-bottom: -2px;
+  margin-top: 0.28em;
+}
+h3 {
+  font-size: var(--h3);
+  font-weight: 700;
+  color: var(--muted);
+  margin: 0 0 0.4em;
+}
+
+p { margin: 0 0 0.6em; }
+strong { color: var(--accent); font-weight: 700; }
+em { color: var(--accent-2); font-style: normal; font-weight: 600; }
+a { color: var(--accent-2); text-decoration: none; }
+
+/* 불릿: 이모지 대신 앙다시. 계층은 들여쓰기로. */
+ul { list-style: none; padding: 0; margin: 0.2em 0; }
+ul > li {
+  position: relative;
+  padding-left: 1.1em;
+  margin: 0.36em 0;
+}
+ul > li::before {
+  content: "–";
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+  font-weight: 700;
+}
+ul ul > li::before { content: "·"; color: var(--muted); }
+ol { padding-left: 1.3em; margin: 0.2em 0; }
+ol > li { margin: 0.36em 0; }
+ol > li::marker { color: var(--accent); font-weight: 700; }
+
+/* 코드·인라인 */
+code {
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  background: var(--bg-soft);
+  padding: 0.08em 0.35em;
+  border-radius: 4px;
+  font-size: 0.9em;
+  color: var(--accent-2);
+}
+pre {
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px 24px;
+  font-size: 18px;
+  overflow: auto;
+}
+pre code { background: none; padding: 0; color: var(--ink); }
+
+/* 표: 헤어라인만. 얼룩말 무늬·두꺼운 테두리 금지. */
+table { border-collapse: collapse; width: 100%; font-size: 19px; margin: 0.3em 0; }
+th, td { text-align: left; padding: 0.5em 0.7em; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; font-size: 15px; text-transform: uppercase; letter-spacing: 0.04em; }
+td { color: var(--ink); }
+tr:last-child td { border-bottom: none; }
+
+/* 인용: 왼쪽 액센트 바 */
+blockquote {
+  margin: 0.2em 0;
+  padding: 0.1em 0 0.1em 1em;
+  border-left: 3px solid var(--accent);
+  color: var(--muted);
+  font-style: normal;
+}
+
+img { border-radius: 10px; }
+
+/* 이미지 배경(full-bleed)일 때 글자 가독성 오버레이 */
+section[style*="background-image"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(6,8,12,0.15), rgba(6,8,12,0.72));
+  z-index: 0;
+}
+section[style*="background-image"] > * { position: relative; z-index: 1; }
+
+/* 페이지 번호(Marp가 section::after로 우하단 배치) */
+section::after {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* footer 디렉티브 — 본문에 흘러들지 않게 하단 좌측에 고정 */
+footer {
+  position: absolute;
+  left: var(--pad-x);
+  bottom: 26px;
+  margin: 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+/* ─────────────── 슬라이드 유형(클래스) ─────────────── */
+
+/* 표지: <!-- _class: title --> */
+section.title {
+  justify-content: center;
+  background:
+    radial-gradient(120% 90% at 100% 0%, rgba(255,106,61,0.10), transparent 55%),
+    var(--bg);
+}
+section.title h1 { font-size: 76px; letter-spacing: -0.035em; }
+/* 표지의 부제(h2)는 전체폭 밑줄을 빼고 액센트 조각만 유지 */
+section.title h2 { border-bottom: none; font-size: 34px; color: var(--muted); font-weight: 600; }
+section.title h2::after { width: 48px; margin-top: 0.35em; }
+section.title h3 { color: var(--accent-2); font-size: 22px; letter-spacing: 0.02em; margin-bottom: 1.2em; text-transform: uppercase; }
+section.title .meta { color: var(--muted); font-size: 18px; margin-top: 1.4em; }
+section.title h1::after {
+  content: "";
+  display: block;
+  width: 88px;
+  height: 4px;
+  background: var(--accent);
+  margin-top: 0.5em;
+  border-radius: 2px;
+}
+
+/* 섹션 구분: <!-- _class: section --> — 큰 번호 + 제목 */
+section.section {
+  justify-content: center;
+  background: var(--bg-soft);
+}
+section.section h3 { color: var(--accent); font-size: 20px; letter-spacing: 0.15em; }
+section.section h1 { font-size: 66px; }
+section.section h2 { border: none; }
+section.section h2::after { display: none; }
+
+/* 통계/핵심 수치: <!-- _class: stat --> — 큰 숫자 하나 */
+section.stat { justify-content: center; }
+section.stat h1 { font-size: 130px; color: var(--accent); line-height: 1; letter-spacing: -0.04em; }
+section.stat h1::after { display: none; }
+section.stat p { font-size: 26px; color: var(--muted); max-width: 60%; }
+
+/* 인용/한 줄 임팩트: <!-- _class: lead --> */
+section.lead { justify-content: center; }
+section.lead h1 { font-size: 52px; line-height: 1.25; font-weight: 700; max-width: 90%; }
+section.lead h1::after { display: none; }
+section.lead .by { color: var(--accent-2); font-size: 20px; margin-top: 1em; }
+
+/* 마무리: <!-- _class: end --> */
+section.end {
+  justify-content: center;
+  background:
+    radial-gradient(120% 90% at 0% 100%, rgba(87,195,207,0.10), transparent 55%),
+    var(--bg);
+}
+section.end h1 { font-size: 68px; }
+
+/* 2단 레이아웃: <!-- _class: two --> 와 --- 로 좌/우 구분되지 않으므로
+   본문에서 명시적 컬럼 div를 쓰거나, 아래 유틸 클래스를 마크다운 HTML로 사용 */
+section.two { display: block; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: start; }
+.cols.wide-left { grid-template-columns: 1.4fr 1fr; }
+.card {
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 22px 26px;
+}
+.kicker { color: var(--accent); font-size: 15px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.muted { color: var(--muted); }
+.big { font-size: 44px; font-weight: 800; color: var(--accent); letter-spacing: -0.02em; }
