@@ -11,6 +11,8 @@ workspace/.trash/
 workspace/**/.trash/
 # 발표자료 생성 산출물 — 재생성 가능한 대용량 바이너리(pdf/pptx/html)
 workspace/projects/*/deck/
+# 의미 기억 색인 — 임베딩 캐시(재생성 가능, 수 MB)
+workspace/projects/*/memory-index.json
 agents/*/memory/
 agents/*/canvas/
 agents/*/.openclaw/

@@ -74,6 +74,7 @@ import {
   type WebMode,
 } from "./lib/agents";
 import { fetchGrowth, postGrowth, setGrowthCache, XP_RULES, type GrowthMap } from "./lib/growth";
+import { semanticRecallBlock } from "./lib/memory";
 import { listHires, hireAgentApi, fireAgentApi, type HireRequest } from "./lib/hire";
 import { readNotionPage, editNotionPage, createNotionSubpage, publishNotion, type NotionPageRead } from "./lib/notionSync";
 import {
@@ -1773,7 +1774,19 @@ export const useVE = create<VEState>()((set, get) => {
       } catch {
         /* 가이드 실패도 회의를 막지 않는다 */
       }
-      const decisionsText = [decisionsBlock(get().decisions), style, librarian, naverBlock].filter(Boolean).join("\n\n");
+      // 🧠 의미 기억 — 지시문과 의미가 가까운 과거 결정·보고·GDD절을 되살린다.
+      // 최신 12건(decisionsBlock)이 놓치는 "오래됐지만 관련 있는" 기록 보완. 실패해도 회의는 계속.
+      let recall = "";
+      try {
+        const recentTexts = get().decisions.slice(-12).map((d) => d.text);
+        const r = await semanticRecallBlock(project, req, recentTexts);
+        recall = r.text;
+        if (r.count > 0)
+          pushFeed({ from: "system", kind: "status", text: `🧠 의미 기억 — 이번 지시와 관련된 과거 기록 ${r.count}건을 회의에 주입했습니다.` });
+      } catch {
+        /* 의미 기억 실패도 회의를 막지 않는다 */
+      }
+      const decisionsText = [decisionsBlock(get().decisions), recall, style, librarian, naverBlock].filter(Boolean).join("\n\n");
       // 회의 전 스냅샷 — 끝난 뒤 "🔍 변경 확인"(diff)과 "⏪ 되돌리기"의 기준이 된다
       set({ orchBaseline: baseMd, meetingDiffOpen: false });
 

@@ -5,6 +5,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { spawn, execFileSync } from "node:child_process";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
 
@@ -2970,6 +2971,159 @@ function deckApiPlugin(): Plugin {
   };
 }
 
+/**
+ * 🧠 의미 기억 — 결정 원장·보고서·GDD를 로컬 임베딩(bge-m3)으로 색인하고,
+ * 회의 지시문과 의미가 가까운 과거 기록을 찾아 프롬프트에 주입한다.
+ *
+ * 유래: ruflo(claude-flow) 분석(2026-07-22). 300+ 도구 중 실제로 작동하는 건
+ * 벡터 메모리 검색뿐이라는 감사에 동의 — 그 3%만 군살 없이 가져왔다.
+ * HNSW·SQLite 없이 브루트포스 코사인(수백 청크에 <10ms)으로 충분하다.
+ *
+ * 감사의 교훈 반영: ⑴ 내용 해시로 중복 제거(ruflo는 5,706건 중 5,686건이 중복이었다)
+ * ⑵ 토큰 폭식 금지 — 검색 결과는 상위 몇 건만, 짧게 자른다(주입은 클라이언트가 제한)
+ * ⑶ 임베딩 불가면 조용히 실패 신호만 — 회의는 최신순 폴백으로 계속 돈다.
+ *
+ * 모델: bge-m3 (다국어). nomic-embed-text는 한국어 실측에서 무관 문장이 관련 문장보다
+ * 높게 나와(마진 음수) 탈락 — 모델을 바꾸면 인덱스의 model이 달라져 전량 재색인된다.
+ */
+const MEMORY_EMBED_MODEL = "bge-m3";
+const memoryIndexPath = (id: string) => path.join(projectDir(id), "memory-index.json");
+
+async function embedTexts(texts: string[]): Promise<number[][]> {
+  const out: number[][] = [];
+  for (let i = 0; i < texts.length; i += 32) {
+    const batch = texts.slice(i, i + 32);
+    const r = await fetch("http://127.0.0.1:11434/api/embed", {
+      method: "POST",
+      body: JSON.stringify({ model: MEMORY_EMBED_MODEL, input: batch }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    const j: any = await r.json();
+    if (!Array.isArray(j?.embeddings)) throw new Error(j?.error || "임베딩 실패");
+    out.push(...j.embeddings);
+  }
+  return out;
+}
+
+function memHash(s: string): string {
+  return crypto.createHash("sha1").update(s).digest("hex").slice(0, 16);
+}
+
+/** 색인 원본 수집 — 결정 원장 전건 + 보고서(제목+앞부분) + GDD 섹션 청크 */
+function collectMemorySources(id: string): { h: string; ns: string; ref: string; text: string }[] {
+  const items: { h: string; ns: string; ref: string; text: string }[] = [];
+  const push = (ns: string, ref: string, text: string) => {
+    const t = text.replace(/\s+/g, " ").trim();
+    if (t.length < 20) return; // 잡음 컷
+    items.push({ h: memHash(ns + "|" + t), ns, ref, text: t.slice(0, 700) });
+  };
+  try {
+    const dec = JSON.parse(fs.readFileSync(path.join(projectDir(id), "decisions.json"), "utf-8"));
+    for (const d of Array.isArray(dec) ? dec : []) push("decision", String(d.ts ?? ""), String(d.text ?? ""));
+  } catch {
+    /* 없으면 통과 */
+  }
+  try {
+    const dir = path.join(projectDir(id), "reports");
+    for (const f of fs.existsSync(dir) ? fs.readdirSync(dir).filter((x) => /^\d+\.json$/.test(x)) : []) {
+      try {
+        const j = JSON.parse(fs.readFileSync(path.join(dir, f), "utf-8"));
+        const md = String(j.markdown ?? "");
+        // 보고서는 제목+앞 청크 2개까지 — 전체를 넣으면 토큰 폭식의 지름길
+        push("report", String(j.title ?? f), `${j.title ?? ""} — ${md.slice(0, 700)}`);
+        if (md.length > 900) push("report", String(j.title ?? f) + " (계속)", md.slice(700, 1400));
+      } catch {
+        /* 손상 파일 통과 */
+      }
+    }
+  } catch {
+    /* noop */
+  }
+  try {
+    const gdd = fs.readFileSync(gddPathOf(id), "utf-8");
+    const secs = gdd.split(/\n(?=## )/);
+    for (const sec of secs) {
+      const title = (sec.match(/^##\s*(.+)$/m)?.[1] ?? "").trim();
+      if (!title) continue;
+      for (let i = 0, n = 0; i < sec.length && n < 4; i += 800, n++) push("gdd", title, sec.slice(i, i + 800));
+    }
+  } catch {
+    /* noop */
+  }
+  return items;
+}
+
+function memoryApiPlugin(): Plugin {
+  return {
+    name: "vision-engine-memory-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/memory/search", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            if (req.method !== "POST") {
+              res.statusCode = 405;
+              res.end(JSON.stringify({ ok: false, error: "POST only" }));
+              return;
+            }
+            const j = JSON.parse((await readBody(req)) || "{}");
+            const id = String(j.project ?? "");
+            const query = String(j.query ?? "").trim().slice(0, 2000);
+            const k = Math.min(Math.max(Number(j.k) || 6, 1), 12);
+            if (!isSafeId(id) || !fs.existsSync(projectDir(id)) || !query) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: "project·query 필요" }));
+              return;
+            }
+            // 증분 재색인 — 새 해시만 임베딩한다 (회의 1번당 신규는 보통 몇 건뿐)
+            const sources = collectMemorySources(id);
+            let index: { model: string; items: { h: string; ns: string; ref: string; text: string; vec: number[] }[] } = {
+              model: MEMORY_EMBED_MODEL,
+              items: [],
+            };
+            try {
+              const prev = JSON.parse(fs.readFileSync(memoryIndexPath(id), "utf-8"));
+              if (prev?.model === MEMORY_EMBED_MODEL && Array.isArray(prev.items)) index = prev;
+            } catch {
+              /* 첫 색인 */
+            }
+            const have = new Map(index.items.map((it) => [it.h, it]));
+            const fresh = sources.filter((s) => !have.has(s.h));
+            if (fresh.length) {
+              const vecs = await embedTexts(fresh.map((s) => s.text));
+              fresh.forEach((s, i) => have.set(s.h, { ...s, vec: vecs[i].map((x) => Math.round(x * 1e5) / 1e5) }));
+            }
+            // 원본에서 사라진 항목은 색인에서도 제거 (지운 결정이 유령으로 남지 않게)
+            const liveHashes = new Set(sources.map((s) => s.h));
+            index.items = [...have.values()].filter((it) => liveHashes.has(it.h));
+            if (fresh.length || index.items.length !== have.size) {
+              fs.writeFileSync(memoryIndexPath(id), JSON.stringify(index), "utf-8");
+            }
+            if (!index.items.length) {
+              res.end(JSON.stringify({ ok: true, results: [], indexed: 0 }));
+              return;
+            }
+            const [qv] = await embedTexts([query]);
+            const dot = (a: number[], b: number[]) => a.reduce((s, x, i) => s + x * b[i], 0);
+            const nrm = (v: number[]) => Math.sqrt(dot(v, v)) || 1;
+            const qn = nrm(qv);
+            const scored = index.items
+              .map((it) => ({ ns: it.ns, ref: it.ref, text: it.text, score: dot(qv, it.vec) / (qn * nrm(it.vec)) }))
+              .sort((a, b) => b.score - a.score)
+              .slice(0, k);
+            res.end(JSON.stringify({ ok: true, results: scored, indexed: index.items.length, fresh: fresh.length }));
+          } catch (e: any) {
+            // 임베딩 서버가 없어도 회의는 계속 — 클라이언트가 최신순으로 폴백한다
+            res.end(
+              JSON.stringify({ ok: false, unavailable: true, error: String(e?.message ?? e).slice(0, 200) })
+            );
+          }
+        })();
+      });
+    },
+  };
+}
+
 function approvalsApiPlugin(): Plugin {
   const file = (id: string) => path.join(projectDir(id), "approvals.json");
   return {
@@ -4013,6 +4167,7 @@ export default defineConfig({
     approvalsApiPlugin(),
     failuresApiPlugin(),
     deckApiPlugin(),
+    memoryApiPlugin(),
     liveApiPlugin(),
     kitApiPlugin(),
     officeBgPlugin(),
