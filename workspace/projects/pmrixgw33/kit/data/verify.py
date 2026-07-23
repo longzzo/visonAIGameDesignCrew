@@ -130,7 +130,7 @@ for r in dc[1:]:
 ok(f"day-curve {len(dc)-1}행 · 조합 총량 검산")
 
 # ── 4b. day-curve 공식·게이트·토큰 (R2 추가) ───────────────
-APPEAR = {"club": 1, "bulgasari": 6, "yakwang": 11, "eoduksini": 16, "gangcheol": 30}
+APPEAR = {"club": 1, "bulgasari": 6, "yakwang": 11, "eoduksini": 16, "gangcheol": 30, "gaekgwi": 15}
 for r in dc[1:]:
     d, cnt = int(r[0]), int(r[hc["night_yokai_count"]])
     if d != 15 and cnt != min(8, 1 + (d - 1) // 4):
@@ -144,10 +144,10 @@ for r in dc[1:]:
 ok("day-curve 공식·등장일 게이트·0토큰")
 
 # ── 5. 밸런스 고정점 — GDD 확정값 (틀리면 원장이 무너진다) ──
-HP = {"club": 270, "bulgasari": 750, "yakwang": 150, "eoduksini": 800, "gangcheol": 2000}
+HP = {"club": 270, "bulgasari": 750, "yakwang": 150, "eoduksini": 800, "gangcheol": 2000, "gaekgwi": 3240}  # 객귀 (v32)
 fixed = {10: ("club:2,bulgasari:1", 1290, "10일차 ΣHP(GDD 6-7)"),
          20: ("club:1,bulgasari:2,eoduksini:2", 3370, "20일차 Σ실효(GDD 6-7)"),
-         15: ("club:3,bulgasari:2,yakwang:7", 3360, "백중 ΣHP(GDD 6-10)"),
+         15: ("club:3,bulgasari:2,yakwang:6,gaekgwi:1", 6450, "백중 ΣHP·중간보스 포함(GDD 6-10 v32)"),
          30: ("club:2,bulgasari:2,yakwang:1,eoduksini:2,gangcheol:1", 5790, "30일차 Σ실효(GDD 6-7)")}
 for day, (comp, expect, label) in fixed.items():
     row = [r for r in dc[1:] if r[0] == str(day)][0]
@@ -156,7 +156,7 @@ for day, (comp, expect, label) in fixed.items():
     tot = sum(HP[t.split(":")[0]] * int(t.split(":")[1]) for t in comp.split(","))
     if tot != expect:
         err(f"{label}: {tot} ≠ {expect}")
-ok("밸런스 고정점 — 백중 3,360 · 30일차 5,790 (v30)")
+ok("밸런스 고정점 — 백중 6,450(객귀 포함·v32) · 30일차 5,790")
 
 # ── 5b. 제작대 사다리 — 순환·데드락 금지 (R3 추가) ─────────
 TIERS = {"none": 0, "workbench": 1, "furnace": 2, "blast_furnace": 3, "ice_anvil": 4}
@@ -195,7 +195,7 @@ REQUIRED = ["start_at_night", "player_move_speed", "surface_y", "yokai_cap",
             "crafting_b_ui", "item_id_rule",
             "dev_speed_mult", "badge_wall_count", "badge_window_days",
             "inventory_slots", "active_slot_rule",
-            "nap_hp_regen", "hp_regen_rate", "hp_regen_delay", "catnip_heal"]  # HP 회복 3종 (v31)  # 인벤·활성 슬롯 (v28)  # 심사 시연·온보딩 배지 상수 (R4)
+            "hp_regen_rate", "hp_regen_delay", "catnip_heal"]  # HP 회복 2종 (v31 · v31.1 냥잠 폐지)  # 인벤·활성 슬롯 (v28)  # 심사 시연·온보딩 배지 상수 (R4)
 missing = [k for k in REQUIRED if f"\n{k}," not in g and not g.startswith(f"{k},")]
 if missing:
     err(f"globals.csv 필수 키 누락: {missing}")

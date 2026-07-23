@@ -39,7 +39,7 @@ ice_anvil,얼음 모루,station,99,A,T3 제작대
 lantern,등불,placeable,99,A,반경 6타일 — 어둑시니 카운터. 연료 석탄
 sieve,체,placeable,99,A,반경 4타일 — 야광귀 카운터
 haetae_statue,해태 석상,placeable,99,A,반경 8타일 화염 -50%
-nest_bed,보금자리,placeable,99,A,냥잠 (v6)
+nest_bed,보금자리,placeable,99,A,리스폰 지점(4-8) — 냥잠은 v31.1 폐지
 magpie_nest,까치 둥지,placeable,99,A,까치 벗 입주 (v6) — 맵당 1개 제한(globals magpie_nest_limit)
 bell_rope,방울 금줄,placeable,99,A,경보 반경 10타일 (v11)
 iron_bell_rope,쇠 방울 금줄,placeable,99,A,방울 금줄 진화 — 원본 소모 (v12)

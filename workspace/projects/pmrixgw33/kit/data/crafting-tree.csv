@@ -8,7 +8,7 @@ icesteel_claw,claw,얼음강철 발톱 T3,ice_anvil,"icesteel_ingot:5,frost_esse
 lantern,placeable,등불,workbench,"wood:4,hemp_stalk:2,coal:2",1,10,A,반경 6타일·석탄 1=270초·어둑시니 카운터
 sieve,placeable,체,workbench,"hemp_stalk:6,wood:2",1,10,A,야광귀 12초 정지+피해 1.5배·쿨 30초
 haetae_statue,placeable,해태 석상,furnace,"stone:20,copper_ingot:3,yokai_tear:20",1,60,A,반경 8타일 화염 -50%
-nest_bed,placeable,보금자리,workbench,"wood:6,hemp_stalk:4",1,10,A,냥잠(v6)
+nest_bed,placeable,보금자리,workbench,"wood:6,hemp_stalk:4",1,10,A,리스폰 지점(4-8) — 냥잠 v31.1 폐지
 magpie_nest,placeable,까치 둥지,workbench,"wood:8,hemp_stalk:6",1,10,A,까치 벗 입주(v6)
 dokkaebi_club,weapon,도깨비 방망이,workbench,"club_shard:3,wood:4",1,30,A,넉백 2.0타일 특화
 frostclaw_gauntlet,weapon,서리발톱 장갑,ice_anvil,"gangcheol_scale:1,frost_essence:6,icesteel_ingot:4,yokai_tear:25,shadow_shard:5",1,120,A,엔드 무기 DPS 42
