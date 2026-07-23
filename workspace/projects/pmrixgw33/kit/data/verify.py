@@ -144,11 +144,11 @@ for r in dc[1:]:
 ok("day-curve 공식·등장일 게이트·0토큰")
 
 # ── 5. 밸런스 고정점 — GDD 확정값 (틀리면 원장이 무너진다) ──
-HP = {"club": 270, "bulgasari": 750, "yakwang": 150, "eoduksini": 800, "gangcheol": 2000, "gaekgwi": 3240}  # 객귀 (v32)
+HP = {"club": 270, "bulgasari": 750, "yakwang": 150, "eoduksini": 800, "gangcheol": 16000, "gaekgwi": 3240}  # 강철이 최종보스 (v33) · 객귀 (v32)
 fixed = {10: ("club:2,bulgasari:1", 1290, "10일차 ΣHP(GDD 6-7)"),
          20: ("club:1,bulgasari:2,eoduksini:2", 3370, "20일차 Σ실효(GDD 6-7)"),
          15: ("club:3,bulgasari:2,yakwang:6,gaekgwi:1", 6450, "백중 ΣHP·중간보스 포함(GDD 6-10 v32)"),
-         30: ("club:2,bulgasari:2,yakwang:1,eoduksini:2,gangcheol:1", 5790, "30일차 Σ실효(GDD 6-7)")}
+         30: ("club:2,bulgasari:2,yakwang:1,eoduksini:2,gangcheol:1", 19790, "30일차 Σ실효·최종보스 포함(GDD 6-7 v33)")}
 for day, (comp, expect, label) in fixed.items():
     row = [r for r in dc[1:] if r[0] == str(day)][0]
     if row[hc["spawn_composition"]] != comp:
@@ -156,7 +156,7 @@ for day, (comp, expect, label) in fixed.items():
     tot = sum(HP[t.split(":")[0]] * int(t.split(":")[1]) for t in comp.split(","))
     if tot != expect:
         err(f"{label}: {tot} ≠ {expect}")
-ok("밸런스 고정점 — 백중 6,450(객귀 포함·v32) · 30일차 5,790")
+ok("밸런스 고정점 — 백중 6,450(v32) · 30일차 19,790(강철이 최종보스·v33)")
 
 # ── 5b. 제작대 사다리 — 순환·데드락 금지 (R3 추가) ─────────
 TIERS = {"none": 0, "workbench": 1, "furnace": 2, "blast_furnace": 3, "ice_anvil": 4}
