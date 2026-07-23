@@ -575,6 +575,7 @@ interface VEState {
 
   /** 📊 발표자료 — GDD를 발표 디자이너(아트 디렉터)가 Marp 덱으로 만들고 HTML·PDF·PPTX로 렌더 */
   generateDeck: () => Promise<void>;
+  loadDeckFiles: () => Promise<void>;
   deckBusy: boolean;
   deckStatus: string;
   deckFiles: { fmt: string; name: string; bytes: number }[];
@@ -3816,6 +3817,27 @@ export const useVE = create<VEState>()((set, get) => {
     },
 
     /* ── GDD + 버전 히스토리 ───────────────────────── */
+
+    // 패널을 열 때 호출 — 지난 생성분이 디스크에 있으면 내려받기 행을 되살린다.
+    // deckFiles는 메모리라 재오픈/새로고침 시 비므로, 서버가 디스크를 읽어 채운다.
+    loadDeckFiles: async () => {
+      const project = get().activeProject;
+      if (!project) {
+        set({ deckFiles: [] });
+        return;
+      }
+      if (get().deckBusy) return; // 생성 중이면 진행 중 상태를 덮지 않는다
+      try {
+        const r = await fetch(`/api/deck/list?id=${encodeURIComponent(project)}`);
+        const j = await r.json();
+        if (get().deckBusy) return; // 요청 중 생성이 시작됐을 수 있다
+        if (project !== get().activeProject) return; // 그새 프로젝트가 바뀌면 무시
+        // 디스크 로드는 테마 출처를 모른다 — 이전 생성의 테마 표시가 잘못 남지 않게 비운다.
+        set({ deckFiles: j?.ok && Array.isArray(j.files) ? j.files : [], deckThemeSource: "" });
+      } catch {
+        /* 목록 조회 실패는 조용히 — 생성은 여전히 가능 */
+      }
+    },
 
     generateDeck: async () => {
       const project = get().activeProject;

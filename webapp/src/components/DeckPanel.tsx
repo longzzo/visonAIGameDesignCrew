@@ -4,6 +4,7 @@
  * 내용은 발표 디자이너(아트 디렉터)가 GDD에서 뽑고, 디자인은 theme-game.css가 전담한다.
  * 오너는 옵시디안 「발표 디자인」에서 색·폰트만 고치면 다음 생성부터 반영된다.
  */
+import { useEffect } from "react";
 import { useVE } from "../store";
 
 const FMT_LABEL: Record<string, { icon: string; name: string; hint: string }> = {
@@ -24,6 +25,13 @@ export function DeckPanel({ onClose }: { onClose: () => void }) {
   const themeSource = useVE((s) => s.deckThemeSource);
   const error = useVE((s) => s.deckError);
   const generateDeck = useVE((s) => s.generateDeck);
+  const loadDeckFiles = useVE((s) => s.loadDeckFiles);
+
+  // 패널이 열리거나 프로젝트가 바뀌면 디스크의 지난 생성분을 불러온다 —
+  // deckFiles는 메모리라 재오픈 시 비어서 다운로드 행이 사라지던 문제를 막는다.
+  useEffect(() => {
+    void loadDeckFiles();
+  }, [project, loadDeckFiles]);
 
   const fileUrl = (f: string, dl = false) =>
     `/api/deck/file?id=${encodeURIComponent(project)}&f=${encodeURIComponent(f)}${dl ? "&dl=1" : ""}`;

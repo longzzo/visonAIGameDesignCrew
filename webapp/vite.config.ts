@@ -2890,6 +2890,37 @@ function deckApiPlugin(): Plugin {
         res.end(JSON.stringify({ ok: true, source: t.source, css: t.css }));
       });
 
+      // 이미 생성돼 디스크에 있는 덱 산출물 목록 — 패널을 다시 열면 지난 생성분을 바로
+      // 내려받을 수 있게 한다. deckFiles는 메모리 상태라 새로고침/재오픈 시 비어서, 이전에
+      // 만든 파일이 디스크에 있어도 다운로드 행이 안 보이던 문제(오너 신고 2026-07-23).
+      server.middlewares.use("/api/deck/list", (req, res) => {
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        try {
+          const url = new URL(req.url ?? "/", "http://local");
+          const id = url.searchParams.get("id") ?? "";
+          if (!isSafeId(id)) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ ok: false, error: "bad id" }));
+            return;
+          }
+          const deckDir = path.join(projectDir(id), "deck");
+          const files: { fmt: string; name: string; bytes: number }[] = [];
+          let mtime = 0;
+          for (const fmt of ["html", "pdf", "pptx"]) {
+            const fp = path.join(deckDir, `deck.${fmt}`);
+            if (fs.existsSync(fp)) {
+              const st = fs.statSync(fp);
+              files.push({ fmt, name: `deck.${fmt}`, bytes: st.size });
+              if (st.mtimeMs > mtime) mtime = st.mtimeMs;
+            }
+          }
+          res.end(JSON.stringify({ ok: true, files, mtime }));
+        } catch (e: any) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e) }));
+        }
+      });
+
       server.middlewares.use("/api/deck/render", (req, res) => {
         void (async () => {
           res.setHeader("Content-Type", "application/json; charset=utf-8");
