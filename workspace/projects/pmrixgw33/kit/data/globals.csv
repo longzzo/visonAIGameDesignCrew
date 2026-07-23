@@ -76,7 +76,7 @@ boss_save_policy,no_serialize,rule,보스전 중 수동 저장 잠금 + 활성 �
 boss_night_spawn,discard,rule,보스 소환 시 그날 밤 잔여 일반 스폰 폐기·격퇴/도주 후에도 재개 없음(v23) — 보스 밤은 보스가 주인공. 눈물 수급은 보스 확정 동봉이 대체(6-9)
 baekjung_wave_overflow,queue_until_dawn,rule,백중 웨이브 초과분 처리(v23 A안) — 대기열 보관 후 자리 나면 스폰. 새벽 도주 시점에 잔여 폐기. 총12·조합 보장이 눈물 경제와 까치 조건의 전제
 magpie_nest_limit,1,count,까치 둥지 맵당 1개 제한(v23) — 까치 1마리·보관함 1개라 복수 둥지는 무의미. 철거 시 까치 비활성·재설치 시 다음 아침 복귀(획득 플래그는 영구 저장)
-crafting_b_ui,hidden,rule,MVP 범위 B 레시피(crafting-tree.mvp_scope=B)는 제작 UI 미노출 — 데이터 로드만 한다. 오너 확정(v23 2026-07-16): MVP 보스 = 도깨비 대장·강철이 2종. B 사슬(무쇠 미끼 더미·얼음 제단 봉헌·신기전 화차·빙정 냉각로)은 31일~ 확장에서 승격
+crafting_b_ui,hidden,rule,MVP 범위 B 레시피(crafting-tree.mvp_scope=B)는 제작 UI 미노출 — 데이터 로드만 한다. 오너 확정(v23 2026-07-16): MVP 보스 = 도깨비 대장·강철이 2종. B 사슬(무쇠 미끼 더미·신기전 화차·빙정 냉각로)은 31일~ 확장에서 승격 (얼음 제단 봉헌은 v33에서 강철이 최종보스 소환으로 A 승격)
 baekjung_wave_size,4,count,백중 웨이브 1회 스폰 수 — 4마리 x 3웨이브(GDD 6-10)
 baekjung_wave_times_sec,0/150/300,sec,백중 웨이브 시작 시각(일몰 기준) — 총 12마리·조합은 day-curve d15 spawn_composition이 정본
 invasion_boss_in_cap,1,rule,내습 보스(30일차 강철이 고정)는 밤 스폰 상한에 포함한다(v24 — GDD 6-7 검증 소싱: 8마리 = 일반 7 + 강철이 1). 소환 보스(boss_night_spawn=discard)와 다른 규칙이니 혼동 금지 — 내습은 일반 요괴와 공존하고, 소환은 일반 스폰을 정지시킨다

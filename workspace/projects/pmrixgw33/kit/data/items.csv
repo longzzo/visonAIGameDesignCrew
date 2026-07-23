@@ -68,8 +68,7 @@ wind_chime,풍경,placeable,99,A,장식 — 효과 0
 saekdong_cushion,색동 방석,placeable,99,A,장식 — 효과 0. 보금자리 스킨
 ssireum_satba,씨름 샅바,summon,99,A,도깨비 대장 소환
 iron_bait_pile,무쇠 미끼 더미,summon,99,B,어미 불가사리 소환 — MVP 제작 UI 미노출
-ice_altar_offering,얼음 제단 봉헌,summon,99,B,이무기 소환(심층 제단 전용) — MVP 제작 UI 미노출
-drought_talisman,가뭄 부적,summon,99,A,강철이 재소환(최초 격퇴 후 해금)
+ice_altar_offering,얼음 제단 봉헌,summon,99,A,강철이 최종보스 재소환(v33 — 이무기 정예몹화로 제단 승계·최초 격퇴 후 해금)
 straw_helm,짚 투구,equipment,1,A,방어 1
 straw_armor,짚 갑옷,equipment,1,A,방어 1
 straw_boots,짚 신발,equipment,1,A,방어 1
