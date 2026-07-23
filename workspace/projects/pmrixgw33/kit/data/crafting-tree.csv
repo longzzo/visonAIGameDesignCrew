@@ -31,7 +31,7 @@ straw_insul,insulation,짚 단열재,workbench,"hemp_stalk:3,wood:1",1,5,A,벽 1
 clay_plaster,insulation,점토 미장,workbench,"clay:2,dirt:2",1,5,A,차열벽 HP 600→750
 munpungji,insulation,문풍지,workbench,"hemp_stalk:4,wood:2",1,10,A,단열 문 개방 중 체온 손실 0
 hapjukseon,util,합죽선,workbench,"hemp_stalk:6,wood:3",1,10,A,밀치기 2타일·뎀0·쿨3초 — 보스 무효
-cheolseon,evo,철선,furnace,"hapjukseon:1,iron_ingot:2,iron_scale:1",1,30,A,물리 부채 무기·원본 소모 — DPS9·기본넉백1.5·밀치기 뎀4/2타일/쿨3초·보스넉백무효·채굴불가(6-14)
+cheolseon,evo,철선,furnace,"hapjukseon:1,iron_ingot:2,iron_scale:1",1,30,A,물리 부채 무기·원본 소모 — DPS24(v30)·기본넉백1.5·밀치기 뎀4/2타일/쿨3초·보스넉백무효·채굴불가(6-14)
 iron_bell_rope,evo,쇠 방울 금줄,furnace,"bell_rope:1,iron_ingot:1",1,20,A,경보(반경10 유지)+진입 요괴 감속 1회 — 원석 철2
 iron_sieve,evo,무쇠 체,furnace,"sieve:1,iron_ingot:1,iron_scale:1",1,20,A,야광귀 정지·피해배수·쿨 강화 — 원석 철2+무쇠 비늘1
 frost_lantern,evo,서리 등불,ice_anvil,"lantern:1,icesteel_ingot:1,frost_essence:1",1,30,A,연료 석탄→서리정수·장시간 점등·반경6 불변 — 후반 잉여 서리정수 소비처
