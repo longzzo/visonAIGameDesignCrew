@@ -9,6 +9,7 @@ clay,점토,resource,99,A,상층 T1 (v7 신설)
 iron_ore,철 광석,resource,99,A,중층 T2 — 화로 제련 투입
 copper_ore,구리 광석,resource,99,A,중층 T2 — 화로 제련 투입
 ice_shard,얼음 조각,resource,99,A,중층 T2 — 체온 회복 겸용
+catnip,캣닢,resource,99,A,상층·폐허 자연 스폰 군락(6/100타일·채집 2일 재생)+보물 상자 — 사용 시 HP+25 즉시. 얼음 조각(체온 응급)의 HP 대응물 (v31)
 icesteel_ore,얼음강철 원석,resource,99,A,심층 T3 — 용광로 제련 투입. 무쇠 발톱 하드 게이트
 frost_essence,서리정수,resource,99,A,심층 T3 최희소 — 빈도 4/100타일
 iron_ingot,철 주괴,material,99,A,화로 — 철 광석x2 + 석탄1

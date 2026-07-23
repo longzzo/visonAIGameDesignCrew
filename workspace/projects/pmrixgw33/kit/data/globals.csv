@@ -10,6 +10,12 @@ temp_max,100,gauge,체온 열사병
 temp_start,40,gauge,시작 체온
 temp_rise_per_stage,0.10,per_sec,낮 지상 노출 상승/초 x 더위단계(낮 15분 반영해 완화)
 temp_fall_safe,0.15,per_sec,밤/그늘/지하 하강/초
+nap_hp_regen,2,per_sec,냥잠 중 HP 회복/게임초 — 죽부인 x1.5 공통 적용 (v31)
+hp_regen_delay,10,sec,자연 재생 대기 — 마지막 피격 후 게임초. 피격마다 리셋 (v31)
+hp_regen_rate,0.5,per_sec,자연 재생 HP/게임초 — 0→100 = 200게임초 (v31)
+catnip_heal,25,hp,캣닢 사용 시 즉시 회복량 (v31)
+catnip_spawn_per_100tiles,6,count,캣닢 자연 스폰 밀도 — 상층·폐허 (v31)
+catnip_respawn_days,2,day,캣닢 채집 후 재생 일수 (v31)
 heatstroke_threshold,80,gauge,이상 시 열사병
 safe_threshold,40,gauge,이하 안전
 yokai_cap,8,count,밤 도깨비 상한(정본 가안)

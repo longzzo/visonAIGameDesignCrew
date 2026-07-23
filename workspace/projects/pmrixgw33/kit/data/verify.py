@@ -194,7 +194,8 @@ REQUIRED = ["start_at_night", "player_move_speed", "surface_y", "yokai_cap",
             "wallpaper_remove_rule", "furniture_mvp_scope", "cave_max_height",
             "crafting_b_ui", "item_id_rule",
             "dev_speed_mult", "badge_wall_count", "badge_window_days",
-            "inventory_slots", "active_slot_rule"]  # 인벤·활성 슬롯 (v28)  # 심사 시연·온보딩 배지 상수 (R4)
+            "inventory_slots", "active_slot_rule",
+            "nap_hp_regen", "hp_regen_rate", "hp_regen_delay", "catnip_heal"]  # HP 회복 3종 (v31)  # 인벤·활성 슬롯 (v28)  # 심사 시연·온보딩 배지 상수 (R4)
 missing = [k for k in REQUIRED if f"\n{k}," not in g and not g.startswith(f"{k},")]
 if missing:
     err(f"globals.csv 필수 키 누락: {missing}")
