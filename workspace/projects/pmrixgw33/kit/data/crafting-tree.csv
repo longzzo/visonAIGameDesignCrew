@@ -21,10 +21,10 @@ jangdok,module,장독 창고,workbench,"dirt:10,stone:8,wood:6",1,45,A,보관함
 ice_core,module,얼음 저장고,furnace,"ice_shard:20,stone:10,iron_ingot:2",1,60,A,체온 회복 거점 — 모듈 5종 화로 티어 이하
 ssireum_satba,summon,씨름 샅바,workbench,"club_shard:1,hemp_stalk:10,wood:5",1,30,A,도깨비 대장 소환
 iron_bait_pile,summon,무쇠 미끼 더미,furnace,"iron_ingot:10,iron_scale:3,coal:5",1,30,B,어미 불가사리 소환
-ice_altar_offering,summon,얼음 제단 봉헌,ice_anvil,"icesteel_ingot:2,frost_essence:2,ice_shard:10,yokai_tear:30",1,30,A,강철이 최종보스 재소환(30일 고정등장+심층 제단 재소환·v33) — 이무기 정예몹화로 제단 승계, 가뭄 부적 눈물30 이관
+ice_altar_offering,summon,얼음 제단 봉헌,ice_anvil,"icesteel_ingot:2,frost_essence:2,ice_shard:10,yokai_tear:30",1,30,A,이무기 최종보스 재소환(30일 고정등장+심층 제단 재소환·v34 강철이↔이무기 교체) — 눈물30 소비처
 dokkaebi_fire_tower,turret,도깨비불 등탑,workbench,"dokkaebi_fire_essence:1,wood:10,stone:10,coal:5",1,60,A,DPS10 유도·반경 8타일(v30 동배율)
 singijeon_cart,turret,신기전 화차,furnace,"iron_forge_core:1,iron_ingot:7,wood:20,coal:5",1,60,B,DPS12 직선 관통·10타일(v30 동배율)
-ice_crystal_cooler,cooling,빙정 냉각로,ice_anvil,"yeouiju:1,icesteel_ingot:5,copper_ingot:3",1,60,B,내부 체온 회복x2+얼음 용해 방지
+ice_crystal_cooler,cooling,빙정 냉각로,ice_anvil,"yeouiju:1,icesteel_ingot:5,copper_ingot:3",1,60,A,내부 체온 회복x2+얼음 용해 방지 — v34 이무기 최종보스 보상(여의주)으로 A 승격
 cold_wave_core,cooling,한파 코어,ice_anvil,"drought_heart:1,icesteel_ingot:6,frost_essence:4",1,60,A,더위 단계 -1 상쇄(전역 1기)
 straw_insul,insulation,짚 단열재,workbench,"hemp_stalk:3,wood:1",1,5,A,벽 1장당 체온 하강 +5%·상한 6장
 clay_plaster,insulation,점토 미장,workbench,"clay:2,dirt:2",1,5,A,차열벽 HP 600→750
