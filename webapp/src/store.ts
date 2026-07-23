@@ -75,6 +75,7 @@ import {
 } from "./lib/agents";
 import { fetchGrowth, postGrowth, setGrowthCache, XP_RULES, type GrowthMap } from "./lib/growth";
 import { semanticRecallBlock } from "./lib/memory";
+import { designRecallBlock } from "./lib/designIntel";
 import { listHires, hireAgentApi, fireAgentApi, type HireRequest } from "./lib/hire";
 import { readNotionPage, editNotionPage, createNotionSubpage, publishNotion, type NotionPageRead } from "./lib/notionSync";
 import {
@@ -1787,7 +1788,31 @@ export const useVE = create<VEState>()((set, get) => {
       } catch {
         /* 의미 기억 실패도 회의를 막지 않는다 */
       }
-      const decisionsText = [decisionsBlock(get().decisions), recall, style, librarian, naverBlock].filter(Boolean).join("\n\n");
+      // 🎨 디자인 인텔리전스 — UI/UX·아트 회의를 검증된 디자인 DB(ui-ux-pro-max)에 접지.
+      // 게임 장르를 영어 키워드로 매핑해 스타일·팔레트·타이포·UX 규칙을 주입 → "AI 티" 일반론 차단.
+      // 장르 미매칭이면 designRecallBlock이 빈 문자열을 돌려줘 엉뚱한 기본값은 주입하지 않는다.
+      let designIntel = "";
+      const designRelevant =
+        pool.some((a) => a.id === "uiux" || a.id === "visual") ||
+        /UI|UX|화면|디자인|메뉴|HUD|인터페이스|레이아웃|컬러|색감|폰트|타이포|아트|비주얼|무드|온보딩|버튼/i.test(req);
+      if (designRelevant) {
+        try {
+          const projName = get().projects.find((p) => p.id === project)?.name ?? "";
+          const di = await designRecallBlock(projName, req, overview);
+          designIntel = di.text;
+          if (di.matched)
+            pushFeed({
+              from: "system",
+              kind: "status",
+              text: `🎨 디자인 인텔리전스 — "${di.category}" 장르의 검증 디자인(스타일·팔레트·UX)을 회의에 주입했습니다.`,
+            });
+        } catch {
+          /* 디자인 DB 실패도 회의를 막지 않는다 */
+        }
+      }
+      const decisionsText = [decisionsBlock(get().decisions), recall, designIntel, style, librarian, naverBlock]
+        .filter(Boolean)
+        .join("\n\n");
       // 회의 전 스냅샷 — 끝난 뒤 "🔍 변경 확인"(diff)과 "⏪ 되돌리기"의 기준이 된다
       set({ orchBaseline: baseMd, meetingDiffOpen: false });
 

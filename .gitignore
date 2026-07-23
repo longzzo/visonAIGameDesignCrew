@@ -13,6 +13,8 @@ workspace/**/.trash/
 workspace/projects/*/deck/
 # 의미 기억 색인 — 임베딩 캐시(재생성 가능, 수 MB)
 workspace/projects/*/memory-index.json
+# 디자인 인텔리전스 벤더 데이터의 파이썬 캐시 (재생성)
+webapp/assets/design-intel/**/__pycache__/
 agents/*/memory/
 agents/*/canvas/
 agents/*/.openclaw/

@@ -2850,6 +2850,131 @@ const DECK_MIME: Record<string, string> = {
   md: "text/markdown; charset=utf-8",
 };
 
+// 🎨 디자인 인텔리전스 — ui-ux-pro-max(109k★, MIT) 디자인 DB를 로컬 python으로 쿼리한다.
+// 벤더링: webapp/assets/design-intel/{scripts,data}. 회의에서 UI/UX·아트 에이전트를 게임 장르별
+// 검증된 팔레트·타이포·UX 규칙에 접지시켜 "AI 티" 일반론을 막는다(오너 목표 2026-07-23).
+const DESIGN_INTEL_DIR = path.resolve(__dirname, "assets", "design-intel");
+const DESIGN_SEARCH_PY = path.join(DESIGN_INTEL_DIR, "scripts", "search.py");
+let _pyCmd: string | null | undefined; // undefined=미탐색, null=없음(있으면 실행자 이름)
+function resolvePython(): string | null {
+  if (_pyCmd !== undefined) return _pyCmd;
+  for (const cand of ["python", "python3", "py"]) {
+    try {
+      execFileSync(cand, cand === "py" ? ["-3", "--version"] : ["--version"], {
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      _pyCmd = cand;
+      return _pyCmd;
+    } catch {
+      /* 다음 후보 */
+    }
+  }
+  _pyCmd = null;
+  return null;
+}
+function clampDial(v: any): number | undefined {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 1 && n <= 10 ? Math.round(n) : undefined;
+}
+const _designCache = new Map<string, any>(); // query|dials → design_system (재조회 방지)
+function runDesignSearch(
+  query: string,
+  dials: { variance?: number; motion?: number; density?: number },
+  timeoutMs = 25_000
+): Promise<{ ok: boolean; designSystem?: any; unavailable?: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    const py = resolvePython();
+    if (!py) {
+      resolve({ ok: false, unavailable: true, error: "python 미설치" });
+      return;
+    }
+    if (!fs.existsSync(DESIGN_SEARCH_PY)) {
+      resolve({ ok: false, unavailable: true, error: "search.py 없음" });
+      return;
+    }
+    const key = `${query}||${dials.variance ?? ""}|${dials.motion ?? ""}|${dials.density ?? ""}`;
+    if (_designCache.has(key)) {
+      resolve({ ok: true, designSystem: _designCache.get(key) });
+      return;
+    }
+    const args = [
+      ...(py === "py" ? ["-3"] : []),
+      DESIGN_SEARCH_PY,
+      query,
+      "--design-system",
+      "--json",
+    ];
+    if (dials.variance) args.push("--variance", String(dials.variance));
+    if (dials.motion) args.push("--motion", String(dials.motion));
+    if (dials.density) args.push("--density", String(dials.density));
+    const child = spawn(py, args, { windowsHide: true });
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (d: Buffer) => (out += d.toString()));
+    child.stderr.on("data", (d: Buffer) => (err += d.toString()));
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        /* noop */
+      }
+      resolve({ ok: false, unavailable: true, error: "timeout" });
+    }, timeoutMs);
+    child.on("close", () => {
+      clearTimeout(timer);
+      try {
+        const j = JSON.parse(out);
+        const ds = j.design_system ?? j;
+        if (_designCache.size > 200) _designCache.clear();
+        _designCache.set(key, ds);
+        resolve({ ok: true, designSystem: ds });
+      } catch (e: any) {
+        resolve({ ok: false, error: (err || String(e?.message ?? e)).slice(0, 200) });
+      }
+    });
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      resolve({ ok: false, unavailable: true, error: String((e as any)?.message ?? e) });
+    });
+  });
+}
+function designApiPlugin(): Plugin {
+  return {
+    name: "vision-engine-design-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/design/search", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            if (req.method !== "POST") {
+              res.statusCode = 405;
+              res.end(JSON.stringify({ ok: false, error: "POST only" }));
+              return;
+            }
+            const j = JSON.parse((await readBody(req)) || "{}");
+            const query = String(j.query ?? "").trim().slice(0, 300);
+            if (!query) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: "query 비어 있음" }));
+              return;
+            }
+            const r = await runDesignSearch(query, {
+              variance: clampDial(j.variance),
+              motion: clampDial(j.motion),
+              density: clampDial(j.density),
+            });
+            res.end(JSON.stringify(r));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 200) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
 function deckApiPlugin(): Plugin {
   return {
     name: "vision-engine-deck-api",
@@ -4198,6 +4323,7 @@ export default defineConfig({
     approvalsApiPlugin(),
     failuresApiPlugin(),
     deckApiPlugin(),
+    designApiPlugin(),
     memoryApiPlugin(),
     liveApiPlugin(),
     kitApiPlugin(),
