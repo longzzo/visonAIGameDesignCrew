@@ -577,6 +577,14 @@ interface VEState {
   /** 📊 발표자료 — GDD를 발표 디자이너(아트 디렉터)가 Marp 덱으로 만들고 HTML·PDF·PPTX로 렌더 */
   generateDeck: () => Promise<void>;
   loadDeckFiles: () => Promise<void>;
+  // 📦 납품물 — deliverables 폴더를 VE 안에서 바로 보고 내려받는다
+  deliverOpen: boolean;
+  setDeliverOpen: (b: boolean) => void;
+  deliverFiles: { rel: string; name: string; folder: string; bytes: number; mtime: number; ext: string }[];
+  deliverBusy: boolean;
+  deliverDir: string;
+  loadDeliverables: () => Promise<void>;
+  openDeliverFolder: () => Promise<void>;
   deckBusy: boolean;
   deckStatus: string;
   deckFiles: { fmt: string; name: string; bytes: number }[];
@@ -1207,6 +1215,10 @@ export const useVE = create<VEState>()((set, get) => {
     dataExplain: {},
     dataExplainBusy: "",
 
+    deliverOpen: false,
+    deliverFiles: [],
+    deliverBusy: false,
+    deliverDir: "",
     deckBusy: false,
     deckStatus: "",
     deckFiles: [],
@@ -3842,6 +3854,45 @@ export const useVE = create<VEState>()((set, get) => {
     },
 
     /* ── GDD + 버전 히스토리 ───────────────────────── */
+
+    setDeliverOpen: (b) => set({ deliverOpen: b }),
+
+    // 📦 납품물 목록 — deliverables 폴더를 읽어 최신순으로 보여준다.
+    loadDeliverables: async () => {
+      const project = get().activeProject;
+      if (!project) {
+        set({ deliverFiles: [], deliverDir: "" });
+        return;
+      }
+      set({ deliverBusy: true });
+      try {
+        const r = await fetch(`/api/deliverables/list?id=${encodeURIComponent(project)}`);
+        const j = await r.json();
+        if (project !== get().activeProject) return; // 그새 프로젝트가 바뀌면 무시
+        set({
+          deliverFiles: j?.ok && Array.isArray(j.files) ? j.files : [],
+          deliverDir: j?.dir ?? "",
+          deliverBusy: false,
+        });
+      } catch {
+        set({ deliverBusy: false, deliverFiles: [] });
+      }
+    },
+
+    // 원본 파일을 직접 다룰 때(복사·이름변경) 탐색기로 한 번에 도달
+    openDeliverFolder: async () => {
+      const project = get().activeProject;
+      if (!project) return;
+      try {
+        await fetch("/api/deliverables/open", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId: project }),
+        });
+      } catch {
+        /* 폴더 열기 실패는 조용히 — 목록·내려받기는 그대로 쓸 수 있다 */
+      }
+    },
 
     // 패널을 열 때 호출 — 지난 생성분이 디스크에 있으면 내려받기 행을 되살린다.
     // deckFiles는 메모리라 재오픈/새로고침 시 비므로, 서버가 디스크를 읽어 채운다.

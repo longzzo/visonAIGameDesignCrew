@@ -136,6 +136,7 @@ export function TopBar() {
     setFailuresOpen,
     setNaverOpen,
     setDeckOpen,
+    setDeliverOpen,
   } = useVE();
   const pendingApprovals = approvals.filter((a) => a.status === "pending").length;
   const price = priceFor(modelName);
@@ -274,6 +275,13 @@ export function TopBar() {
           title="발표자료 — GDD를 게임 발표용 슬라이드(HTML·PDF·PPTX)로 생성. 디자인은 옵시디안에서 커스텀."
         >
           📊 발표자료
+        </button>
+        <button
+          className="badge deliver-badge"
+          onClick={() => setDeliverOpen(true)}
+          title="납품물 — 이 프로젝트의 킷·아트·문서 산출물을 바로 보고 내려받기 (탐색기로 열기도 가능)"
+        >
+          📦 납품물
         </button>
         {/* 🗂️ 오류함 — 재시도(5초→2분)까지 실패한 호출이 있을 때만 보인다 */}
         {failures.length > 0 && (

@@ -101,7 +101,43 @@ function listProjects(): { id: string; name: string; createdAt: number; mtime: n
       /* 손상된 메타는 건너뜀 */
     }
   }
+  syncProjectFolderLabels(out);
   return out.sort((a, b) => a.createdAt - b.createdAt);
+}
+
+/**
+ * 탐색기에서 프로젝트 폴더를 사람 이름으로 보이게 한다 (오너 피드백 2026-07-23:
+ * "폴더 이름이 너무 어렵네" — pmrixgw33 같은 id라 어느 게 냥빙고인지 알 수 없었다).
+ *
+ * 폴더명 자체는 절대 바꾸지 않는다 — id가 곧 폴더명이고 projectDir()이 45곳에서 쓰인다.
+ * 대신 Windows의 desktop.ini(LocalizedResourceName)로 **표시 이름만** 덮어쓴다.
+ * 실제 경로는 그대로라 코드·링크·외부 참조가 전혀 안 깨진다.
+ */
+function syncProjectFolderLabels(projects: { id: string; name: string }[]): void {
+  if (process.platform !== "win32") return;
+  for (const p of projects) {
+    if (!p.name || p.name === p.id) continue;
+    try {
+      const dir = path.join(PROJECTS_DIR, p.id);
+      const iniPath = path.join(dir, "desktop.ini");
+      // 탐색기는 폴더 이름에 쓸 수 없는 문자를 그대로 보여주긴 하나, 줄바꿈만 정리한다
+      const label = p.name.replace(/[\r\n]+/g, " ").trim().slice(0, 120);
+      const body = `[.ShellClassInfo]\r\nLocalizedResourceName=${label}\r\n`;
+      let cur = "";
+      try {
+        cur = fs.readFileSync(iniPath, "utf16le").replace(/^﻿/, "");
+      } catch {
+        /* 없으면 새로 쓴다 */
+      }
+      if (cur === body) continue; // 이미 최신 — 매 목록 조회마다 쓰지 않는다
+      fs.writeFileSync(iniPath, Buffer.from("﻿" + body, "utf16le"));
+      // desktop.ini는 숨김+시스템, 폴더는 읽기전용이어야 탐색기가 표시 이름을 적용한다
+      execFileSync("attrib", ["+h", "+s", iniPath], { stdio: "ignore", windowsHide: true });
+      execFileSync("attrib", ["+r", dir], { stdio: "ignore", windowsHide: true });
+    } catch {
+      /* 표시 이름은 편의 기능 — 실패해도 앱 동작에 영향 없음 */
+    }
+  }
 }
 
 function gddPathOf(projectId: string | null): string {
@@ -2975,6 +3011,170 @@ function designApiPlugin(): Plugin {
   };
 }
 
+// 📦 납품물 — projects/<id>/deliverables/ 의 실제 산출물(킷 zip·아트·PDF·PPTX)을
+// VE 안에서 바로 보고 내려받는다. 오너 피드백 2026-07-23: "deliver 쓰는데 파일을 계속
+// 들어가는 것도 번잡스럽다" — 지금까지 이 폴더를 다루는 코드가 한 줄도 없어 탐색기로만 접근했다.
+const DELIVER_MIME: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  svg: "image/svg+xml",
+  pdf: "application/pdf",
+  zip: "application/zip",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  md: "text/markdown; charset=utf-8",
+  txt: "text/plain; charset=utf-8",
+  json: "application/json; charset=utf-8",
+  csv: "text/csv; charset=utf-8",
+  mp4: "video/mp4",
+};
+
+/** deliverables 루트 안으로만 해석되는 안전 경로. 하위 폴더(발표/ 등)는 허용, 이탈은 차단. */
+function deliverablePath(id: string, rel: string): { base: string; fp: string } | null {
+  if (!isSafeId(id)) return null;
+  const base = path.resolve(projectDir(id), "deliverables");
+  const fp = path.resolve(base, rel);
+  // 정규화 후에도 base 안에 있어야 한다 (../ 이탈·절대경로 차단)
+  if (fp !== base && !fp.startsWith(base + path.sep)) return null;
+  return { base, fp };
+}
+
+function walkDeliverables(base: string, dir: string, depth: number, out: any[]): void {
+  if (depth > 3 || out.length > 500) return;
+  let entries: string[] = [];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const e of entries) {
+    if (e === "desktop.ini" || e.startsWith(".")) continue;
+    const fp = path.join(dir, e);
+    let st: fs.Stats;
+    try {
+      st = fs.statSync(fp);
+    } catch {
+      continue;
+    }
+    if (st.isDirectory()) {
+      walkDeliverables(base, fp, depth + 1, out);
+    } else {
+      const rel = path.relative(base, fp).split(path.sep).join("/");
+      out.push({
+        rel,
+        name: e,
+        folder: path.dirname(rel) === "." ? "" : path.dirname(rel),
+        bytes: st.size,
+        mtime: st.mtimeMs,
+        ext: (e.split(".").pop() ?? "").toLowerCase(),
+      });
+    }
+  }
+}
+
+function deliverApiPlugin(): Plugin {
+  return {
+    name: "vision-engine-deliver-api",
+    configureServer(server: ViteDevServer) {
+      // 파일 내려받기·미리보기 (목록보다 먼저 등록 — /api/deliverables 접두어 충돌 방지)
+      server.middlewares.use("/api/deliverables/file", (req, res) => {
+        try {
+          const url = new URL(req.url ?? "/", "http://local");
+          const id = url.searchParams.get("id") ?? "";
+          const f = url.searchParams.get("f") ?? "";
+          const p = deliverablePath(id, f);
+          if (!p || !f) {
+            res.statusCode = 400;
+            res.end("bad request");
+            return;
+          }
+          if (!fs.existsSync(p.fp) || !fs.statSync(p.fp).isFile()) {
+            res.statusCode = 404;
+            res.end("not found");
+            return;
+          }
+          const ext = (f.split(".").pop() ?? "").toLowerCase();
+          res.setHeader("Content-Type", DELIVER_MIME[ext] ?? "application/octet-stream");
+          if (url.searchParams.get("dl") === "1") {
+            const base = path.basename(p.fp);
+            // 한글 파일명 — RFC 5987 filename*로 깨지지 않게 보낸다
+            res.setHeader(
+              "Content-Disposition",
+              `attachment; filename*=UTF-8''${encodeURIComponent(base)}`
+            );
+          }
+          res.end(fs.readFileSync(p.fp));
+        } catch (e: any) {
+          res.statusCode = 500;
+          res.end(String(e?.message ?? e));
+        }
+      });
+
+      // 탐색기로 폴더 열기 — 오너가 원본 파일을 직접 다룰 때(복사·이름변경) 한 번에 도달
+      server.middlewares.use("/api/deliverables/open", (req, res) => {
+        void (async () => {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            if (req.method !== "POST") {
+              res.statusCode = 405;
+              res.end(JSON.stringify({ ok: false, error: "POST only" }));
+              return;
+            }
+            // 원격 미러가 서버 PC의 탐색기를 여는 것을 막는다
+            if (blockRemoteWrite(req, res)) return;
+            const j = JSON.parse((await readBody(req)) || "{}");
+            const id = String(j.projectId ?? "");
+            const p = deliverablePath(id, "");
+            if (!p) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ ok: false, error: "projectId 확인 필요" }));
+              return;
+            }
+            fs.mkdirSync(p.base, { recursive: true });
+            if (process.platform === "win32") {
+              // explorer는 성공해도 exit 1을 흔히 반환한다 — 결과를 기다리지 않는다
+              spawn("explorer.exe", [p.base], { windowsHide: false, detached: true }).unref();
+            } else {
+              spawn(process.platform === "darwin" ? "open" : "xdg-open", [p.base], {
+                detached: true,
+              }).unref();
+            }
+            res.end(JSON.stringify({ ok: true, path: p.base }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 200) }));
+          }
+        })();
+      });
+
+      server.middlewares.use("/api/deliverables/list", (req, res) => {
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        try {
+          const url = new URL(req.url ?? "/", "http://local");
+          const id = url.searchParams.get("id") ?? "";
+          const p = deliverablePath(id, "");
+          if (!p) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ ok: false, error: "bad id" }));
+            return;
+          }
+          const files: any[] = [];
+          if (fs.existsSync(p.base)) walkDeliverables(p.base, p.base, 0, files);
+          files.sort((a, b) => b.mtime - a.mtime); // 최신 산출물이 위로
+          res.end(JSON.stringify({ ok: true, files, dir: p.base }));
+        } catch (e: any) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e).slice(0, 200) }));
+        }
+      });
+    },
+  };
+}
+
 function deckApiPlugin(): Plugin {
   return {
     name: "vision-engine-deck-api",
@@ -4323,6 +4523,7 @@ export default defineConfig({
     approvalsApiPlugin(),
     failuresApiPlugin(),
     deckApiPlugin(),
+    deliverApiPlugin(),
     designApiPlugin(),
     memoryApiPlugin(),
     liveApiPlugin(),
