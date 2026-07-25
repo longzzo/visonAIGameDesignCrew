@@ -196,7 +196,10 @@ REQUIRED = ["start_at_night", "player_move_speed", "surface_y", "yokai_cap",
             "dev_speed_mult", "badge_wall_count", "badge_window_days",
             "inventory_slots", "active_slot_rule",
             "hp_regen_rate", "hp_regen_delay", "catnip_heal",
-            "fall_damage_threshold_tiles", "fall_damage_per_tile"]  # HP 회복 2종 (v31 · v31.1 냥잠 폐지)  # 인벤·활성 슬롯 (v28)  # 심사 시연·온보딩 배지 상수 (R4)  # 낙하 피해 (v34)
+            "fall_damage_threshold_tiles", "fall_damage_per_tile",
+            "resident_max_per_species", "resident_spawn_at", "resident_respawn_rule",
+            "resident_min_player_distance", "resident_min_between_distance",
+            "resident_save_policy"]  # HP 회복 2종 (v31 · v31.1 냥잠 폐지)  # 인벤·활성 슬롯 (v28)  # 심사 시연·온보딩 배지 상수 (R4)  # 낙하 피해 (v34)  # resident 정예 스폰 6종 (v34.1)
 missing = [k for k in REQUIRED if f"\n{k}," not in g and not g.startswith(f"{k},")]
 if missing:
     err(f"globals.csv 필수 키 누락: {missing}")

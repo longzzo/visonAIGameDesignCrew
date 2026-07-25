@@ -93,3 +93,9 @@ jangdok_storage_slots,40,count,장독 창고(보관 상자) 슬롯 수(GDD 6-5 v
 active_slot_rule,weapon_or_tool_1,rule,활성 슬롯(v28) = 장비 탭 무기·도구 칸 1개 — 방망이/합죽선/철선/장갑/휴대 등불 중 1개 장착. 빈 슬롯 = 맨 발톱(신체 기본). PC Q키 토글·모바일 팔레트 좌측 끝 인라인 아이콘. 휴대 등불 연료는 이 슬롯에 든 동안만 소모(3-5)
 fall_damage_threshold_tiles,7,tile,낙하 피해 발동 최소 높이 — 6타일 이하 무피해·7타일부터 적용(v34 오너 지시 2026-07-24)
 fall_damage_per_tile,0.5,hp,낙하 피해 = 낙하 타일수 × 0.5 [가안] — 높이 비례(발동 시 전체 낙하 높이에 곱). 7타일=3.5·10=5·20=10 (HP100 기준). 점프 높이·중력은 개발 A 물리 소관(GDD 4-10·물리 노트)
+resident_max_per_species,1,count,심층 상주 정예 동시 개체 수 — 종당 1(강철이·어둑시니 각각). v34.1 개발 질의 확정 2026-07-25
+resident_spawn_at,day_dawn,rule,resident 최초 생성 = 등장 일차 새벽(day 시작) 즉시·플레이어 위치 무관(일차는 yokai-stats appear_from이 정본). 깊이 = 심층 T3(layer_t2_depth+1 ~ layer_t3_depth) 공동 무작위 — 경계암(136~140) 불가·얼음 호수/제단 ±10타일 회피(보스 무대 보호). v34.1
+resident_respawn_rule,next_day_dawn,rule,처치 후 재생성 = 다음 날 새벽(1일 1마리 상한) — 역린·가뭄 심장 소비처 각 1개(장갑·한파 코어)라 잉여 무해·눈물4/도감/재도전 가치 보존. v34.1
+resident_min_player_distance,24,tile,resident 생성 시 플레이어 최소 거리 — 화면 밖 보장(밤 스폰 최대 거리 24 재사용). v34.1
+resident_min_between_distance,12,tile,정예 resident 2종(강철이·어둑시니) 상호 최소 거리 — 심층 협공 방지. v34.1
+resident_save_policy,last_killed_day,rule,resident 개체 미직렬화(위치·HP 저장 없음) — 종별 last_killed_day 1값만 저장·로드 시 규칙 재생성(처치→저장→로드 당일 재파밍 어뷰징 차단·boss_save_policy=no_serialize 취지 준용). v34.1
