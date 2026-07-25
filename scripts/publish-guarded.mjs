@@ -25,7 +25,7 @@ const FORCE = process.argv.includes("--force");
 const DRY_RUN = process.argv.includes("--dry-run");
 const MAP_PATH = path.join(ROOT, "config", "notion-map.json");
 const PROJ_DIR = path.join(ROOT, "workspace", "projects", PROJECT_ID);
-const PUBLISH_CAP = 60; // notion-publish.mjs의 reports.slice(0, 60)과 일치해야 한다
+const PUBLISH_CAP = 100; // notion-publish.mjs의 reports.slice(0, 100)과 일치해야 한다
 
 const readMap = () => {
   try {

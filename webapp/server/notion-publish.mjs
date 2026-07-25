@@ -547,7 +547,7 @@ export async function publishProject({ projectId, projectName, gddMd, reports, k
     if (/명세서|규칙|스펙|사양/.test(t)) return "spec";
     return "report";
   };
-  const all = (reports ?? []).slice(0, 60); // 40이던 시절 핵심 문서 11건(개발·아트 명세서 등)이 캡 밖으로 밀려 휴지통행(2026-07-20 실사고) — 캡은 총 보고서 수를 여유 있게 덮어야 한다
+  const all = (reports ?? []).slice(0, 100); // 캡은 총 보고서 수를 여유 있게 덮어야 한다(publish-guarded.mjs PUBLISH_CAP과 동기 유지). 캡40 시절 밀려난 문서 휴지통행 사고(2026-07-20), 캡60에서도 재발(2026-07-24) — 이제 캡 밖 문서는 지우지 않고 키만 승계(함정 62)
   const specList = all.filter((r) => kindOf(r) === "spec");
   const repList = all.filter((r) => kindOf(r) !== "spec");
   const fmtD = (ts) => new Date(ts).toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" });
@@ -611,9 +611,11 @@ export async function publishProject({ projectId, projectName, gddMd, reports, k
     const pid = pageIdOf.get(d.parentKey);
     if (pid) await upsertDoc(d, pid);
   }
-  // 사라진 문서 정리 — 이번 발행 목록에 없는 옛 페이지는 보관 처리
+  // 이번 발행 목록에 없는 옛 문서(캡 밖·로컬 삭제분)는 지우지 않고 맵 키만 승계한다 — 페이지·URL 온존.
+  // 구 동작(deleteBlock = 휴지통행)은 캡을 넘길 때마다 밀려난 옛 명세서를 지웠고, 그 밑에 중첩된
+  // 하위 문서(발주서·개발 문서)까지 노션이 연쇄 삭제했다(2026-07-20 캡40 사고 · 2026-07-24 캡60 재발 — HANDOFF 함정 62).
   for (const [k, v] of Object.entries(docsPrev)) {
-    if (!newDocs[k] && v?.id) await deleteBlock(cfg.token, v.id);
+    if (!newDocs[k] && v?.id) newDocs[k] = v;
   }
 
   // ── 허브 레이아웃 재구성 — "역순 삽입" (디자인 정본: docs/notion-design-guide.md)
