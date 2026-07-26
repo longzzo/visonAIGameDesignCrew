@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect, useMemo } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Html } from "@react-three/drei";
+import { OrbitControls, Html, ContactShadows, MeshReflectorMaterial, Sparkles, Float } from "@react-three/drei";
+import { EffectComposer, Bloom, Vignette, SMAA } from "@react-three/postprocessing";
 import { Group, Vector3 } from "three";
 import { AGENTS, AGENT_MAP } from "../lib/agents";
 import { useVE, type FeedMsg } from "../store";
@@ -23,41 +24,43 @@ export { ZONES, zoneOfAgent, type ZoneDef };
 /* ── 좌석 배치 (x, z) — 단층 플레이트 ────────────────── */
 const DESK_POS: Record<string, V3> = {
   // 대표실 (PM 단독 — 찾아오는 방)
-  pm: [-12.5, 0, -9.6],
+  pm: [-17.5, 0, -12.1],
   // 기획 데스크
-  scenario: [-12, 0, -1],
-  gameplay: [-8.5, 0, -1],
-  systems: [-5, 0, -1],
-  uiux: [-12, 0, 2.2],
-  balance: [-8.5, 0, 2.2],
+  scenario: [-15.0, 0, -1.0],
+  gameplay: [-11.5, 0, -1.0],
+  systems: [-8.0, 0, -1.0],
+  uiux: [-15.0, 0, 2.2],
+  balance: [-11.5, 0, 2.2],
   // 사업 데스크
-  bm: [-12, 0, 8],
-  scheduler: [-9.5, 0, 8],
-  marketing: [-7, 0, 8],
+  bm: [-16.0, 0, 10.5],
+  scheduler: [-13.5, 0, 10.5],
+  marketing: [-11.0, 0, 10.5],
   // 아트 스튜디오
-  visual: [-2.5, 0, 8],
+  sound: [6.5, 0, 10.5],
+  visual: [-3.5, 0, 10.5],
   // 개발 데스크
-  td: [3.5, 0, -1],
-  uarch: [7, 0, -1],
-  ugp: [10.5, 0, -1],
-  netcode: [3.5, 0, 2.2],
-  techart: [7, 0, 2.2],
-  edtool: [10.5, 0, 2.2],
+  td: [6.5, 0, -1.0],
+  uarch: [10.0, 0, -1.0],
+  ugp: [13.5, 0, -1.0],
+  netcode: [6.5, 0, 2.2],
+  techart: [10.0, 0, 2.2],
+  edtool: [13.5, 0, 2.2],
   // 품질 검수
-  qa: [9.2, 0, 8],
-  review: [11.9, 0, 8],
-  testeng: [14.6, 0, 8],
+  qa: [12.95, 0, 10.5],
+  fund: [12.95, 0, 12.9],
+  review: [15.65, 0, 10.5],
+  testeng: [18.35, 0, 10.5],
 };
 // 대표실(x ≤ -8.5)과 휴게실(x ≥ 8.9) 사이 빈 공간으로 서편 확장 — 14석+입석을 담으려면 폭이 필요하다
-const MEETING_CENTER: V3 = [1.0, 0, -8.5];
+const MEETING_CENTER: V3 = [1.0, 0, -11.0];
 
 /** 채용 직원(게스트) 책상 앞줄 기준선 — 부서별 [시작x, 간격x, z, 방향(+1 오른쪽)] */
 const GUEST_ROW: Record<string, [number, number, number]> = {
-  plan: [-15.5, 2.6, 4.6], //   기획 데스크 앞줄
-  dev: [1, 2.6, 4.6], //        개발 데스크 앞줄
-  biz: [-13.5, 2.6, 11], //     사업 데스크 앞줄
-  art: [-4.2, 2.6, 11], //      아트 스튜디오 앞줄
-  qa: [8.6, 2.6, 11], //        품질 검수 앞줄
+  plan: [-18.5, 2.6, 5.2], //   기획 데스크 앞줄
+  dev: [4, 2.6, 5.2], //        개발 데스크 앞줄
+  biz: [-17.5, 2.6, 13.4], //     사업 데스크 앞줄
+  art: [-5.2, 2.6, 13.4], //      아트 스튜디오 앞줄
+  qa: [12.4, 2.6, 13.4], //        품질 검수 앞줄
 };
 
 /** 책상 위치 — 기본 로스터는 고정 좌석, 채용 직원은 부서 앞줄에 순서대로(자동 확장) */
@@ -118,10 +121,10 @@ const REPORT_TTL = 7000;
 const VISIT_TTL = 7000;
 
 /* ── 휴게실 — 좌석·서있는 자리·2인 잡담 대본 (연출용, LLM 호출 없음) ── */
-const LOUNGE_TABLE: V3 = [12.5, 0, -8.6];
+const LOUNGE_TABLE: V3 = [17.0, 0, -11.0];
 const LOUNGE_SEATS: [number, number][] = [
-  [11.6, -10.15], [12.5, -10.15], [13.4, -10.15], // 북쪽 소파
-  [11.6, -7.05], [12.5, -7.05], [13.4, -7.05], // 남쪽 소파 (마주 보기)
+  [16.1, -12.55], [17.0, -12.55], [17.9, -12.55], // 북쪽 소파
+  [16.1, -9.45], [17.0, -9.45], [17.9, -9.45], // 남쪽 소파 (마주 보기)
 ];
 /** 마주 보는 좌석 짝 (북i ↔ 남i) */
 const LOUNGE_PAIRS: [number, number][] = [[0, 3], [1, 4], [2, 5]];
@@ -376,24 +379,92 @@ function Person({
           <pointLight position={[0, 1.4, 0.3]} intensity={6} color={c} distance={3} />
         </>
       )}
-      {/* 몸통 (흰 마네킹) */}
-      <mesh castShadow position={[0, 0.46, 0]}>
-        <capsuleGeometry args={[0.2, 0.42, 6, 14]} />
-        <meshStandardMaterial color={body} emissive={speaking ? c : "#000000"} emissiveIntensity={speaking ? 0.25 : 0} />
+      {/* ── 캐릭터 (치비 비율) — 오너 요청 2026-07-26 "사무실 캐릭터도 귀엽게".
+          예전엔 얼굴 없는 흰 마네킹이라 누가 누군지도, 귀엽지도 않았다.
+          머리를 키우고(0.19→0.26) 얼굴을 넣고, 옷을 직군 색으로 입혀 한눈에 구분되게 한다. ── */}
+      {/* 다리 */}
+      <mesh position={[-0.085, 0.13, 0]}>
+        <capsuleGeometry args={[0.052, 0.1, 4, 8]} />
+        <meshStandardMaterial color="#4a5163" />
       </mesh>
-      {/* 팔 */}
-      <mesh position={[-0.26, 0.52, 0]} rotation={[0, 0, 0.18]}>
-        <capsuleGeometry args={[0.06, 0.3, 4, 8]} />
+      <mesh position={[0.085, 0.13, 0]}>
+        <capsuleGeometry args={[0.052, 0.1, 4, 8]} />
+        <meshStandardMaterial color="#4a5163" />
+      </mesh>
+      {/* 몸통 — 직군 색 옷 */}
+      <mesh castShadow position={[0, 0.42, 0]}>
+        <capsuleGeometry args={[0.185, 0.26, 8, 18]} />
+        <meshStandardMaterial
+          color={c}
+          roughness={0.55}
+          emissive={speaking ? c : "#000000"}
+          emissiveIntensity={speaking ? 0.4 : 0}
+        />
+      </mesh>
+      {/* 옷깃 (밝은 포인트) */}
+      <mesh position={[0, 0.56, 0.13]}>
+        <sphereGeometry args={[0.055, 10, 8]} />
         <meshStandardMaterial color={body} />
       </mesh>
-      <mesh position={[0.26, 0.52, 0]} rotation={[0, 0, -0.18]}>
-        <capsuleGeometry args={[0.06, 0.3, 4, 8]} />
+      {/* 팔 — 살짝 벌려 통통하게 */}
+      <mesh position={[-0.23, 0.45, 0]} rotation={[0, 0, 0.34]}>
+        <capsuleGeometry args={[0.055, 0.17, 5, 10]} />
+        <meshStandardMaterial color={c} roughness={0.55} />
+      </mesh>
+      <mesh position={[0.23, 0.45, 0]} rotation={[0, 0, -0.34]}>
+        <capsuleGeometry args={[0.055, 0.17, 5, 10]} />
+        <meshStandardMaterial color={c} roughness={0.55} />
+      </mesh>
+      {/* 손 */}
+      <mesh position={[-0.285, 0.31, 0]}>
+        <sphereGeometry args={[0.052, 10, 8]} />
         <meshStandardMaterial color={body} />
       </mesh>
-      {/* 머리 (얼굴 없음) */}
-      <mesh castShadow position={[0, 1.02, 0]}>
-        <sphereGeometry args={[0.19, 20, 16]} />
+      <mesh position={[0.285, 0.31, 0]}>
+        <sphereGeometry args={[0.052, 10, 8]} />
         <meshStandardMaterial color={body} />
+      </mesh>
+      {/* 머리 — 크게 (치비) */}
+      <mesh castShadow position={[0, 0.85, 0]}>
+        <sphereGeometry args={[0.26, 24, 20]} />
+        <meshStandardMaterial color={body} roughness={0.62} />
+      </mesh>
+      {/* 앞머리 — 직군 색 (뒤통수 쪽으로 살짝 눌러쓴 형태) */}
+      <mesh position={[0, 0.95, -0.03]} scale={[1, 0.72, 1]}>
+        <sphereGeometry args={[0.253, 20, 16, 0, Math.PI * 2, 0, Math.PI / 1.9]} />
+        <meshStandardMaterial color={c} roughness={0.6} />
+      </mesh>
+      {/* 눈 — 큰 검은 점 (귀여움의 핵심) */}
+      <mesh position={[-0.088, 0.86, 0.225]}>
+        <sphereGeometry args={[0.038, 12, 10]} />
+        <meshBasicMaterial color="#20242e" />
+      </mesh>
+      <mesh position={[0.088, 0.86, 0.225]}>
+        <sphereGeometry args={[0.038, 12, 10]} />
+        <meshBasicMaterial color="#20242e" />
+      </mesh>
+      {/* 눈 하이라이트 */}
+      <mesh position={[-0.075, 0.878, 0.252]}>
+        <sphereGeometry args={[0.014, 8, 6]} />
+        <meshBasicMaterial color="#ffffff" />
+      </mesh>
+      <mesh position={[0.101, 0.878, 0.252]}>
+        <sphereGeometry args={[0.014, 8, 6]} />
+        <meshBasicMaterial color="#ffffff" />
+      </mesh>
+      {/* 볼터치 */}
+      <mesh position={[-0.163, 0.805, 0.185]} rotation={[0, -0.5, 0]}>
+        <circleGeometry args={[0.042, 12]} />
+        <meshBasicMaterial color="#ffa8b6" transparent opacity={0.75} />
+      </mesh>
+      <mesh position={[0.163, 0.805, 0.185]} rotation={[0, 0.5, 0]}>
+        <circleGeometry args={[0.042, 12]} />
+        <meshBasicMaterial color="#ffa8b6" transparent opacity={0.75} />
+      </mesh>
+      {/* 입 — 발언 중이면 벌어진다 */}
+      <mesh position={[0, 0.788, 0.246]} scale={speaking ? [1, 1.9, 1] : [1, 1, 1]}>
+        <circleGeometry args={[0.026, 10]} />
+        <meshBasicMaterial color="#8c5a63" />
       </mesh>
       {/* 이름 필 */}
       <Html center position={[0, 1.55, 0]} distanceFactor={12} zIndexRange={[10, 0]}>
@@ -434,7 +505,7 @@ function Person({
 
 /* ── 사무실 관리인 — 플레이트를 순찰하다 대화가 쌓이면 정리한다 ── */
 const JANITOR_PATH: [number, number][] = [
-  [-1.5, 1.2], [5.5, 5.5], [13, 5], [8, -4.2], [-1.5, -4.6], [-9, -4.4], [-15, 4], [-6, 5.5],
+  [-1.5, 1.5], [7, 6.5], [17, 6], [10, -5], [-1.5, -5.5], [-11, -5.2], [-19, 5], [-7, 6.8],
 ];
 function Janitor() {
   const ref = useRef<Group>(null);
@@ -644,7 +715,7 @@ function ZoneRug({ z, P, night }: { z: ZoneDef; P: Pal; night: boolean }) {
 
 /* ── 대표실 (PM 전용 방 — 찾아오는 느낌) ─────────────── */
 function CeoRoom({ P }: { P: Pal }) {
-  const [cx, cz] = [-12.5, -8.5];
+  const [cx, cz] = [-17.5, -11.0];
   return (
     <group>
       {/* 뒷벽 + 옆벽 */}
@@ -1028,12 +1099,30 @@ function City({ P }: { P: Pal }) {
 function Plate({ P, night }: { P: Pal; night: boolean }) {
   return (
     <group>
-      <mesh receiveShadow position={[0, -0.15, 0]}>
-        <boxGeometry args={[37, 0.3, 27]} />
+      {/* 바닥 — 은은한 반사(드레이 MeshReflectorMaterial). 사무실이 "광택 있는 실내"로 보이는
+          가장 큰 한 방. 해상도·blur는 성능을 보고 낮게 잡았다(에이전트 31명 + 가구 다수). */}
+      <mesh receiveShadow position={[0, 0.001, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[50, 36]} />
+        <MeshReflectorMaterial
+          resolution={512}
+          mixBlur={1.1}
+          mixStrength={night ? 26 : 12}
+          blur={[420, 90]}
+          mirror={0}
+          depthScale={0.9}
+          minDepthThreshold={0.4}
+          maxDepthThreshold={1.3}
+          color={P.plate}
+          metalness={0.42}
+          roughness={night ? 0.72 : 0.86}
+        />
+      </mesh>
+      <mesh position={[0, -0.15, 0]}>
+        <boxGeometry args={[50, 0.3, 36]} />
         <meshStandardMaterial color={P.plate} />
       </mesh>
       <mesh position={[0, -0.31, 0]}>
-        <boxGeometry args={[37.8, 0.3, 27.8]} />
+        <boxGeometry args={[50.8, 0.3, 36.8]} />
         <meshStandardMaterial color={P.plateEdge} />
       </mesh>
       {ZONES.map((z) => (
@@ -1057,13 +1146,13 @@ function Plate({ P, night }: { P: Pal; night: boolean }) {
         </Html>
       </group>
       {/* 지표 대시보드 스탠드 */}
-      <DashboardStand pos={[-5, 0, -4.8]} P={P} />
-      <DashboardStand pos={[9.5, 0, -4.8]} P={P} bars={[0.9, 0.6, 1.1, 0.7, 1.2]} />
+      <DashboardStand pos={[-7, 0, -5.6]} P={P} />
+      <DashboardStand pos={[12.5, 0, -5.6]} P={P} bars={[0.9, 0.6, 1.1, 0.7, 1.2]} />
       {/* 화분 포인트 */}
-      <Plant pos={[-16.8, 0, 3.5]} s={1.2} P={P} />
-      <Plant pos={[16.8, 0, -3]} s={1.1} P={P} />
-      <Plant pos={[16.8, 0, 11]} s={1} P={P} />
-      <Plant pos={[-4.6, 0, 11]} s={0.9} P={P} />
+      <Plant pos={[-22.5, 0, 4]} s={1.2} P={P} />
+      <Plant pos={[22.5, 0, -3.5]} s={1.1} P={P} />
+      <Plant pos={[22, 0, 14]} s={1} P={P} />
+      <Plant pos={[-7.5, 0, 14.5]} s={0.9} P={P} />
     </group>
   );
 }
@@ -1305,7 +1394,24 @@ function OfficeScene({
       <color attach="background" args={[P.bg]} />
       <fog attach="fog" args={[P.bg, P.fogNear, P.fogFar]} />
       <ambientLight intensity={P.ambient} />
-      <directionalLight position={[22, 32, 16]} intensity={P.dir} color={P.dirColor} />
+      {/* 키 라이트 — 그림자를 실제로 드리우게(shadow-camera를 사무실 전체로 넓힌다) */}
+      <directionalLight
+        position={[22, 32, 16]}
+        intensity={P.dir}
+        color={P.dirColor}
+        castShadow
+        shadow-mapSize={[2048, 2048]}
+        shadow-camera-left={-30}
+        shadow-camera-right={30}
+        shadow-camera-top={26}
+        shadow-camera-bottom={-26}
+        shadow-camera-far={90}
+        shadow-bias={-0.0006}
+      />
+      {/* 필 라이트 — 반대편에서 약하게 채워 캐릭터 얼굴이 새까맣게 죽지 않게 */}
+      <directionalLight position={[-18, 14, -12]} intensity={P.dir * 0.28} color="#bcd0ff" />
+      {/* 캐릭터·가구 발밑 접지 그림자 — 블롭보다 훨씬 자연스럽다 */}
+      <ContactShadows position={[0, 0.02, 0]} scale={80} far={5} blur={2.6} opacity={night ? 0.32 : 0.45} resolution={1024} color="#0b0f18" />
 
       <City P={P} />
       <Plate P={P} night={night} />
@@ -1317,10 +1423,10 @@ function OfficeScene({
         <Desk key={`d-${a.id}`} pos={deskFor(a.id)} P={P} seed={[...a.id].reduce((s, ch) => s + ch.charCodeAt(0), 0)} />
       ))}
       {/* 인턴 빈자리 — 아트 인턴(SD)·개발 인턴(프로토타입) */}
-      <Desk pos={[0.2, 0, 8]} P={P} seed={3} />
-      <InternSeat pos={[0.2, 0, 8]} label="아트 인턴" emoji="🖌️" dot="#e879f9" onOpen={onArtIntern} />
-      <Desk pos={[12.9, 0, -1]} P={P} seed={5} />
-      <InternSeat pos={[12.9, 0, -1]} label="개발 인턴" emoji="🧑‍💻" dot="#34d399" onOpen={onProtoIntern} />
+      <Desk pos={[-0.8, 0, 10.5]} P={P} seed={3} />
+      <InternSeat pos={[-0.8, 0, 10.5]} label="아트 인턴" emoji="🖌️" dot="#e879f9" onOpen={onArtIntern} />
+      <Desk pos={[17, 0, -1]} P={P} seed={5} />
+      <InternSeat pos={[17, 0, -1]} label="개발 인턴" emoji="🧑‍💻" dot="#34d399" onOpen={onProtoIntern} />
       <Janitor />
       {AGENTS.map((a) => (
         <Person
@@ -1351,7 +1457,19 @@ function OfficeScene({
         />
       )}
 
+      {/* 공기 중 먼지 반짝임 — 빈 공간이 허전해 보이지 않게, 아주 옅게 */}
+      <Sparkles count={70} scale={[48, 8, 34]} position={[0, 3.4, 0]} size={2.2} speed={0.22} opacity={night ? 0.5 : 0.24} color={night ? "#cfe0ff" : "#ffffff"} />
+
       <CameraRig camApi={camApi} />
+
+      {/* 포스트프로세싱 — 창·모니터·발언 하이라이트가 은은하게 번지고(Bloom),
+          가장자리가 살짝 어두워져(Vignette) 화면이 사진처럼 잡힌다.
+          SSAO는 뺐다: 캐릭터 31명 + 반사 바닥과 겹치면 프레임이 확 떨어진다. */}
+      <EffectComposer multisampling={0} enableNormalPass={false}>
+        <Bloom intensity={night ? 0.85 : 0.42} luminanceThreshold={night ? 0.55 : 0.75} luminanceSmoothing={0.28} mipmapBlur radius={0.7} />
+        <Vignette eskil={false} offset={0.22} darkness={night ? 0.72 : 0.45} />
+        <SMAA />
+      </EffectComposer>
     </>
   );
 }
@@ -1472,7 +1590,12 @@ export function Office3D({
 
   return (
     <div className="office3d-wrap studio">
-      <Canvas dpr={[1, 1.5]} camera={{ position: DEFAULT_CAM.pos, fov: 46 }}>
+      <Canvas
+        dpr={[1, 1.5]}
+        shadows="soft"
+        camera={{ position: DEFAULT_CAM.pos, fov: 46 }}
+        gl={{ antialias: true }}
+      >
         <OfficeScene
           onSelect={setSelId}
           selId={selId}
