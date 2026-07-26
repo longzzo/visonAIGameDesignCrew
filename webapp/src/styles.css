@@ -1976,6 +1976,31 @@ button { font-family: inherit; }
 .deck-file-size { font-size: 12px; }
 .deck-note { font-size: 12px; line-height: 1.6; border-top: 1px solid var(--border); padding-top: 12px; }
 .deck-note code { background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+/* 🩺 기초 점검 패널 — 기획서에 "없는 것"을 찾는다 */
+.fund-badge { border-color: rgba(245, 158, 11, 0.45); color: #fcd34d; cursor: pointer; }
+.fund-badge:hover { border-color: #f59e0b; color: #fff; }
+.fund-card { max-width: 760px; width: 94vw; }
+.fund-body { display: flex; flex-direction: column; gap: 12px; padding-top: 6px; max-height: 64vh; overflow-y: auto; }
+.fund-toolbar { display: flex; align-items: center; gap: 10px; position: sticky; top: 0; background: var(--panel); padding-bottom: 8px; z-index: 1; }
+.fund-summary { font-size: 12.5px; }
+.fund-intro { font-size: 12.5px; line-height: 1.75; border: 1px dashed var(--border); border-radius: 10px; padding: 12px 14px; }
+.fund-layer { display: flex; flex-direction: column; gap: 6px; }
+.fund-layer-head { font-size: 12.5px; margin: 4px 0 2px; }
+.fund-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  background: var(--panel-2, rgba(255,255,255,0.03)); border: 1px solid var(--border);
+  border-radius: 10px; padding: 9px 12px;
+}
+.fund-row.fund-miss { border-color: rgba(248,113,113,0.5); background: rgba(248,113,113,0.06); }
+.fund-row.fund-weak { border-color: rgba(251,191,36,0.45); background: rgba(251,191,36,0.05); }
+.fund-icon { font-size: 15px; line-height: 1.5; }
+.fund-main { flex: 1; min-width: 0; }
+.fund-label { font-size: 13.5px; font-weight: 600; }
+.fund-owner { font-weight: 400; font-size: 12px; }
+.fund-evidence { font-size: 11.5px; line-height: 1.6; margin-top: 3px; word-break: break-word; }
+.fund-action { font-size: 12px; line-height: 1.6; margin-top: 4px; color: var(--accent-2); }
+.fund-fix { white-space: nowrap; align-self: center; }
+
 /* 📦 납품물 패널 — 산출물을 VE 안에서 바로 보고 내려받는다 */
 .deliver-badge { border-color: rgba(87, 195, 207, 0.45); color: #8fd8e2; cursor: pointer; }
 .deliver-badge:hover { border-color: #57c3cf; color: #fff; }

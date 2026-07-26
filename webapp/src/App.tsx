@@ -18,6 +18,7 @@ import { FailurePanel } from "./components/FailurePanel";
 import { NaverPanel } from "./components/NaverPanel";
 import { DeckPanel } from "./components/DeckPanel";
 import { DeliverPanel } from "./components/DeliverPanel";
+import { FundPanel } from "./components/FundPanel";
 
 export default function App() {
   const {
@@ -43,6 +44,8 @@ export default function App() {
     deckOpen,
     deliverOpen,
     setDeliverOpen,
+    fundOpen,
+    setFundOpen,
     setDeckOpen,
   } = useVE();
 
@@ -107,6 +110,7 @@ export default function App() {
       {naverOpen && <NaverPanel onClose={() => setNaverOpen(false)} />}
       {deckOpen && <DeckPanel onClose={() => setDeckOpen(false)} />}
       {deliverOpen && <DeliverPanel onClose={() => setDeliverOpen(false)} />}
+      {fundOpen && <FundPanel onClose={() => setFundOpen(false)} />}
       <DialogHost />
       {/* 모바일 전용 하단 탭 (900px 이하에서만 표시) */}
       <nav className="mobile-tabs">

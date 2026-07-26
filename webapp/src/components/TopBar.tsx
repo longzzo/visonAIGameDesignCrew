@@ -137,6 +137,7 @@ export function TopBar() {
     setNaverOpen,
     setDeckOpen,
     setDeliverOpen,
+    setFundOpen,
   } = useVE();
   const pendingApprovals = approvals.filter((a) => a.status === "pending").length;
   const price = priceFor(modelName);
@@ -275,6 +276,13 @@ export function TopBar() {
           title="발표자료 — GDD를 게임 발표용 슬라이드(HTML·PDF·PPTX)로 생성. 디자인은 옵시디안에서 커스텀."
         >
           📊 발표자료
+        </button>
+        <button
+          className="badge fund-badge"
+          onClick={() => setFundOpen(true)}
+          title="기초 점검 — 기획서에 게임의 기초(핵심 루프·회복·사운드·접근성 등)가 빠지지 않았는지 점검"
+        >
+          🩺 기초 점검
         </button>
         <button
           className="badge deliver-badge"

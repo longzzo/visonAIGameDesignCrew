@@ -58,7 +58,13 @@ export const AGENTS: AgentDef[] = [
   { id: "td", name: "선임 개발자", emoji: "🛠️", role: "개발 명세·기능 목록·개발 순서(로드맵)·기술 리스크", section: "## 9.", sectionTitle: "기술", color: "#38bdf8" },
   { id: "scheduler", name: "스케줄러", emoji: "📅", role: "일정 설계·마일스톤·대회 역산", section: "## 10.", sectionTitle: "일정", color: "#fb923c" },
   { id: "marketing", name: "마케팅 담당관", emoji: "📢", role: "마케팅 전략·트렌드 조사 (웹서치 기본)", section: "## 11.", sectionTitle: "마케팅", color: "#f87171" },
+  // 사운드는 12번으로 **덧붙인다** — 기존 절 번호(6-3·9-0처럼 문서 전체가 인용)를 재번호하면
+  // 정본이 통째로 깨진다. 오너 지시 2026-07-26: "기초적인 사운드를 놓친 게 많다".
+  { id: "sound", name: "사운드 디자이너", emoji: "🔊", role: "BGM·SFX·오디오 피드백·믹싱", section: "## 12.", sectionTitle: "사운드", color: "#2dd4bf" },
   { id: "qa", name: "QA 디렉터", emoji: "🧪", role: "산출물 품질 채점·반려 (섹션 없음)", section: "## —", sectionTitle: "품질", color: "#94a3b8", staff: true },
+  // 🩺 기초 점검관 — "쓴 것"의 품질은 QA가 보지만 "없는 것"은 아무도 못 봤다(실사고: HP 회복 부재를
+  // 7/23에야 발견, 사운드 담당 0, 해상도 정본 누락, 접근성 0). 게임 기초 체크리스트로 결손을 찾는다.
+  { id: "fund", name: "기초 점검관", emoji: "🩺", role: "게임 기초 구성요소 누락 점검 (섹션 없음)", section: "## —", sectionTitle: "기초", color: "#f59e0b", staff: true },
 
   // ── 개발팀 (phase: dev) — GDD 섹션 없이 실제 코드/산출물을 다룬다. 기획 팬아웃 대상 아님. ──
   { id: "uarch", name: "Unity 아키텍트", emoji: "🏛️", role: "데이터 주도 설계·ScriptableObject·시스템 구조", section: "## —", sectionTitle: "아키텍처", color: "#38bdf8", staff: true, phase: "dev" },
@@ -237,6 +243,43 @@ export type WebMode = "off" | "fetch" | "full";
  * 새 지시사항만 반영한 "갱신본"을 요구한다. 섹션이 비어 있으면 신규 작성 모드.
  * focus = PM이 자동 분배에서 이 에이전트에게 내린 배정 지시(있으면 우선 수행).
  */
+/**
+ * 담당별 "반드시 답해야 하는 것" — 기초 결손을 구조적으로 막는다.
+ *
+ * 오너 지적 2026-07-26: 사운드 같은 기초가 계속 빠졌다. 원인은 담당자가 게을러서가 아니라
+ * **아무도 그걸 자기 몫으로 요구받지 않았기 때문**이다(냥빙고 GDD 실증: HP 회복 부재를 개발
+ * 중반 발견 · "팀 내 사운드 담당 0" · 해상도가 "정본에 없던 값" · 접근성 0회).
+ * 특히 재미는 콘텐츠 목록이 아니라 **동사**와 **3계층 루프**로 답하게 강제한다.
+ */
+export const SECTION_MUST_HAVE: Record<string, string> = {
+  gameplay: [
+    "① **핵심 동사**: 플레이어가 반복하는 행동 1~3개를 동사로. (콘텐츠 목록이 아니다)",
+    "② **재미의 3계층**: 30초(순간 손맛) / 30분(세션 목표) / 30시간(메타 성장)에서 각각 무엇이 재미인지.",
+    "③ **게임필**: 핵심 동작의 피드백(히트스톱·화면 흔들림·파티클·반응 시간).",
+    "④ **승리·패배 조건**과 실패했을 때 벌어지는 일.",
+  ].join("\n"),
+  systems: [
+    "① **회복·복구 수단**: HP·자원이 줄었을 때 되돌릴 방법이 존재하는가(없으면 '없음'이라고 명시하고 그 이유를 써라).",
+    "② **보상 리듬**: 플레이어가 얼마 간격으로 무엇을 얻는가.",
+  ].join("\n"),
+  uiux: [
+    "① **첫 5분**: 처음 켠 플레이어가 무엇을 배우고 언제 '아 이거구나'를 느끼는가.",
+    "② **조작 표**: 어떤 키/터치가 어떤 행동인지.",
+    "③ **설정 메뉴**: 볼륨·화면·조작 중 무엇을 바꿀 수 있는가.",
+    "④ **접근성**: 색맹 대응·텍스트 크기·깜빡임 저감 중 최소 하나. (색으로만 정보를 전달하지 마라)",
+  ].join("\n"),
+  sound: [
+    "① **BGM**: 트랙 수와 각 트랙이 언제 흐르는가(상황별).",
+    "② **필수 SFX 목록**: 핵심 동작과 1:1로 매칭, 우선순위(P1/P2) 표기.",
+    "③ **오디오가 전달하는 정보**: 화면 밖 상황(경고·위험)을 소리로 어떻게 알리는가.",
+    "④ **구현·소싱**: 믹서 버스 구성과 음원 출처(자작/CC0 등 라이선스).",
+  ].join("\n"),
+  td: [
+    "① **성능 예산**: 목표 프레임·해상도를 숫자로.",
+    "② **저장·이어하기**: 무엇을 어디에 저장하는가.",
+  ].join("\n"),
+};
+
 export function specialistPrompt(
   request: string,
   agent: AgentDef,
@@ -288,6 +331,8 @@ export function specialistPrompt(
       `너의 워크스페이스 지침(AGENTS.md)의 산출물 형식에 따라, 이 게임의 "${agent.sectionTitle}" 파트를 새로 작성해라.`
     );
   }
+  const must = SECTION_MUST_HAVE[agent.id];
+  if (must) parts.push(`[이 파트가 반드시 답해야 하는 것 — 빠지면 기초 결손으로 반려된다]`, must, ``);
   parts.push(
     `- 순수 마크다운 텍스트로만. 소제목(###) 사용.`,
     `- 20줄 이내로 간결하고 구체적으로.`,
@@ -1643,6 +1688,10 @@ export function parseConceptGate(text: string): {
  * qwen3-next-80b(팀원 기본)보다 빠르고, 긴 구조적 출력에 강하다. 이 호출만 오버라이드.
  */
 export const DECK_MODEL = "nvidia/openai/gpt-oss-120b";
+// 기초 점검도 같은 고속 모델로 — GDD 전문(최대 24k자)을 16항목과 대조하는 장문 작업이라
+// 팀원 기본 모델(qwen3-next-80b)로는 수 분이 걸린다(실측: 5분 넘게 미완). 발표 생성에서
+// 5배 빨랐던 오버라이드를 그대로 쓴다.
+export const FUND_MODEL = DECK_MODEL;
 
 export function deckPrompt(projectName: string, gddText: string): string {
   const gdd = (gddText ?? "").trim().slice(0, 9000);

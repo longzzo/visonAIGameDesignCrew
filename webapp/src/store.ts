@@ -2,7 +2,7 @@
 // 게이트웨이 연결 · 프로젝트 · 채팅(영속) · 오케스트레이션 대화 피드(영속) · 교차 검토 루프 · GDD(버전 히스토리)
 
 import { create } from "zustand";
-import { gateway, type EventFrame, type RunUsage } from "./lib/gateway";
+import { gateway, type EventFrame, type RunUsage, type RunResult } from "./lib/gateway";
 import {
   AGENTS,
   AGENT_MAP,
@@ -53,6 +53,7 @@ import {
   chatPrompt,
   deckPrompt,
   DECK_MODEL,
+  FUND_MODEL,
   extractDeckMarkdown,
   koRepairPrompt,
   redoPrompt,
@@ -76,6 +77,7 @@ import {
 import { fetchGrowth, postGrowth, setGrowthCache, XP_RULES, type GrowthMap } from "./lib/growth";
 import { semanticRecallBlock } from "./lib/memory";
 import { designRecallBlock } from "./lib/designIntel";
+import { FUNDAMENTALS, fundamentalsPrompt, parseFundamentals, prescan } from "./lib/fundamentals";
 import { listHires, hireAgentApi, fireAgentApi, type HireRequest } from "./lib/hire";
 import { readNotionPage, editNotionPage, createNotionSubpage, publishNotion, type NotionPageRead } from "./lib/notionSync";
 import {
@@ -577,6 +579,15 @@ interface VEState {
   /** 📊 발표자료 — GDD를 발표 디자이너(아트 디렉터)가 Marp 덱으로 만들고 HTML·PDF·PPTX로 렌더 */
   generateDeck: () => Promise<void>;
   loadDeckFiles: () => Promise<void>;
+  // 🩺 기초 점검 — "쓴 것"이 아니라 "없는 것"을 찾는다
+  fundOpen: boolean;
+  setFundOpen: (b: boolean) => void;
+  fundBusy: boolean;
+  fundFindings: import("./lib/fundamentals").FundFinding[];
+  fundRanAt: number;
+  fundError: string;
+  runFundamentalsAudit: () => Promise<void>;
+  directiveFromFinding: (id: string) => void;
   // 📦 납품물 — deliverables 폴더를 VE 안에서 바로 보고 내려받는다
   deliverOpen: boolean;
   setDeliverOpen: (b: boolean) => void;
@@ -1015,7 +1026,20 @@ export const useVE = create<VEState>()((set, get) => {
     // 5초를 먼저 두는 이유: 대부분의 오류는 즉시 풀려서, 처음부터 2분을 기다리면 회의가 헛돈다.
     const waits = [5_000, 120_000];
     const name = AGENT_MAP[agentId]?.name ?? agentId;
-    let r = await gateway.runAgent(agentId, prompt, tag, signal, model);
+    // CLI 실행 자체가 실패하면(HTTP 502 — openclaw가 JSON을 못 냄, 예: "[channels] failed to load
+    // bundled channel setup entry") gateway.runAgent은 **예외를 던진다**. 예전엔 그 예외를 잡지 않아
+    // 텍스트형 오류만 2회 재시도되고 실행 실패는 재시도 0회로 즉시 포기했다 — QA 게이트가 이 경로로
+    // 죽으면서 "채점 없이 진행"이 반복됐다(오너 신고 2026-07-26, 피드 실측 3연속 실패).
+    // 던져진 오류도 재시도 대상 텍스트로 바꿔 같은 사다리(5초→2분)를 타게 한다.
+    const attempt = async (t: string): Promise<RunResult> => {
+      try {
+        return await gateway.runAgent(agentId, prompt, t, signal, model);
+      } catch (e: any) {
+        if (signal?.aborted) throw e;
+        return { text: `openclaw gateway 실행 실패: ${String(e?.message ?? e).slice(0, 300)}`, usage: undefined } as RunResult;
+      }
+    };
+    let r = await attempt(tag);
     for (let i = 0; i < waits.length; i++) {
       if (!isGatewayErrorText(sanitizeAgentOutput(r.text)) || signal?.aborted) return r;
       const label = waits[i] >= 60_000 ? `${waits[i] / 60_000}분` : `${waits[i] / 1000}초`;
@@ -1026,7 +1050,7 @@ export const useVE = create<VEState>()((set, get) => {
       });
       await abortableSleep(waits[i], signal);
       if (signal?.aborted) return r;
-      r = await gateway.runAgent(agentId, prompt, `${tag}-retry${i + 1}`, signal, model);
+      r = await attempt(`${tag}-retry${i + 1}`);
     }
     // 여기까지 왔으면 재시도를 다 쓰고도 실패 — 오류함에 보관해 오너가 나중에 물어볼 수 있게 한다.
     const finalText = sanitizeAgentOutput(r.text);
@@ -1215,6 +1239,11 @@ export const useVE = create<VEState>()((set, get) => {
     dataExplain: {},
     dataExplainBusy: "",
 
+    fundOpen: false,
+    fundBusy: false,
+    fundFindings: [],
+    fundRanAt: 0,
+    fundError: "",
     deliverOpen: false,
     deliverFiles: [],
     deliverBusy: false,
@@ -1860,7 +1889,12 @@ export const useVE = create<VEState>()((set, get) => {
         );
         updateCard(agent.id, { state: "running", phase: "초안 작성 중", startedAt: Date.now(), instruction });
         setAgentStatus(agent.id, "running");
-        pushFeed({ from: boss, to: agent.id, kind: "instruction", text: instruction });
+        // 피드에는 **지시만** 싣는다. 예전엔 프롬프트 전문(개요 정본표+조감도+결정사항 ≈7천자)을
+        // 그대로 실어서, 팀원 수만큼 같은 정본 테이블이 반복 노출됐다 — 오너가 "같은 말만 반복하고
+        // 진행이 안 된다"고 본 화면이 이것이다(신고 2026-07-26, 피드 실측: 개요표 5회·3회 중복).
+        // 전문은 위 updateCard(instruction)에 그대로 남아 카드에서 볼 수 있다.
+        const feedText = ((focusDirective ?? "").trim() || req.trim()).slice(0, 600);
+        pushFeed({ from: boss, to: agent.id, kind: "instruction", text: feedText });
         try {
           const r = await runAgentSafe(agent.id, instruction, runTag, signal);
           const draft = sanitizeAgentOutput(r.text);
@@ -3854,6 +3888,73 @@ export const useVE = create<VEState>()((set, get) => {
     },
 
     /* ── GDD + 버전 히스토리 ───────────────────────── */
+
+    setFundOpen: (b) => set({ fundOpen: b }),
+
+    // 🩺 기초 점검 — GDD 전문을 기초 점검관에게 넘겨 "없는 것"을 찾는다.
+    // QA는 쓴 것의 품질을 채점하지만, 빠진 기초는 아무도 안 봤다(HP 회복·사운드·해상도·접근성 실사고).
+    runFundamentalsAudit: async () => {
+      const project = get().activeProject;
+      if (!project) {
+        set({ fundError: "프로젝트를 먼저 선택하세요." });
+        return;
+      }
+      if (get().fundBusy) return;
+      set({ fundBusy: true, fundError: "", fundFindings: [] });
+      const projName = get().projects.find((p) => p.id === project)?.name ?? project;
+      try {
+        const gddText = ((await fetchGdd(project))?.markdown ?? "").trim();
+        if (gddText.length < 100) {
+          set({ fundBusy: false, fundError: "기획서가 비어 있어 점검할 수 없습니다." });
+          return;
+        }
+        pushFeed({ from: "fund", kind: "status", text: `🩺 "${projName}" 기초 구성요소를 점검하는 중입니다… (없는 것을 찾습니다)` });
+        const r = await runAgentSafe(
+          "fund",
+          fundamentalsPrompt(projName, gddText, prescan(gddText)),
+          `fund-${Date.now().toString(36)}`,
+          undefined,
+          FUND_MODEL
+        );
+        const raw = sanitizeAgentOutput(r.text);
+        if (isGatewayErrorText(raw)) {
+          set({ fundBusy: false, fundError: "게이트웨이 오류로 점검에 실패했습니다. 잠시 후 다시 시도하세요." });
+          return;
+        }
+        const findings = parseFundamentals(raw);
+        if (!findings.length) {
+          set({ fundBusy: false, fundError: "점검 결과를 해석하지 못했습니다. 다시 시도하세요." });
+          return;
+        }
+        set({ fundBusy: false, fundFindings: findings, fundRanAt: Date.now() });
+        const miss = findings.filter((f) => f.verdict === "없음").length;
+        const weak = findings.filter((f) => f.verdict === "약함").length;
+        pushFeed({
+          from: "fund",
+          kind: "summary",
+          text:
+            miss + weak === 0
+              ? `🩺 기초 점검 완료 — 체크리스트 ${findings.length}항목 모두 갖춰져 있습니다.`
+              : `🩺 기초 점검 완료 — ❌ 없음 ${miss}건 · ⚠️ 약함 ${weak}건. 상단 🩺에서 확인하고 담당자에게 지시하세요.`,
+        });
+      } catch (e: any) {
+        set({ fundBusy: false, fundError: String(e?.message ?? e).slice(0, 200) });
+      }
+    },
+
+    // 결손 항목 → 담당자에게 보낼 지시문을 입력창에 채운다 (착수는 오너가 시작 버튼으로)
+    directiveFromFinding: (id) => {
+      const item = FUNDAMENTALS.find((f) => f.id === id);
+      const found = get().fundFindings.find((f) => f.id === id);
+      if (!item) return;
+      const who = AGENT_MAP[item.owner]?.name ?? item.owner;
+      const req =
+        `[기초 점검 결손 보완] ${item.label} — 담당: ${who}\n` +
+        `현재 상태: ${found?.verdict ?? "미점검"}${found?.evidence ? ` (${found.evidence})` : ""}\n` +
+        `왜 필요한가: ${item.why}\n` +
+        `할 일: ${found?.action || "구현자가 그대로 만들 수 있을 만큼 구체적으로 확정하라"}. 기존 기획과 어긋나지 않게 하고, 확정 수치·규칙을 표로 남겨라.`;
+      set({ orchRequest: req, fundOpen: false });
+    },
 
     setDeliverOpen: (b) => set({ deliverOpen: b }),
 

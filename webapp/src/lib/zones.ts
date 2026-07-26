@@ -28,9 +28,9 @@ export const AGENT_ZONE: Record<string, string> = {
   pm: "ceo",
   scenario: "plan", gameplay: "plan", systems: "plan", uiux: "plan", balance: "plan",
   bm: "biz", scheduler: "biz", marketing: "biz",
-  visual: "art",
+  visual: "art", sound: "art",
   td: "dev", uarch: "dev", ugp: "dev", netcode: "dev", techart: "dev", edtool: "dev",
-  qa: "qa", review: "qa", testeng: "qa",
+  qa: "qa", review: "qa", testeng: "qa", fund: "qa",
 };
 
 export const zoneOfAgent = (id: string): ZoneDef => zoneOf(AGENT_ZONE[id] ?? "plan");

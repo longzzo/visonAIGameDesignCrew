@@ -672,6 +672,76 @@
             "process"
           ]
         }
+      },
+      {
+        "id": "sound",
+        "name": "사운드 디자이너",
+        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\sound",
+        "identity": {
+          "name": "사운드 디자이너",
+          "emoji": "🔊"
+        },
+        "model": "nvidia/qwen/qwen3-next-80b-a3b-instruct",
+        "tools": {
+          "deny": [
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process"
+          ]
+        }
+      },
+      {
+        "id": "fund",
+        "name": "기초 점검관",
+        "workspace": "D:\\Claude\\vision-engine\\vision-engine\\agents\\fund",
+        "identity": {
+          "name": "기초 점검관",
+          "emoji": "🩺"
+        },
+        "model": "nvidia/qwen/qwen3-next-80b-a3b-instruct",
+        "tools": {
+          "deny": [
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "sessions_spawn",
+            "sessions_yield",
+            "session_status",
+            "subagents",
+            "skill_workshop",
+            "cron",
+            "create_goal",
+            "get_goal",
+            "image",
+            "image_generate",
+            "music_generate",
+            "tts",
+            "pdf",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "process"
+          ]
+        }
       }
     ]
   },

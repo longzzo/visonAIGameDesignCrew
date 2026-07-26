@@ -330,7 +330,13 @@ function Person({
     }
   });
 
-  const home = homeOf(id);
+  // 마운트 시작 위치 = **지금의 목표 지점**(회의 중이면 회의실 좌석).
+  // 예전엔 항상 homeOf(책상)에서 시작해, 오케스트레이션 탭에 갔다 오면(=OfficeView 언마운트→재마운트)
+  // 전원이 책상으로 초기화됐다가 회의실로 다시 걸어가는 연출이 반복됐다(오너 신고 2026-07-26).
+  // 부모가 렌더 중 targetsRef.current를 채우므로(자식 마운트 이전) 이 값은 첫 프레임부터 유효하다.
+  const startRef = useRef<V3 | null>(null);
+  if (startRef.current === null) startRef.current = targetsRef.current[id] ?? homeOf(id);
+  const home = startRef.current;
   const c = a?.color ?? "#8b7cf6";
   const stLabel = workLabel
     ? workLabel
