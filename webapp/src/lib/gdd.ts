@@ -346,8 +346,33 @@ export function isGatewayErrorText(text: string): boolean {
     /^The model did not produce a response/i.test(head) ||
     /\[channels\] failed to load/i.test(head) ||
     /(메모리|MEMORY 검색) 인덱스가 손상되어/i.test(head) ||
-    /^openclaw (memory|gateway)/i.test(head)
+    /^openclaw (memory|gateway)/i.test(head) ||
+    isPersonaLossText(head)
   );
+}
+
+/**
+ * 페르소나 붕괴 감지 — 에이전트가 작업 대신 "저는 누구인가요?" 자기소개를 하는 응답.
+ *
+ * 실사고(2026-07-26 오너 보고): 회의 최종 취합에서 대표가
+ * "방금 온라인에 접속했어요. 저는 어떤 역할·이름·이미지를 가지고 있나요?
+ *  여러분은 어느 분이고, 어떻게 부르면 좋을까요?" 라고 답해 **산출물이 통째로 소실**됐다.
+ * 원인은 agents/<id>/BOOTSTRAP.md("너는 방금 깨어났다, 네가 누군지 알아내라")가
+ * IDENTITY.md 공란 상태에서 작업 지시를 덮어쓴 것. 그 파일들은 게이트웨이가 자동 생성·
+ * 갱신하므로(gitignore) 언제든 되살아날 수 있다 — 그래서 코드에서도 막는다.
+ * 이게 걸리면 runAgentSafe가 오류로 보고 재시도하므로, GDD·회의록에 저장되지 않는다.
+ */
+export function isPersonaLossText(text: string): boolean {
+  const head = text.trim().slice(0, 400);
+  if (head.length > 400) return false;
+  const identityAsk =
+    /(방금|막)\s*(온라인|접속|깨어)/.test(head) ||
+    /(저는|제가)\s*(지금\s*)?(누구|어떤\s*(역할|이름))/.test(head) ||
+    /어떻게\s*부르면/.test(head) ||
+    /(just\s+(came|woke)|who\s+am\s+i)/i.test(head);
+  // 자기소개 + 되묻기가 함께 있을 때만 붕괴로 본다 (정상 산출물의 오탐 방지)
+  const asksBack = /\?|물어|알려\s*주|가르쳐\s*주/.test(head);
+  return identityAsk && asksBack;
 }
 
 /** 에이전트 출력에서 GDD에 넣기 부적절한 잔여물(도구 JSON, 거대 base64 등)을 정리 */
