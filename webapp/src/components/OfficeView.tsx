@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AGENTS, AGENT_MAP, SPECIALISTS, RANK_LABEL, RANK_EMOJI, RANK_ORDER, membersOfZone, type AgentDef } from "../lib/agents";
 import { DecisionOverlay } from "./DecisionOverlay";
-import { uiPrompt } from "../lib/dialog";
+import { uiConfirm, uiPrompt } from "../lib/dialog";
 import { AgentSprite } from "./AgentSprite";
 import { Office3D, ZONES, type CamApi } from "./Office3D";
 import { DevTaskPanel } from "./DevTaskPanel";
@@ -487,7 +487,8 @@ export function OfficeView() {
   };
   const submitCmd = () => {
     const t = cmd.trim();
-    if (!t || orchRunning) return;
+    if (!t) return;
+    // 회의 중이어도 버리지 않는다 — startOrch가 대기열에 넣고 피드로 알린다(C-1).
     setOrchRequest(t);
     setCmd("");
     void startOrch();
@@ -582,7 +583,14 @@ export function OfficeView() {
       </button>
       <button
         className="os-abtn"
-        onClick={() => void reviewExistingPlan()}
+        // 오클릭 방지 확인 — 이 버튼 하나가 전원 회의를 돌려 토큰·시간을 크게 쓴다.
+        // 실측(2026-07-26 C-3): 온보딩 "건너뛰기"를 눌렀는데 이 버튼이 눌려 회의가 통째로 돌았다.
+        onClick={() => {
+          void (async () => {
+            if (await uiConfirm("전원이 기존 기획을 학습·평가하는 회의를 시작합니다. 시간과 토큰을 꽤 씁니다. 진행할까요?"))
+              await reviewExistingPlan();
+          })();
+        }}
         disabled={planReviewBusy || orchRunning}
         title="기존 기획 팀 리뷰 — PM 분배로 전원 학습·평가"
       >

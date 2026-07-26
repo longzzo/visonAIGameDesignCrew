@@ -77,6 +77,7 @@ import {
 import { fetchGrowth, postGrowth, setGrowthCache, XP_RULES, type GrowthMap } from "./lib/growth";
 import { semanticRecallBlock } from "./lib/memory";
 import { designRecallBlock } from "./lib/designIntel";
+import { canonDigest, canonFactBlock, canonRejectNotes, canonRevisePrompt, checkCanon } from "./lib/canon";
 import { FUNDAMENTALS, fundamentalsPrompt, parseFundamentals, prescan } from "./lib/fundamentals";
 import { listHires, hireAgentApi, fireAgentApi, type HireRequest } from "./lib/hire";
 import { readNotionPage, editNotionPage, createNotionSubpage, publishNotion, type NotionPageRead } from "./lib/notionSync";
@@ -126,7 +127,9 @@ import {
   saveKitFiles,
   listDecisions,
   appendDecisions,
+  removeDecisionApi,
   decisionsBlock,
+  isRejection,
   kitFileUrl,
   listApprovals,
   addApprovalApi,
@@ -151,6 +154,7 @@ import {
   isGatewayErrorText,
   detectLangLeak,
   listProjects,
+  touchProject,
   createProject,
   renameProject,
   deleteProject,
@@ -588,6 +592,14 @@ interface VEState {
   fundError: string;
   runFundamentalsAudit: () => Promise<void>;
   directiveFromFinding: (id: string) => void;
+  // 📒 결정·기각 원장 — 매 회의에 주입되는 조직의 기억. 오너가 직접 보고 고칠 수 있어야 한다.
+  ledgerOpen: boolean;
+  setLedgerOpen: (b: boolean) => void;
+  /** 상시 금지 항목 등록 — 승인 안건이 아닌 금지(모바일 조작표·무과금 위반 등)를 원장에 넣는다 */
+  addProhibition: (text: string) => Promise<void>;
+  /** 확정 사항 직접 등록 */
+  addDecisionManual: (text: string) => Promise<void>;
+  removeDecision: (text: string) => Promise<void>;
   // 📦 납품물 — deliverables 폴더를 VE 안에서 바로 보고 내려받는다
   deliverOpen: boolean;
   setDeliverOpen: (b: boolean) => void;
@@ -617,6 +629,10 @@ let initialized = false;
 let gddQueue: Promise<void> = Promise.resolve();
 let persistQueue: Promise<void> = Promise.resolve();
 let feedSeq = 0;
+/** 회의 무응답 감시 — 피드에 뭔가 찍힐 때마다 갱신되는 심장박동 (C-4: 진행률 40분 정지 대응) */
+let lastFeedAt = Date.now();
+/** 이번 회의에서 이미 보낸 무응답 경고 단계 (0=없음, 1=4분, 2=12분) */
+let stallStage = 0;
 /** 진행 중 오케스트레이션의 중단 컨트롤러 — ⏹ 클릭 시 실행 중 호출까지 즉시 끊는다 */
 let orchAbort: AbortController | null = null;
 
@@ -652,6 +668,7 @@ export const useVE = create<VEState>()((set, get) => {
   /** 피드에 말풍선 추가 + 서버 저장(직렬화) */
   const pushFeed = (msg: Omit<FeedMsg, "id" | "ts">) => {
     const full: FeedMsg = { ...msg, id: `f-${Date.now()}-${++feedSeq}`, ts: Date.now() };
+    lastFeedAt = full.ts;
     set((s) => ({ feed: [...s.feed.slice(-399), full] }));
     const project = get().activeProject;
     if (project) {
@@ -1244,6 +1261,7 @@ export const useVE = create<VEState>()((set, get) => {
     fundFindings: [],
     fundRanAt: 0,
     fundError: "",
+    ledgerOpen: false,
     deliverOpen: false,
     deliverFiles: [],
     deliverBusy: false,
@@ -1357,6 +1375,23 @@ export const useVE = create<VEState>()((set, get) => {
           });
         }
       }, 3500);
+      // 회의 무응답 감시 — "죽었는지 도는지 구분이 안 된다"를 없앤다 (오너 실측 C-4: 2/14에서 40분 정지).
+      // 피드가 조용한 시간이 임계치를 넘으면 그 사실 자체를 피드에 적는다. 자동으로 끊지는 않는다 —
+      // 게이트웨이 호출 하나가 원래 몇 분씩 걸리므로, 판단은 오너에게 남기고 사실만 보고한다.
+      setInterval(() => {
+        if (!get().orchRunning) {
+          stallStage = 0;
+          return;
+        }
+        const quiet = Date.now() - lastFeedAt;
+        if (stallStage < 1 && quiet > 4 * 60_000) {
+          stallStage = 1;
+          pushFeed({ from: "system", kind: "status", text: `⏳ ${Math.round(quiet / 60000)}분째 새 진행이 없습니다 — 게이트웨이 응답을 기다리는 중입니다. 계속 멈춰 있으면 ⏹ 중단 후 다시 걸어 주세요.` });
+        } else if (stallStage < 2 && quiet > 12 * 60_000) {
+          stallStage = 2;
+          pushFeed({ from: "system", kind: "error", text: `⚠️ ${Math.round(quiet / 60000)}분째 무응답입니다 — 회의가 멈췄을 가능성이 높습니다. ⏹ 중단을 권합니다.` });
+        }
+      }, 30_000);
       // 시스템 헬스 신호등 갱신
       setInterval(() => void get().loadHealth(), 20000);
       // 사무실 관리인 — 대화가 임계치를 넘으면 (회의 중이 아닐 때) 자동 정리
@@ -1416,14 +1451,19 @@ export const useVE = create<VEState>()((set, get) => {
           set({ activeProject: id });
         }
         const stored = localStorage.getItem("ve-active-project") ?? "";
+        // 마지막으로 연 프로젝트(서버 기록)를 2순위 근거로 쓴다.
+        // localStorage만 믿으면 데스크톱 앱↔브라우저에서 선택이 유실돼 목록 첫 항목
+        // ("첫 테스트")으로 떨어지고, 모르고 지시를 넣으면 **다른 프로젝트에 회의가 붙는다**(C-2).
+        const lastOpened = [...projects].sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0))[0];
         const active =
           get().activeProject && projects.some((p) => p.id === get().activeProject)
             ? get().activeProject
             : projects.some((p) => p.id === stored)
               ? stored
-              : projects[0]?.id ?? "";
+              : (lastOpened?.lastOpenedAt ? lastOpened.id : "") || projects[0]?.id || "";
         set({ projects, activeProject: active });
         localStorage.setItem("ve-active-project", active);
+        if (active) void touchProject(active);
       } catch (e) {
         console.warn("[projects] 목록 로드 실패:", e);
       }
@@ -1432,6 +1472,7 @@ export const useVE = create<VEState>()((set, get) => {
     setActiveProject: async (id) => {
       if (id === get().activeProject) return;
       localStorage.setItem("ve-active-project", id);
+      void touchProject(id); // 서버에도 남긴다 — 데스크톱 앱↔브라우저 간 선택 유실 방지(C-2)
       set({
         activeProject: id,
         chats: {},
@@ -1664,11 +1705,30 @@ export const useVE = create<VEState>()((set, get) => {
       const st = get();
       const usingOverrideReq = !!opts?.request;
       const req = (opts?.request ?? st.orchRequest).trim();
-      if (!req || st.orchRunning) return;
+      if (!req) return;
+      // 이미 회의가 돌고 있으면 새 지시를 **버리지 않고** 대기열에 넣는다.
+      // 예전엔 조용히 return이라 오너가 넣은 지시가 흔적 없이 사라졌다(실측 2026-07-26 C-1).
+      if (st.orchRunning) {
+        set((s) => ({
+          pendingApprovalRuns: [...s.pendingApprovalRuns, req],
+          // 접수했으므로 입력창을 비운다 — 남아 있으면 중복 제출로 이어진다(C-4).
+          orchRequest: usingOverrideReq ? s.orchRequest : "",
+        }));
+        pushFeed({
+          from: "system",
+          kind: "status",
+          text: `⏳ 회의가 진행 중이라 새 지시를 대기열(${get().pendingApprovalRuns.length}건)에 넣었습니다 — 현재 회의가 끝나면 이어서 실행합니다: "${req.slice(0, 60)}${req.length > 60 ? "…" : ""}"`,
+        });
+        return;
+      }
       const pool = opts?.poolIds
         ? SPECIALISTS.filter((a) => opts.poolIds!.includes(a.id))
         : SPECIALISTS.filter((a) => st.selected[a.id]);
-      if (pool.length === 0) return;
+      if (pool.length === 0) {
+        // 조용히 return하면 "지시를 넣었는데 아무 일도 없다"가 된다 — 사유를 남긴다.
+        pushFeed({ from: "system", kind: "error", text: "⚠️ 회의를 시작할 담당자가 한 명도 선택되지 않았습니다 — 사이드바에서 참여자를 선택하거나 자동 배정을 켜 주세요." });
+        return;
+      }
       const autoRoute = opts?.autoRoute ?? st.autoRoute;
       const project = st.activeProject || "np";
       const runTag = `${project}-orch-${Date.now().toString(36)}`;
@@ -1683,6 +1743,8 @@ export const useVE = create<VEState>()((set, get) => {
 
       orchAbort = new AbortController();
       const signal = orchAbort.signal;
+      stallStage = 0;
+      lastFeedAt = Date.now();
       set({
         orchRunning: true,
         stopRequested: false,
@@ -1700,6 +1762,9 @@ export const useVE = create<VEState>()((set, get) => {
         void publishLive(project, { meetingMembers: [], agentStatus: get().agentStatus });
       };
 
+      // 회의 본문. 아래 try/finally가 감싸므로 어떤 경로로 끝나도 orchRunning이 반드시 풀린다.
+      // (본문 들여쓰기는 diff를 키우지 않으려고 그대로 두었다 — 실제 스코프는 이 화살표 함수다.)
+      const runBody = async () => {
       const feedStart = get().feed.length; // 회의록 — 이 회의의 피드 구간 시작점
       pushFeed({ from: "user", kind: "request", text: req });
 
@@ -1838,19 +1903,47 @@ export const useVE = create<VEState>()((set, get) => {
         /UI|UX|화면|디자인|메뉴|HUD|인터페이스|레이아웃|컬러|색감|폰트|타이포|아트|비주얼|무드|온보딩|버튼/i.test(req);
       if (designRelevant) {
         try {
-          const projName = get().projects.find((p) => p.id === project)?.name ?? "";
-          const di = await designRecallBlock(projName, req, overview);
+          // 프로젝트명은 넘기지 않는다 — "냥빙고 → bingo → Card & Board Game" 오염의 출처였다(B-1).
+          const di = await designRecallBlock("", req, overview);
           designIntel = di.text;
-          if (di.matched)
-            pushFeed({
-              from: "system",
-              kind: "status",
-              text: `🎨 디자인 인텔리전스 — "${di.category}" 장르의 검증 디자인(스타일·팔레트·UX)을 회의에 주입했습니다.`,
-            });
+          // 쿼리를 함께 노출한다. 오너가 오분류를 눈으로 잡아낼 수 있어야 같은 사고가 반복되지 않는다.
+          pushFeed({
+            from: "system",
+            kind: "status",
+            text: di.matched
+              ? `🎨 디자인 인텔리전스 — "${di.category}" 장르의 검증 디자인을 주입했습니다 (장르 근거: \`${di.query}\`).`
+              : `🎨 디자인 인텔리전스 — 장르가 확실히 매칭되지 않아 **주입하지 않았습니다**${di.query ? ` (조회어: \`${di.query}\`${di.category ? ` → ${di.category}` : ""})` : ""}. 엉뚱한 장르 디자인이 섞이는 것보다 없는 편이 낫습니다.`,
+          });
         } catch {
           /* 디자인 DB 실패도 회의를 막지 않는다 */
         }
       }
+      // 📐 정본 데이터 주입 — 진단서 한 줄 결론이 "누구도 정본 파일을 열어보지 않는다"였다.
+      // 조회 도구만 주면 안 쓰므로, 실제 CSV에서 읽은 키·값을 회의 컨텍스트에 밀어 넣는다.
+      // 이게 없으면 전원이 기억으로 수치를 지어내고(A-1·A-3), 그걸 QA가 만점 통과시킨다.
+      let canonDigestText = "";
+      try {
+        canonDigestText = await canonDigest(project);
+        if (canonDigestText)
+          pushFeed({
+            from: "system",
+            kind: "status",
+            text: `📐 정본 데이터를 회의에 주입했습니다 (${(canonDigestText.length / 1024).toFixed(1)}KB) — 수치는 이 안에 있는 것만 인용할 수 있습니다.`,
+          });
+      } catch {
+        /* 정본 로드 실패도 회의를 막지 않는다 */
+      }
+      const canonBlock = canonDigestText
+        ? [
+            `[정본 데이터 — kit/ 실파일에서 읽은 값. 이것이 사실이다]`,
+            canonDigestText.slice(0, 9000),
+            ``,
+            `⛔ 위 목록에 **없는** 키·id를 "정본" "기존" "현재" "확정"이라고 인용하는 것은 날조다.`,
+            `새 값이 필요하면 반드시 "신규 제안:"이라고 명시해라. 기억에 의존해 수치를 쓰지 마라.`,
+          ].join("\n")
+        : "";
+      // canonBlock은 여기 합치지 않는다 — specialistPrompt가 decisions를 1800자로 자르므로
+      // 9KB 정본이 통째로 날아간다. 별도 인자로 넘겨 온전히 주입한다.
       const decisionsText = [decisionsBlock(get().decisions), recall, designIntel, style, librarian, naverBlock]
         .filter(Boolean)
         .join("\n\n");
@@ -1885,7 +1978,8 @@ export const useVE = create<VEState>()((set, get) => {
           (focusDirective ?? "") + contrib,
           knowledgeBlockFor(agent.id, get().knowledge, req),
           panorama,
-          decisionsText
+          decisionsText,
+          canonBlock
         );
         updateCard(agent.id, { state: "running", phase: "초안 작성 중", startedAt: Date.now(), instruction });
         setAgentStatus(agent.id, "running");
@@ -1947,12 +2041,56 @@ export const useVE = create<VEState>()((set, get) => {
             }
           }
 
+          // 🔎 정본 게이트 (1차) — 점수 이전에 "사실인가"를 본다.
+          //
+          // 오너 실측 2026-07-26 A-1: QA는 산출물의 내적 완성도만 보므로 존재하지 않는 키를
+          // "정본 v31의 wall_health=100"이라 인용해도 일관성 만점이 나왔다. 반대로 실재하는
+          // seal_window_ry=12는 "정본과 충돌"이라며 반려됐다. 그래서 LLM이 아니라 **파일이** 판정한다.
+          // 조회 실패·정본 없는 프로젝트는 통과시킨다 — 도구 장애로 회의를 막지 않는다.
+          let canonFacts = "";
+          if (!get().stopRequested) {
+            try {
+              updateCard(agent.id, { phase: "정본 대조 중" });
+              let check = await checkCanon(project, final);
+              if (check?.hasData && check.fabricated.length > 0) {
+                pushFeed({
+                  from: "qa",
+                  to: agent.id,
+                  kind: "review",
+                  text: `🚫 **정본 대조 반려** — 실재하지 않는 키를 정본으로 인용했습니다 (${check.fabricated.length}건)\n${canonRejectNotes(check)}`,
+                });
+                get().recordGrowth(agent.id, "qaFail", { lesson: `정본에 없는 키 인용: ${check.fabricated.map((f) => f.key).join(", ")}`.slice(0, 280) });
+                updateCard(agent.id, { phase: "정본 반려 — 재작성 중" });
+                setAgentStatus(agent.id, "running");
+                const cr = await runAgentSafe(agent.id, canonRevisePrompt(agent.sectionTitle, check, canonDigestText), runTag, signal);
+                const fixed = sanitizeAgentOutput(cr.text);
+                addUsage(cr.usage, fixed);
+                if (fixed && fixed.length > 30 && !isGatewayErrorText(fixed)) {
+                  final = fixed;
+                  pushFeed({ from: agent.id, to: "qa", kind: "revision", text: final });
+                  check = await checkCanon(project, final);
+                }
+                if (check?.hasData && check.fabricated.length > 0) {
+                  // 재작성해도 남았다 — 통과시키되 **반드시 눈에 띄게** 남긴다. 조용히 넘기면 A-1이 반복된다.
+                  pushFeed({
+                    from: "system",
+                    kind: "error",
+                    text: `⚠️ ${agent.name}의 산출물에 정본 미확인 키가 남아 있습니다: ${check.fabricated.map((f) => `\`${f.key}\``).join(", ")} — GDD 반영 전에 직접 확인하세요.`,
+                  });
+                }
+              }
+              if (check) canonFacts = canonFactBlock(check);
+            } catch {
+              /* 정본 대조 실패는 회의를 막지 않는다 */
+            }
+          }
+
           // 품질 게이트 — QA 디렉터가 루브릭 채점, 미달이면 1회 반려·재작성
           if (get().qaGate && !get().stopRequested) {
             try {
               updateCard(agent.id, { phase: "QA 채점 중" });
               setAgentStatus("qa", "running");
-              const qres = await runAgentSafe("qa", qaScorePrompt(agent, final, panorama, req), `${runTag}-qa`, signal);
+              const qres = await runAgentSafe("qa", qaScorePrompt(agent, final, panorama, req, canonFacts), `${runTag}-qa`, signal);
               addUsage(qres.usage, qres.text);
               const qaText = sanitizeAgentOutput(qres.text);
               const verdict = parseQaScore(qaText);
@@ -2001,7 +2139,8 @@ export const useVE = create<VEState>()((set, get) => {
               const bossAgent = AGENT_MAP[boss] ?? AGENT_MAP["pm"];
               updateCard(agent.id, { phase: `${bossAgent.name} 평가 중` });
               setAgentStatus(boss, "running");
-              const ev = await runAgentSafe(boss, bossReviewPrompt(bossAgent, agent, req, final), `${runTag}-boss`, signal);
+              // 정본 대조 결과를 같이 준다 — 안 주면 팀장이 실재하는 정본을 "정본에 없다"며 삭제 지시한다(A-2)
+              const ev = await runAgentSafe(boss, bossReviewPrompt(bossAgent, agent, req, final, canonFacts), `${runTag}-boss`, signal);
               const evalText = sanitizeAgentOutput(ev.text);
               addUsage(ev.usage, evalText);
               setAgentStatus(boss, "done");
@@ -2388,6 +2527,32 @@ export const useVE = create<VEState>()((set, get) => {
 
       endMeeting();
       if (results.length > 0) void notify("🎪 회의 완료", `${req.slice(0, 60)} — 산출물 ${results.length}건이 반영되었습니다`);
+      };
+
+      // 🔴 회의가 오류 없이 사라지는 사고의 근본 원인 차단 (오너 실측 2026-07-26 C-1).
+      // 본문 도중 예외가 나면 orchRunning이 true로 굳어 ① 진행률이 그 자리에 멈추고
+      // ② 이후 모든 지시가 "이미 회의 중"으로 조용히 무시된다. 사용자에겐 "걸었는데 아무 일도 없다"로만 보인다.
+      // 따라서 어떤 경로로 끝나든 반드시 회의를 닫고, 닫힌 사유를 피드에 남긴다.
+      try {
+        await runBody();
+      } catch (e: any) {
+        if (!get().stopRequested)
+          pushFeed({
+            from: "system",
+            kind: "error",
+            text: `⚠️ 회의가 예기치 못한 오류로 중단됐습니다: ${String(e?.message ?? e).slice(0, 200)}`,
+          });
+      } finally {
+        if (get().orchRunning) {
+          if (!get().stopRequested)
+            pushFeed({
+              from: "system",
+              kind: "error",
+              text: "⚠️ 회의가 완료 신호 없이 종료됐습니다 — 산출물이 없을 수 있으니 지시를 다시 걸어 주세요.",
+            });
+          endMeeting();
+        }
+      }
 
       // 회의 중 승인돼 예약된 안건이 있으면 이어서 자동 착수 (한 건씩)
       const queued = get().pendingApprovalRuns;
@@ -3392,13 +3557,23 @@ export const useVE = create<VEState>()((set, get) => {
     collabSession: async () => {
       const st = get();
       const topic = st.orchRequest.trim();
-      if (!topic || st.orchRunning) return;
+      if (!topic) return;
+      // 조용한 return 금지 — 왜 시작되지 않았는지 반드시 알린다(C-1).
+      if (st.orchRunning) {
+        pushFeed({ from: "system", kind: "status", text: "⏳ 회의가 진행 중이라 협업 세션을 시작하지 않았습니다 — 회의가 끝난 뒤 다시 눌러 주세요." });
+        return;
+      }
       const members = SPECIALISTS.filter((a) => st.selected[a.id]);
-      if (members.length < 2 || members.length > 4) return;
+      if (members.length < 2 || members.length > 4) {
+        pushFeed({ from: "system", kind: "error", text: `⚠️ 협업 세션은 2~4명이어야 합니다 — 현재 ${members.length}명 선택됨.` });
+        return;
+      }
       const project = st.activeProject || "np";
       const runTag = `collab-${project}-${Date.now().toString(36)}`;
       orchAbort = new AbortController();
       const signal = orchAbort.signal;
+      stallStage = 0;
+      lastFeedAt = Date.now();
       set({ orchRunning: true, stopRequested: false, orchRequest: "" });
       pushFeed({ from: "user", kind: "request", text: `🤝 협업 세션: ${topic}` });
       pushFeed({
@@ -3425,9 +3600,23 @@ export const useVE = create<VEState>()((set, get) => {
 
     reviewExistingPlan: async () => {
       const st = get();
-      if (st.planReviewBusy || st.orchRunning) return;
+      // 회의와 겹치면 meetingMembers·agentStatus를 서로 덮어써서 먼저 돌던 회의가 화면에서 사라진다.
+      // 막되, 막았다는 사실을 반드시 알린다(예전엔 조용히 return — C-1의 한 갈래).
+      if (st.planReviewBusy || st.orchRunning) {
+        pushFeed({
+          from: "system",
+          kind: "status",
+          text: st.orchRunning
+            ? "⏳ 회의가 진행 중이라 기존 기획 팀 리뷰를 시작하지 않았습니다 — 회의가 끝난 뒤 다시 눌러 주세요."
+            : "⏳ 팀 리뷰가 이미 진행 중입니다.",
+        });
+        return;
+      }
       const project = st.activeProject;
-      if (!project) return;
+      if (!project) {
+        pushFeed({ from: "system", kind: "error", text: "⚠️ 선택된 프로젝트가 없어 팀 리뷰를 시작할 수 없습니다." });
+        return;
+      }
       let baseMd = st.gdd;
       try {
         baseMd = (await fetchGdd(project)).markdown;
@@ -3584,6 +3773,20 @@ export const useVE = create<VEState>()((set, get) => {
           // 여기서 코멘트가 빠지면 "조건부 승인"이 "원안 승인"으로 굳어 전파된다(오너 요청 2026-07-15).
           await appendDecisions(project, [`(오너 승인) ${item.title}${note ? ` — ⚠️ 오너 수정 지시: ${note}` : ""}`], "approval");
           await get().loadDecisions();
+        } else {
+          // 기각도 반드시 원장에 남긴다. 예전엔 반려가 **어디에도 기록되지 않아서**
+          // 다음 회의가 기각된 기능을 그대로 되살렸다(실측: "밤 전환 예고" 2회 재설계 — A-3).
+          await appendDecisions(
+            project,
+            [`(오너 기각) ${item.title}${note ? ` — 사유: ${note}` : ""}`],
+            "rejection"
+          );
+          await get().loadDecisions();
+          pushFeed({
+            from: "pm",
+            kind: "status",
+            text: "🚫 기각 원장에 적립했습니다 — 다음 회의부터 전원이 이 항목을 다시 제안하지 않습니다.",
+          });
           // 자동 실행이 켜져 있으면 PM이 곧바로 실행 회의를 착수한다 (세션 한정 옵트인 — 기본 꺼짐).
           if (get().approvalAutoRun) {
             await launchApproval({ ...item, note });
@@ -3956,6 +4159,32 @@ export const useVE = create<VEState>()((set, get) => {
       set({ orchRequest: req, fundOpen: false });
     },
 
+    setLedgerOpen: (b) => {
+      set({ ledgerOpen: b });
+      if (b) void get().loadDecisions();
+    },
+    addProhibition: async (text) => {
+      const project = get().activeProject;
+      const t = text.trim();
+      if (!project || !t) return;
+      await appendDecisions(project, [`(오너 기각) ${t}`], "rejection");
+      await get().loadDecisions();
+      pushFeed({ from: "user", kind: "status", text: `🚫 상시 금지 등록: ${t.slice(0, 90)}` });
+    },
+    addDecisionManual: async (text) => {
+      const project = get().activeProject;
+      const t = text.trim();
+      if (!project || !t) return;
+      await appendDecisions(project, [t], "owner");
+      await get().loadDecisions();
+      pushFeed({ from: "user", kind: "status", text: `✅ 확정 사항 등록: ${t.slice(0, 90)}` });
+    },
+    removeDecision: async (text) => {
+      const project = get().activeProject;
+      if (!project) return;
+      await removeDecisionApi(project, text);
+      await get().loadDecisions();
+    },
     setDeliverOpen: (b) => set({ deliverOpen: b }),
 
     // 📦 납품물 목록 — deliverables 폴더를 읽어 최신순으로 보여준다.

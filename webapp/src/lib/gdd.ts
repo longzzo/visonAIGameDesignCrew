@@ -10,6 +10,25 @@ export interface ProjectInfo {
   name: string;
   createdAt: number;
   mtime: number;
+  /** 마지막으로 선택한 시각(서버 기록) — 세션 복원의 기준. 0이면 연 적 없음. */
+  lastOpenedAt?: number;
+}
+
+/**
+ * 프로젝트 선택을 서버에 기록한다.
+ * localStorage만으로는 데스크톱 앱↔브라우저 사이에서 선택이 유실돼 목록 첫 항목
+ * ("첫 테스트")으로 되돌아갔다 — 다른 프로젝트에 회의가 붙는 사고 직전까지 갔다(C-2).
+ */
+export async function touchProject(id: string): Promise<void> {
+  try {
+    await fetch("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ touch: id }),
+    });
+  } catch {
+    /* 기록 실패는 무시 */
+  }
 }
 
 /* ── 프로젝트 CRUD ─────────────────────────────────── */

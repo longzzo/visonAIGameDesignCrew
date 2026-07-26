@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { uiAlert, uiConfirm, uiPrompt } from "../lib/dialog";
 import { estimateCost, fmtUsd, loadGuard, priceFor, saveGuard, type CostGuard } from "../lib/cost";
 import { gateway } from "../lib/gateway";
+import { isRejection } from "../lib/kit";
 import { useVE } from "../store";
 
 /** 사용량·비용 패널 — 토큰/호출/추정 비용 + 비용 가드(10분 호출 한도) 설정 */
@@ -138,8 +139,12 @@ export function TopBar() {
     setDeckOpen,
     setDeliverOpen,
     setFundOpen,
+    setLedgerOpen,
+    decisions,
   } = useVE();
   const pendingApprovals = approvals.filter((a) => a.status === "pending").length;
+  // 금지 항목 수를 뱃지에 띄운다 — 0이면 "이 프로젝트엔 금지가 등록돼 있지 않다"가 한눈에 보인다
+  const banCount = decisions.filter(isRejection).length;
   const price = priceFor(modelName);
   const costLabel =
     price.inPrice === 0 && price.outPrice === 0
@@ -283,6 +288,13 @@ export function TopBar() {
           title="기초 점검 — 기획서에 게임의 기초(핵심 루프·회복·사운드·접근성 등)가 빠지지 않았는지 점검"
         >
           🩺 기초 점검
+        </button>
+        <button
+          className="badge ledger-badge"
+          onClick={() => setLedgerOpen(true)}
+          title="결정·기각 원장 — 매 회의에 주입되는 확정 사항과 금지 항목. 여기서 등록한 금지는 팀이 다시 제안하지 않는다."
+        >
+          📒 원장{banCount > 0 ? ` ${banCount}` : ""}
         </button>
         <button
           className="badge deliver-badge"

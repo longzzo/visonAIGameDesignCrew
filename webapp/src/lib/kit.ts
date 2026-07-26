@@ -58,6 +58,15 @@ export async function appendDecisions(project: string, items: string[], source: 
   });
 }
 
+/** 원장에서 한 항목을 뺀다 — 원장은 매 회의에 주입되므로 틀린 항목은 즉시 지워야 한다 */
+export async function removeDecisionApi(project: string, text: string): Promise<void> {
+  await fetch(`/api/decisions?project=${encodeURIComponent(project)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ remove: text }),
+  });
+}
+
 /* ── 승인 대기 큐 (오너 에스컬레이션) ── */
 
 export interface ApprovalItem {
@@ -170,10 +179,46 @@ export async function claimApprovalRunApi(
   return { already: !!j.already, item: j.item as ApprovalItem };
 }
 
-/** 최근 결정사항을 프롬프트 주입용 불릿 텍스트로 (최신 우선 최대 n개) */
+/** 기각 항목인가 — 오너가 "하지 말라"고 판단한 것 */
+export function isRejection(d: DecisionItem): boolean {
+  return d.source === "rejection" || /^\(오너 기각\)/.test(d.text);
+}
+
+/**
+ * 결정 원장을 프롬프트 주입용으로 만든다.
+ *
+ * 오너 실측 2026-07-26 (A-3·A-4):
+ *   · v34.1로 확정된 강철이 브레스를 회의가 **4회** 재생산했다.
+ *   · 2026-07-15 오너가 **기각**한 "밤 전환 예고"를 **2회** 재설계했다.
+ *   · 카운터 위계 무력화·모바일 조작표 같은 명시적 금지를 3라운드 연속 위반했다.
+ * 원인은 두 가지다 — ⓐ 확정본이 "그냥 결정 목록"에 섞여 재설계 대상처럼 보이고,
+ * ⓑ **기각 원장이 컨텍스트에 아예 없었다**(반려는 어디에도 기록되지 않았다).
+ *
+ * 그래서 확정과 기각을 분리해 서로 다른 명령으로 제시한다. 기각 항목은 수가 적고
+ * 가장 자주 위반되므로 **최신 n개 창에서 잘라내지 않고 전부** 넣는다.
+ */
 export function decisionsBlock(items: DecisionItem[], n = 12): string {
-  return items
-    .slice(-n)
-    .map((d) => `- ${d.text}`)
-    .join("\n");
+  const rejected = items.filter(isRejection);
+  const decided = items.filter((d) => !isRejection(d)).slice(-n);
+  const out: string[] = [];
+  if (decided.length > 0) {
+    out.push(
+      [
+        `[✅ 확정 사항 — 이미 결론이 난 것. 다시 설계하지 마라]`,
+        `아래는 오너·팀이 확정한 내용이다. **재설계·재제안 금지.** 이견이 있으면 산출물 맨 끝에`,
+        `"이의: <항목> — <근거>" 한 줄로만 적고, 본문은 확정본을 전제로 써라.`,
+        ...decided.map((d) => `- ${d.text}`),
+      ].join("\n")
+    );
+  }
+  if (rejected.length > 0) {
+    out.push(
+      [
+        `[🚫 기각 원장 — 오너가 하지 말라고 판단한 것. 다시 제안하지 마라]`,
+        `아래 항목을 되살리거나, 이름만 바꿔 다시 설계하거나, 우회 구현하는 것 전부 금지다.`,
+        ...rejected.map((d) => `- ${d.text.replace(/^\(오너 기각\)\s*/, "")}`),
+      ].join("\n")
+    );
+  }
+  return out.join("\n\n");
 }

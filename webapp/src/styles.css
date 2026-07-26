@@ -511,6 +511,8 @@ button { font-family: inherit; }
   position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
   background: rgba(8, 11, 18, 0.82); backdrop-filter: blur(4px); padding: 20px;
 }
+/* 온보딩이 닫힌 직후 뒤 버튼이 눌리는 것을 막는 투명 방패 (C-3, Onboarding.tsx finish 참조) */
+.onb-shield { position: fixed; inset: 0; z-index: 201; background: transparent; }
 .onb-card {
   width: min(600px, 96vw); max-height: 92vh; overflow-y: auto;
   background: var(--panel); border: 1px solid var(--border); border-radius: 18px;
@@ -1435,6 +1437,11 @@ button { font-family: inherit; }
   flex: 0 0 160px; height: 6px; border-radius: 999px; background: rgba(255,255,255,0.07); overflow: hidden;
 }
 .orch-progress-bar i { display: block; height: 100%; background: var(--accent); border-radius: 999px; transition: width 0.4s; }
+/* 진행이 멈춘 것으로 보일 때 — 죽었는지 도는지 구분되게 (C-4) */
+.orch-progress { flex-wrap: wrap; }
+.orch-progress-now { flex-basis: 100%; font-size: 11.5px; }
+.orch-progress.stalled .orch-progress-bar i { background: #fbbf24; }
+.orch-progress-warn { flex-basis: 100%; font-size: 11.5px; color: #fbbf24; }
 
 .list-search {
   width: 100%; box-sizing: border-box; margin: 2px 0 6px;
@@ -2020,6 +2027,33 @@ button { font-family: inherit; }
 .deliver-icon { font-size: 18px; }
 .deliver-name { flex: 1; font-size: 13.5px; word-break: break-all; }
 .deliver-meta { font-size: 11.5px; white-space: nowrap; }
+/* 📒 결정·기각 원장 — 매 회의에 주입되는 조직의 기억 */
+.ledger-badge { border-color: rgba(251, 191, 36, 0.45); color: #fbd267; cursor: pointer; }
+.ledger-badge:hover { border-color: #fbbf24; color: #fff; }
+.ledger-card { max-width: 900px; width: 95vw; }
+.ledger-body { display: flex; flex-direction: column; gap: 10px; padding-top: 6px; max-height: 66vh; overflow-y: auto; }
+.ledger-add { display: flex; align-items: center; gap: 7px; }
+.ledger-modes { display: flex; gap: 4px; }
+.ledger-input {
+  flex: 1; background: var(--bg-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 7px 10px; font-size: 13px; font-family: inherit;
+}
+.ledger-hint { font-size: 11.5px; }
+.ledger-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.ledger-col h4 { font-size: 12.5px; margin: 4px 0 7px; font-weight: 600; }
+.ledger-empty { font-size: 12.5px; line-height: 1.7; padding: 10px 4px; }
+.ledger-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.ledger-row {
+  display: flex; align-items: flex-start; gap: 8px;
+  background: var(--panel-2, rgba(255,255,255,0.03)); border: 1px solid var(--border);
+  border-radius: 9px; padding: 7px 10px;
+}
+.ledger-row.ban { border-color: rgba(248, 113, 113, 0.4); background: rgba(248, 113, 113, 0.07); }
+.ledger-text { flex: 1; font-size: 12.5px; line-height: 1.55; word-break: break-word; }
+.ledger-del { flex: none; opacity: 0.5; }
+.ledger-del:hover { opacity: 1; }
+@media (max-width: 760px) { .ledger-cols { grid-template-columns: 1fr; } }
+
 .naver-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
 .naver-tabs button {
   background: transparent; border: 1px solid var(--border); color: var(--text-dim);

@@ -34,9 +34,18 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
+  // 닫는 중 — 투명 방패를 잠깐 유지한다.
+  //
+  // 오너 실측 2026-07-26 (C-3): "건너뛰기"를 눌렀는데 **뒤에 있던 "📥 기존 기획 팀 리뷰"가 실행돼**
+  // 의도치 않은 회의가 통째로 돌았다(토큰·시간 낭비 + C-1의 방아쇠). 오버레이가 즉시 언마운트되면
+  // pointerdown 이후에 도착하는 click/mouseup이 그 자리에 새로 나타난 버튼으로 떨어진다.
+  // 방패를 400ms 더 씌워 그 클릭을 흡수한다. 짧아서 사용자는 못 느낀다.
+  const [closing, setClosing] = useState(false);
+
   const finish = () => {
     markOnboarded();
-    onClose();
+    setClosing(true);
+    setTimeout(onClose, 400);
   };
 
   const saveCustom = async () => {
@@ -66,6 +75,11 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
       setBusy(false);
     }
   };
+
+  if (closing) {
+    // 카드는 사라지고 클릭만 막는 투명 방패 (위 finish 주석 참조)
+    return <div className="onb-shield" onClick={(e) => e.stopPropagation()} />;
+  }
 
   return (
     <div className="onb-backdrop">

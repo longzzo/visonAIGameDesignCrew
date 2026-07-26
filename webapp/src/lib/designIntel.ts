@@ -15,6 +15,9 @@ const API = "/api/design/search";
 const KO_EN_GENRE: Record<string, string> = {
   // 장르
   빙고: "bingo", 퍼즐: "puzzle", 매치3: "match3", "3매치": "match3", 매칭: "match3",
+  샌드박스: "sandbox", 횡스크롤: "platformer side-scroller", 플랫포머: "platformer",
+  채굴: "mining", 크래프팅: "crafting", 제작: "crafting", 타일: "tile",
+  도트: "pixel retro", 도트그래픽: "pixel retro", "16x16": "pixel",
   방치: "idle", 클리커: "clicker", 수집: "collection", 카드: "card", 보드: "board",
   역할: "rpg", 알피지: "rpg", 액션: "action", 어드벤처: "adventure", 모험: "adventure",
   시뮬: "simulation", 시뮬레이션: "simulation", 경영: "tycoon", 타이쿤: "tycoon business",
@@ -35,17 +38,77 @@ const KO_EN_GENRE: Record<string, string> = {
   모바일: "mobile", 세로: "portrait mobile", 태블릿: "tablet",
 };
 
-/** 한국어 텍스트 뭉치에서 장르 키워드를 뽑아 영어 쿼리로 변환. ASCII 토큰(RPG 등)은 그대로 통과. */
+/**
+ * 원문에 영어로 쓴 장르 힌트만 통과시키는 화이트리스트.
+ *
+ * 예전엔 ASCII 토큰을 전부 쿼리에 넣어서 `v11 v12 d-100 v17` 같은 버전 문자열까지
+ * 디자인 DB 검색어가 됐다(실측 2026-07-26 B-1). 검색 정확도를 갉아먹는 순수 잡음이다.
+ */
+const EN_GENRE_TOKENS = new Set([
+  "rpg", "jrpg", "arpg", "fps", "tps", "moba", "rts", "mmo", "mmorpg", "roguelike", "roguelite",
+  "match3", "platformer", "metroidvania", "sandbox", "survival", "horror", "puzzle", "shooter",
+  "racing", "sports", "fighting", "strategy", "simulation", "idle", "clicker", "tycoon",
+  "visualnovel", "soulslike", "deckbuilder", "sidescroller", "pixel", "retro", "arcade",
+  "casual", "hypercasual", "indie", "roguevania", "tower", "defense", "crafting", "mining",
+]);
+
+/**
+ * 한국어 텍스트에서 장르 키워드가 **단어로서** 등장했는지 본다.
+ *
+ * 왜 단순 includes로는 안 되는가 (오너 실측 2026-07-26 B-1 — 실제 오염 사고):
+ *   · "냥빙고"  ⊃ "빙고" → bingo
+ *   · "키보드"  ⊃ "보드" → board
+ *   · "전략"           → strategy
+ *   합쳐서 `card board strategy` → DB가 **"Card & Board Game"**으로 판정 →
+ *   카드게임 팔레트·UX가 매 회의 전원에게 배포되고, 산출물에 "습격 승리 +15 / 패배 −25"
+ *   같은 카드게임식 점수 메커니즘이 등장했다. 2D 생존·채굴 게임에 그런 단위는 없다.
+ *
+ * 규칙: 키워드 **앞**에 한글이 붙어 있으면 다른 단어의 일부로 본다(냥+빙고, 키+보드).
+ * 뒤에 붙는 건 허용한다 — "퍼즐게임", "카드덱"처럼 한국어는 뒤로 합성되는 게 자연스럽다.
+ */
+function hasKoTerm(text: string, term: string): boolean {
+  let i = text.indexOf(term);
+  while (i !== -1) {
+    const prev = i > 0 ? text[i - 1] : "";
+    if (!/[가-힣]/.test(prev)) return true;
+    i = text.indexOf(term, i + 1);
+  }
+  return false;
+}
+
+/**
+ * GDD 1장의 정본 테이블에서 장르를 직접 읽는다.
+ *
+ * 진단서 처방: "장르는 KO맵을 우회해 GDD 1장 태그에서 직접 읽을 것."
+ * 프로젝트명(냥빙고)이나 회의 지시문 전체를 훑으면 위 오염이 재발하므로,
+ * 오너가 정본에 확정해 둔 `| 장르 | ... |` 행을 1순위 근거로 삼는다.
+ */
+export function genreFromGdd(overview: string): string {
+  const rows = ["장르", "아트 방향", "아트방향", "플랫폼", "주제 해석"];
+  const out: string[] = [];
+  for (const label of rows) {
+    const m = new RegExp(`^\\|\\s*\\*{0,2}${label}[^|]*\\|\\s*([^|]+)\\|`, "m").exec(overview);
+    if (m) out.push(m[1].replace(/\*+/g, " ").trim());
+  }
+  return out.join(" · ");
+}
+
+/**
+ * 장르 쿼리를 만든다.
+ *
+ * 근거 우선순위: ① GDD 1장 정본의 장르·아트 방향  ② 회의 지시문  ③ (프로젝트명은 쓰지 않는다)
+ * 프로젝트명을 뺀 이유는 위 hasKoTerm 주석의 "냥빙고 → bingo" 사고 때문이다.
+ */
 export function buildDesignQuery(...sources: string[]): string {
   const text = sources.filter(Boolean).join(" ");
   const hits = new Set<string>();
   for (const [ko, en] of Object.entries(KO_EN_GENRE)) {
-    if (text.includes(ko)) en.split(/\s+/).forEach((w) => hits.add(w));
+    if (hasKoTerm(text, ko)) en.split(/\s+/).forEach((w) => hits.add(w));
   }
-  // 원문에 이미 영어로 쓴 장르 힌트(RPG, match3, roguelike ...)도 살린다
+  // 원문에 이미 영어로 쓴 장르 힌트(RPG, roguelike ...)만 살린다 — 버전 문자열·약어는 버린다
   for (const tok of text.match(/[A-Za-z][A-Za-z0-9-]{2,}/g) ?? []) {
     const t = tok.toLowerCase();
-    if (t.length <= 14) hits.add(t);
+    if (EN_GENRE_TOKENS.has(t)) hits.add(t);
   }
   return [...hits].slice(0, 12).join(" ").trim();
 }
@@ -80,16 +143,26 @@ export async function fetchDesignSystem(query: string): Promise<DesignSystem | n
  * 장르가 매칭되지 않으면(category "General") 빈 문자열 — 엉뚱한 기본값을 주입하지 않는다.
  */
 export async function designRecallBlock(
-  projectName: string,
+  _projectName: string,
   request: string,
   overview: string
-): Promise<{ text: string; category: string; matched: boolean }> {
-  const query = buildDesignQuery(projectName, request, overview);
-  if (!query) return { text: "", category: "", matched: false };
+): Promise<{ text: string; category: string; matched: boolean; query?: string }> {
+  // 장르 근거는 GDD 1장 정본이 1순위. 프로젝트명은 쓰지 않는다("냥빙고 → bingo" 오염, B-1).
+  const genreRow = genreFromGdd(overview);
+  const query = buildDesignQuery(genreRow || overview, request);
+  // 신뢰도 하한 — 장르 단서가 1개뿐이면 우연 매칭일 확률이 높다. 애매하면 주입하지 않는다.
+  if (!query || query.split(/\s+/).length < 2) return { text: "", category: "", matched: false, query };
   const ds = await fetchDesignSystem(query);
   const category = ds?.category ?? "";
   // "General"은 장르 미매칭 기본값(Glassmorphism) — 주입하지 않는다.
-  if (!ds || !category || category === "General") return { text: "", category, matched: false };
+  if (!ds || !category || category === "General") return { text: "", category, matched: false, query };
+  // 게임 프로젝트인데 게임이 아닌 카테고리(Micro SaaS·LMS 등)가 돌아오면 **매칭 실패로 본다**.
+  // DB에 sandbox/platformer 항목이 없어 엉뚱한 제품군으로 튀는 경우가 실제로 나온다.
+  // 이걸 그대로 주입하면 B-1(카드게임 오염)과 같은 종류의 사고가 형태만 바꿔 재발한다.
+  const looksGame = /게임|game|장르|플레이어|스테이지|레벨|보스|퀘스트/i.test(`${overview.slice(0, 1200)} ${request}`);
+  if (looksGame && !/game|gaming|arcade|puzzle/i.test(category)) {
+    return { text: "", category, matched: false, query };
+  }
 
   const c = ds.colors ?? {};
   const st = ds.style ?? {};
@@ -107,5 +180,5 @@ export async function designRecallBlock(
     `- 필수 UX(우선순위): 명암비 4.5:1 · 터치 타깃 44×44px · 모션 150~300ms · 아이콘은 SVG(이모지 금지) · 모바일 우선 반응형`,
   ].filter(Boolean);
 
-  return { text: lines.join("\n"), category, matched: true };
+  return { text: lines.join("\n"), category, matched: true, query };
 }

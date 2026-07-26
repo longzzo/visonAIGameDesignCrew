@@ -86,9 +86,9 @@ function ensureProjects(): void {
   }
 }
 
-function listProjects(): { id: string; name: string; createdAt: number; mtime: number }[] {
+function listProjects(): { id: string; name: string; createdAt: number; mtime: number; lastOpenedAt: number }[] {
   ensureProjects();
-  const out: { id: string; name: string; createdAt: number; mtime: number }[] = [];
+  const out: { id: string; name: string; createdAt: number; mtime: number; lastOpenedAt: number }[] = [];
   for (const id of fs.readdirSync(PROJECTS_DIR)) {
     const metaPath = path.join(PROJECTS_DIR, id, "project.json");
     if (!fs.existsSync(metaPath)) continue;
@@ -96,13 +96,33 @@ function listProjects(): { id: string; name: string; createdAt: number; mtime: n
       const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
       const gddPath = path.join(PROJECTS_DIR, id, "GDD.md");
       const mtime = fs.existsSync(gddPath) ? fs.statSync(gddPath).mtimeMs : 0;
-      out.push({ id, name: meta.name ?? id, createdAt: meta.createdAt ?? 0, mtime });
+      out.push({ id, name: meta.name ?? id, createdAt: meta.createdAt ?? 0, mtime, lastOpenedAt: meta.lastOpenedAt ?? 0 });
     } catch {
       /* 손상된 메타는 건너뜀 */
     }
   }
   syncProjectFolderLabels(out);
   return out.sort((a, b) => a.createdAt - b.createdAt);
+}
+
+/**
+ * 마지막으로 연 프로젝트를 서버에 기록한다.
+ *
+ * 왜 localStorage로는 부족한가 (오너 실측 2026-07-26 C-2):
+ * 선택이 "첫 테스트(달빛 고양이 기사단)"로 되돌아가 **다른 프로젝트에 회의가 붙을 뻔했다**(컨셉 오염).
+ * 데스크톱 앱과 브라우저는 origin이 달라 localStorage를 공유하지 않는다 — 한쪽에서 고른 프로젝트가
+ * 다른 쪽에선 없는 것과 같고, 그러면 목록 첫 항목(가장 오래된 "첫 테스트")으로 떨어진다.
+ * 그래서 선택 자체를 **서버(project.json)** 에 남겨 어느 클라이언트로 열어도 같은 곳으로 복귀시킨다.
+ */
+function touchProject(id: string): void {
+  try {
+    const metaPath = path.join(projectDir(id), "project.json");
+    const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+    meta.lastOpenedAt = Date.now();
+    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), "utf-8");
+  } catch {
+    /* 기록 실패는 무시 — 선택 동작 자체를 막지 않는다 */
+  }
 }
 
 /**
@@ -1097,6 +1117,18 @@ function projectsApiPlugin(): Plugin {
             if (req.method === "POST") {
               if (blockRemoteWrite(req, res)) return;
               const j = JSON.parse((await readBody(req)) || "{}");
+              // 선택 기록 — 어느 클라이언트(데스크톱 앱/브라우저)로 열어도 같은 프로젝트로 복귀한다
+              if (j.touch) {
+                const id = String(j.touch);
+                if (!isSafeId(id) || !fs.existsSync(projectDir(id))) {
+                  res.statusCode = 404;
+                  res.end(JSON.stringify({ ok: false, error: "프로젝트 없음" }));
+                  return;
+                }
+                touchProject(id);
+                res.end(JSON.stringify({ ok: true, id }));
+                return;
+              }
               const name = String(j.name ?? "").trim();
               if (!name) {
                 res.statusCode = 400;
@@ -2651,6 +2683,15 @@ function decisionsApiPlugin(): Plugin {
             if (req.method === "POST") {
               if (blockRemoteWrite(req, res)) return;
               const j = JSON.parse((await readBody(req)) || "{}");
+              // 삭제 — 오너가 잘못 등록했거나 더는 유효하지 않은 항목을 원장에서 뺀다.
+              // (원장은 매 회의에 주입되므로 틀린 항목이 남으면 계속 오염된다)
+              if (typeof j.remove === "string" && j.remove) {
+                const items = load().filter((it: any) => it.text !== j.remove);
+                fs.writeFileSync(f, JSON.stringify(items, null, 1), "utf-8");
+                exportDecisionsToVault(project, items);
+                res.end(JSON.stringify({ ok: true, items }));
+                return;
+              }
               const texts: string[] = Array.isArray(j.items) ? j.items.map((s: any) => String(s).slice(0, 300)).filter(Boolean) : [];
               const source = String(j.source ?? "").slice(0, 80);
               if (texts.length === 0) {
@@ -3074,6 +3115,209 @@ function walkDeliverables(base: string, dir: string, depth: number, out: any[]):
       });
     }
   }
+}
+
+/* ── 정본 조회 (Canon) ─────────────────────────────────────
+ *
+ * 왜 필요한가 (오너 실측 2026-07-26 A-1):
+ * QA·팀장 평가 프롬프트는 산출물의 **내적 완성도**만 본다. 정본 파일을 열지 않으므로
+ * "정본 v31의 wall_health=100"처럼 **존재하지 않는 키를 인용해도 일관성 만점**이 나왔고,
+ * 반대로 진짜 정본인 seal_window_ry=12는 "정본과 충돌"이라며 반려됐다.
+ * 즉 지금 구조는 **잘 썼는가**만 보고 **사실인가**는 아무도 보지 않는다.
+ *
+ * 처방: 채점 이전에 돌아가는 결정론적 1차 게이트. LLM을 쓰지 않고 파일을 실제로 읽어
+ * 인용된 키의 존재 여부를 판정한다. 모델이 아무리 그럴듯하게 써도 이건 못 뚫는다.
+ *
+ * 정본의 범위 = projects/<id>/kit/** (밸런스 CSV·데이터) + GDD.md + decisions.json.
+ */
+const CANON_EXT = new Set([".csv", ".md", ".json", ".txt", ".tsv", ".yaml", ".yml"]);
+const CANON_MAX_BYTES = 4 * 1024 * 1024;
+
+interface CanonDoc {
+  file: string;
+  lines: string[];
+}
+const canonCache = new Map<string, { stamp: string; docs: CanonDoc[] }>();
+
+/** 정본 파일 목록 + 최종 수정 시각 도장 (캐시 무효화용) */
+function canonFiles(id: string): { fp: string; rel: string; mtime: number }[] {
+  const dir = projectDir(id);
+  const out: { fp: string; rel: string; mtime: number }[] = [];
+  const push = (fp: string, rel: string) => {
+    try {
+      const st = fs.statSync(fp);
+      if (st.isFile() && st.size <= CANON_MAX_BYTES) out.push({ fp, rel, mtime: st.mtimeMs });
+    } catch {
+      /* 사라진 파일은 건너뛴다 */
+    }
+  };
+  const kit = path.join(dir, "kit");
+  for (const f of walkDir(kit)) {
+    if (CANON_EXT.has(path.extname(f.path).toLowerCase())) push(path.join(kit, f.path), `kit/${f.path}`);
+  }
+  for (const name of ["GDD.md", "decisions.json"]) push(path.join(dir, name), name);
+  return out;
+}
+
+function canonDocs(id: string): CanonDoc[] {
+  const files = canonFiles(id);
+  const stamp = files.map((f) => `${f.rel}:${Math.round(f.mtime)}`).join("|");
+  const hit = canonCache.get(id);
+  if (hit && hit.stamp === stamp) return hit.docs;
+  const docs: CanonDoc[] = [];
+  for (const f of files) {
+    try {
+      docs.push({ file: f.rel, lines: fs.readFileSync(f.fp, "utf-8").split(/\r?\n/) });
+    } catch {
+      /* 읽기 실패 파일은 정본에서 제외 */
+    }
+  }
+  canonCache.set(id, { stamp, docs });
+  return docs;
+}
+
+/** 정본 전체에 실재하는 snake_case 식별자 집합 — 오탈자 후보 제안에 쓴다 */
+function canonKeySet(docs: CanonDoc[]): Set<string> {
+  const set = new Set<string>();
+  const re = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g;
+  for (const d of docs) for (const ln of d.lines) for (const m of ln.matchAll(re)) set.add(m[0]);
+  return set;
+}
+
+/** 편집거리 1~2 이내의 가장 가까운 실재 키 (오탈자 vs 날조 구분에 도움) */
+function nearestKey(key: string, pool: Set<string>): string | null {
+  let best: string | null = null;
+  let bestD = 3;
+  for (const cand of pool) {
+    if (Math.abs(cand.length - key.length) >= bestD) continue;
+    // 편집거리 (bestD 이상이면 조기 종료)
+    const a = key, b = cand;
+    let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+      const cur = [i];
+      let rowMin = i;
+      for (let j = 1; j <= b.length; j++) {
+        const v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        cur.push(v);
+        if (v < rowMin) rowMin = v;
+      }
+      if (rowMin >= bestD) {
+        prev = [];
+        break;
+      }
+      prev = cur;
+    }
+    const d = prev.length ? prev[b.length] : bestD;
+    if (d < bestD) {
+      bestD = d;
+      best = cand;
+    }
+  }
+  return best;
+}
+
+function canonApiPlugin(): Plugin {
+  return {
+    name: "vision-engine-canon-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/canon", (req, res) => {
+        const send = (code: number, body: unknown) => {
+          res.statusCode = code;
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          res.end(JSON.stringify(body));
+        };
+        try {
+          const url = new URL(req.url ?? "/", "http://local");
+          const sub = url.pathname.replace(/\/+$/, "") || "/";
+          const project = url.searchParams.get("project") ?? "";
+          if (!isSafeId(project) || !fs.existsSync(projectDir(project))) {
+            send(400, { ok: false, error: "project 확인 필요" });
+            return;
+          }
+          const docs = canonDocs(project);
+
+          // 정본 존재 자체 — 킷이 없는 프로젝트는 게이트를 걸면 안 된다(전부 "날조"가 된다)
+          if (sub === "/status") {
+            send(200, {
+              ok: true,
+              files: docs.map((d) => d.file),
+              lines: docs.reduce((a, d) => a + d.lines.length, 0),
+              hasData: docs.some((d) => d.file.startsWith("kit/")),
+            });
+            return;
+          }
+
+          // 정본 다이제스트 — 에이전트 프롬프트에 넣을 압축본.
+          // 진단서 한 줄 결론이 "누구도 정본 파일을 열어보지 않는다"였다. 조회 도구만 주면
+          // 안 쓰므로, 애초에 **실제 파일에서 읽은 값**을 회의 컨텍스트에 밀어 넣는다.
+          // 긴 note 열은 버리고 키·id·헤더만 남겨 47KB → 5KB 수준으로 줄인다.
+          if (sub === "/digest") {
+            // key/value 정본(globals 류)을 맨 앞에 둔다 — 프롬프트에서 잘려도 가장 많이 인용되는 것이 살아남게.
+            const kv: string[] = [];
+            const rest: string[] = [];
+            for (const d of docs) {
+              if (!d.file.startsWith("kit/") || !d.file.endsWith(".csv")) continue;
+              const rows = d.lines.filter((l) => l.trim());
+              if (rows.length < 2) continue;
+              const header = rows[0].split(",").map((s) => s.trim());
+              const body = rows.slice(1);
+              const name = d.file.replace(/^kit\/data\//, "").replace(/^kit\//, "");
+              // key,value 형태(globals 류)는 전부 그대로 — 가장 많이 인용되는 정본이다
+              if (header[0] === "key" && header[1] === "value") {
+                const pairs = body
+                  .map((r) => {
+                    const c = r.split(",");
+                    return c.length >= 2 ? `${c[0].trim()}=${c[1].trim()}${c[2]?.trim() ? c[2].trim() : ""}` : "";
+                  })
+                  .filter(Boolean);
+                kv.push(`### ${name} (${pairs.length}개)\n${pairs.join(" · ")}`);
+              } else {
+                // 그 외에는 헤더 + 첫 열(id/day 등) 목록만 — "무엇이 존재하는가"를 알리는 게 목적
+                const ids = body.map((r) => r.split(",")[0]?.trim()).filter(Boolean);
+                rest.push(`### ${name}\n열: ${header.join(", ")}\n${header[0]} 목록(${ids.length}): ${ids.join(", ")}`);
+              }
+            }
+            const parts = [...kv, ...rest];
+            const text = parts.join("\n\n");
+            send(200, { ok: true, project, text, bytes: text.length, files: parts.length });
+            return;
+          }
+
+          // 키 대조 — ?keys=a,b,c (최대 60개)
+          if (sub === "/grep" || sub === "/") {
+            const raw = url.searchParams.get("keys") ?? url.searchParams.get("q") ?? "";
+            const keys = [...new Set(raw.split(",").map((s) => s.trim()).filter(Boolean))].slice(0, 60);
+            if (keys.length === 0) {
+              send(400, { ok: false, error: "keys 필요" });
+              return;
+            }
+            const pool = canonKeySet(docs);
+            const results = keys.map((key) => {
+              const hits: { file: string; line: number; text: string }[] = [];
+              for (const d of docs) {
+                for (let i = 0; i < d.lines.length && hits.length < 4; i++) {
+                  if (d.lines[i].includes(key)) hits.push({ file: d.file, line: i + 1, text: d.lines[i].trim().slice(0, 220) });
+                }
+                if (hits.length >= 4) break;
+              }
+              return {
+                key,
+                found: hits.length > 0,
+                hits,
+                nearest: hits.length > 0 ? null : nearestKey(key, pool),
+              };
+            });
+            send(200, { ok: true, project, files: docs.length, results });
+            return;
+          }
+
+          send(404, { ok: false, error: "unknown canon endpoint" });
+        } catch (e: any) {
+          send(500, { ok: false, error: String(e?.message ?? e) });
+        }
+      });
+    },
+  };
 }
 
 function deliverApiPlugin(): Plugin {
@@ -4523,6 +4767,7 @@ export default defineConfig({
     approvalsApiPlugin(),
     failuresApiPlugin(),
     deckApiPlugin(),
+    canonApiPlugin(),
     deliverApiPlugin(),
     designApiPlugin(),
     memoryApiPlugin(),

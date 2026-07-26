@@ -17,6 +17,59 @@ function Elapsed({ from, to }: { from?: number; to?: number }) {
   return <span className="elapsed">{sec}s</span>;
 }
 
+/**
+ * 진행률 요약 — 오너 실측 2026-07-26 (C-4): "2/14 완료에서 40분 이상 정지 — 죽었는지 도는지 구분 불가".
+ *
+ * 예전엔 이 블록이 스스로 다시 그려지지 않아서, 진행이 멈추면 **경과 시간까지 같이 얼어붙었다.**
+ * 화면이 완전히 정지해 보이니 사용자는 죽었는지 도는지 판단할 근거가 하나도 없었다.
+ * 그래서 ① 1초마다 갱신하고 ② 지금 누가 무슨 단계인지 ③ 마지막 진전 이후 몇 분이 지났는지를 적는다.
+ */
+function OrchProgress({
+  cards,
+  lastFeedTs,
+  isLocal,
+}: {
+  cards: { agentId: string; state: string; phase?: string; startedAt?: number }[];
+  lastFeedTs: number;
+  isLocal: boolean;
+}) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const done = cards.filter((c) => c.state === "done").length;
+  const total = cards.length;
+  const started = Math.min(...cards.map((c) => c.startedAt ?? Date.now()));
+  const elapsed = Math.round((Date.now() - started) / 1000);
+  const eta = done > 0 ? Math.round((elapsed / done) * (total - done)) : null;
+  // 지금 돌고 있는 단계 — "무엇을 기다리는 중인지"가 보이면 정지와 지연이 구분된다
+  const active = cards.filter((c) => c.state === "running");
+  const nowLabel = active.length === 0 ? "" : active.map((c) => `${AGENT_MAP[c.agentId]?.emoji ?? "•"} ${c.phase ?? "작업 중"}`).join(" · ");
+  const quietSec = lastFeedTs ? Math.round((Date.now() - lastFeedTs) / 1000) : 0;
+  const stalled = quietSec > 240;
+
+  return (
+    <div className={stalled ? "orch-progress stalled" : "orch-progress"}>
+      <div className="orch-progress-bar">
+        <i style={{ width: `${Math.round((done / total) * 100)}%` }} />
+      </div>
+      <span>
+        {done}/{total} 완료 · 경과 {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")}
+        {eta !== null && eta > 5 ? ` · 남은 예상 ~${Math.max(1, Math.round(eta / 60))}분` : ""}
+        {isLocal ? " · ⚠️ 로컬 모델은 오래 걸립니다 (동시 1 권장)" : ""}
+      </span>
+      {nowLabel && <span className="orch-progress-now dim">지금: {nowLabel}</span>}
+      {stalled && (
+        <span className="orch-progress-warn">
+          ⚠️ {Math.floor(quietSec / 60)}분째 새 진행 없음 — 멈췄다고 판단되면 ⏹ 중단 후 다시 걸어 주세요
+        </span>
+      )}
+    </div>
+  );
+}
+
 const KIND_LABEL: Record<FeedMsg["kind"], string> = {
   request: "요청",
   instruction: "지시",
@@ -448,27 +501,10 @@ export function OrchestrationView() {
         </div>
       </div>
 
-      {/* 진행률 요약 — 몇 명 끝났고 얼마나 걸리고 있는지 한 줄 */}
-      {orchRunning && cardList.length > 0 && (() => {
-        const done = cardList.filter((c) => c.state === "done").length;
-        const total = cardList.length;
-        const started = Math.min(...cardList.map((c) => c.startedAt ?? Date.now()));
-        const elapsed = Math.round((Date.now() - started) / 1000);
-        const eta = done > 0 ? Math.round((elapsed / done) * (total - done)) : null;
-        const isLocal = modelName.startsWith("ollama/");
-        return (
-          <div className="orch-progress">
-            <div className="orch-progress-bar">
-              <i style={{ width: `${Math.round((done / total) * 100)}%` }} />
-            </div>
-            <span>
-              {done}/{total} 완료 · 경과 {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")}
-              {eta !== null && eta > 5 ? ` · 남은 예상 ~${Math.max(1, Math.round(eta / 60))}분` : ""}
-              {isLocal ? " · ⚠️ 로컬 모델은 오래 걸립니다 (동시 1 권장)" : ""}
-            </span>
-          </div>
-        );
-      })()}
+      {/* 진행률 요약 — 몇 명 끝났고, 지금 무엇을 하고 있고, 마지막 진전이 언제였는지 */}
+      {orchRunning && cardList.length > 0 && (
+        <OrchProgress cards={cardList} lastFeedTs={feed.length > 0 ? feed[feed.length - 1].ts : 0} isLocal={modelName.startsWith("ollama/")} />
+      )}
 
       {/* 개발 착수 킷 — 진행 로그 + 완성 파일 목록 + ZIP 다운로드 */}
       {(devKitBusy || devKitLog.length > 0) && (

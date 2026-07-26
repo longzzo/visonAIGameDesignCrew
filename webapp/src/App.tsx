@@ -19,6 +19,7 @@ import { NaverPanel } from "./components/NaverPanel";
 import { DeckPanel } from "./components/DeckPanel";
 import { DeliverPanel } from "./components/DeliverPanel";
 import { FundPanel } from "./components/FundPanel";
+import { LedgerPanel } from "./components/LedgerPanel";
 
 export default function App() {
   const {
@@ -46,6 +47,8 @@ export default function App() {
     setDeliverOpen,
     fundOpen,
     setFundOpen,
+    ledgerOpen,
+    setLedgerOpen,
     setDeckOpen,
   } = useVE();
 
@@ -109,6 +112,7 @@ export default function App() {
       {failuresOpen && <FailurePanel />}
       {naverOpen && <NaverPanel onClose={() => setNaverOpen(false)} />}
       {deckOpen && <DeckPanel onClose={() => setDeckOpen(false)} />}
+      {ledgerOpen && <LedgerPanel onClose={() => setLedgerOpen(false)} />}
       {deliverOpen && <DeliverPanel onClose={() => setDeliverOpen(false)} />}
       {fundOpen && <FundPanel onClose={() => setFundOpen(false)} />}
       <DialogHost />
