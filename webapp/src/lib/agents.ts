@@ -280,6 +280,20 @@ export const SECTION_MUST_HAVE: Record<string, string> = {
   ].join("\n"),
 };
 
+/**
+ * 이 지시가 "설계하지 말고 검증만 하라"인가.
+ *
+ * 오너 실측 2026-07-26 (D-2): 5라운드째에 "새 수치를 만들지 말고 구멍만 찾아라"며 5개 질문을 줬는데
+ * 대부분이 다시 문서를 썼다. 지시문에 적어도 뚫리므로, 검증 지시를 **모드로 인식**해
+ * 산출물 형식 자체를 바꾸고 GDD 반영도 막는다(검증 결과가 섹션을 덮어쓰면 정본이 깨진다).
+ */
+export function isVerifyOnlyRequest(req: string): boolean {
+  const t = req.slice(0, 800);
+  const verify = /구멍|허점|빈틈|모순|검증|점검|확인만|리뷰만|감사(하|해|를)/.test(t);
+  const noDesign = /만들지\s*(말|마)|설계하지\s*(말|마)|새\s*(수치|값|스펙).{0,6}(만들|추가|쓰지)|다시\s*쓰지\s*(말|마)|재작성\s*(금지|하지)|찾아만|지적만|만\s*하라|만\s*해라/.test(t);
+  return verify && noDesign;
+}
+
 export function specialistPrompt(
   request: string,
   agent: AgentDef,
@@ -296,7 +310,9 @@ export function specialistPrompt(
    * decisions와 합치면 안 된다 — 아래 slice(0, 900)에 걸려 통째로 잘려나간다.
    * 진단서 한 줄 결론이 "누구도 정본 파일을 열어보지 않는다"였고, 그 처방이 바로 이 주입이다.
    */
-  canon = ""
+  canon = "",
+  /** 검증 전용 — 설계·재작성 금지, 구멍 지적만 (isVerifyOnlyRequest 참조) */
+  verifyOnly = false
 ): string {
   const hasExisting = currentSection.trim().length > 0;
   const parts: string[] = [];
@@ -346,7 +362,25 @@ export function specialistPrompt(
       `너의 워크스페이스 지침(AGENTS.md)의 산출물 형식에 따라, 이 게임의 "${agent.sectionTitle}" 파트를 새로 작성해라.`
     );
   }
-  const must = SECTION_MUST_HAVE[agent.id];
+  if (verifyOnly) {
+    // 위에서 쌓은 "섹션을 작성해라" 지시를 통째로 무효화한다 — 검증 지시에 설계로 답하는 것을 막는다(D-2).
+    parts.push(
+      ``,
+      `🛑 **이번 지시는 검증 전용이다. 설계하지 마라.**`,
+      `- 섹션을 다시 쓰지 마라. 새 수치·새 시스템·새 이름을 만들지 마라.`,
+      `- 오직 **기존 기획의 구멍**만 찾아 적어라. 아래 형식만 출력한다:`,
+      ``,
+      `### 발견`,
+      `1. [문제] <무엇이 어긋나는가 — 근거가 되는 기존 문장·수치를 인용>`,
+      `   [왜 문제인가] <플레이·구현에서 실제로 어떤 일이 벌어지는가>`,
+      `   [확인 필요] <오너가 판단해야 할 한 가지 질문>`,
+      ``,
+      `- 최대 5개. 구멍을 못 찾았으면 "발견 없음"이라고만 적어라 — 억지로 만들지 마라.`,
+      `- 해결책을 설계하지 마라. 문제를 정확히 짚는 것까지가 네 일이다.`,
+      ``
+    );
+  }
+  const must = verifyOnly ? "" : SECTION_MUST_HAVE[agent.id];
   if (must) parts.push(`[이 파트가 반드시 답해야 하는 것 — 빠지면 기초 결손으로 반려된다]`, must, ``);
   parts.push(
     `- 순수 마크다운 텍스트로만. 소제목(###) 사용.`,
@@ -968,6 +1002,28 @@ export function parseAssignPlan(text: string, validIds: string[]): { id: string;
 }
 
 /** 주니어·인턴이 멘토 시니어의 파트에 쓸 세부 기여 초안 */
+/**
+ * 주니어·인턴이 반드시 채워야 하는 산출물 요건.
+ *
+ * 오너 실측 2026-07-26 (F-2): 레벨 디자인 산출물이 **"구간 1(1~3일): 지하 상층 채집"** 수준이었다.
+ * 오너가 "엉망"이라 지적한 바로 그 영역인데, 담당이 주니어라 요건 없이 자유서술만 시켰기 때문이다.
+ * 직급을 올리는 대신 **무엇을 적어야 완성인지**를 못박는다 — 기초 점검관(fund)과 같은 접근.
+ */
+const JUNIOR_MUST_HAVE: Record<string, string> = {
+  leveldesign: [
+    `- 공간을 **좌표·타일 수**로 적어라. "지하 상층"이 아니라 "깊이 d1~d45, 폭 ±120타일" 식으로.`,
+    `- 플레이어 **동선 1개**를 순서대로: 진입점 → 거쳐야 하는 지점 → 되돌아오는 길. 왕복 소요 초를 함께.`,
+    `- 각 구간의 **난이도 게이트**: 무엇이 있어야 통과되는가(도구 티어·광원·방어선). 없으면 "게이트 없음"이라 적어라.`,
+    `- **랜드마크 배치**: 어디에, 몇 개, 무엇으로 만드는가(신규 아트가 필요한지 기존 타일 재조합인지).`,
+    `- 기간·일수만 나열한 표는 레벨 디자인이 아니다 — 그런 표만 있으면 미완성으로 본다.`,
+  ].join("\n"),
+  research: [
+    `- 레퍼런스는 **게임 이름 + 그 게임의 구체적 수치·규칙**까지 적어라. "로그라이크 참고" 같은 건 산출물이 아니다.`,
+    `- 각 레퍼런스마다 **우리 게임에 적용할 때 무엇이 달라지는가**를 한 줄로.`,
+    `- 확인하지 못한 것은 "미확인"이라고 적어라. 기억으로 수치를 지어내지 마라.`,
+  ].join("\n"),
+};
+
 export function contribPrompt(
   request: string,
   junior: AgentDef,
@@ -976,6 +1032,7 @@ export function contribPrompt(
   subDirective: string,
   overview: string
 ): string {
+  const must = JUNIOR_MUST_HAVE[junior.id];
   return [
     `너는 ${junior.name}(${junior.role})다. 직급: ${RANK_LABEL[junior.rank ?? "junior"]}.`,
     `멘토 ${mentor.name}의 "${mentor.sectionTitle}" 파트에 쓸 **세부 기여 초안**을 만든다.`,
@@ -985,7 +1042,8 @@ export function contribPrompt(
     `[너에게 배정된 세부 작업]`,
     (subDirective || request).trim(),
     ``,
-    `너의 AGENTS.md 산출물 형식으로 이 세부 파트만 집중해서 작성해라. 12줄 이내.`,
+    must ? `[이 산출물이 반드시 담아야 하는 것 — 빠지면 미완성이다]\n${must}\n` : ``,
+    `너의 AGENTS.md 산출물 형식으로 이 세부 파트만 집중해서 작성해라. ${must ? "16" : "12"}줄 이내.`,
     `멘토가 검토·통합할 초안이다 — 범위를 넘지 말고, 구체적 수치·예시로. 순수 마크다운, 도구 호출 금지.`,
     KO_RULE,
   ]

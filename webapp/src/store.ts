@@ -9,6 +9,7 @@ import {
   SPECIALISTS,
   REVIEWERS,
   specialistPrompt,
+  isVerifyOnlyRequest,
   reviewPrompt,
   revisePrompt,
   pmSummaryPrompt,
@@ -1768,6 +1769,18 @@ export const useVE = create<VEState>()((set, get) => {
       const feedStart = get().feed.length; // 회의록 — 이 회의의 피드 구간 시작점
       pushFeed({ from: "user", kind: "request", text: req });
 
+      // 🛑 검증 전용 회의인가 — "새 수치를 만들지 말고 구멍만 찾아라" 류의 지시.
+      // 실측 2026-07-26 (D-2): 그렇게 시켜도 대부분이 다시 문서를 썼다. 모드로 인식해
+      // 산출물 형식을 발견 목록으로 바꾸고 GDD 반영도 막는다(발견 목록이 섹션을 덮어쓰면 정본이 깨진다).
+      const verifyOnly = isVerifyOnlyRequest(req);
+      if (verifyOnly) {
+        pushFeed({
+          from: "system",
+          kind: "status",
+          text: "🛑 **검증 전용 회의**로 인식했습니다 — 전원이 설계 대신 구멍 지적만 하고, 이번 산출물은 GDD에 반영하지 않습니다.",
+        });
+      }
+
       // 웹 리서치 수준 — 검색 키가 없으면 web_fetch 전용으로 강등 (web_search 오류 방지)
       const web: WebMode = st.webResearch ? (st.braveOk ? "full" : "fetch") : "off";
       if (web === "fetch") {
@@ -1979,7 +1992,8 @@ export const useVE = create<VEState>()((set, get) => {
           knowledgeBlockFor(agent.id, get().knowledge, req),
           panorama,
           decisionsText,
-          canonBlock
+          canonBlock,
+          verifyOnly
         );
         updateCard(agent.id, { state: "running", phase: "초안 작성 중", startedAt: Date.now(), instruction });
         setAgentStatus(agent.id, "running");
@@ -2182,7 +2196,8 @@ export const useVE = create<VEState>()((set, get) => {
           setAgentStatus(agent.id, "done");
           get().recordGrowth(agent.id, "draft");
           results.push({ agent, text: final });
-          if (get().autoReflect) {
+          // 검증 전용 회의의 산출물은 "발견 목록"이지 섹션 본문이 아니다 — 반영하면 정본이 깨진다(D-2).
+          if (get().autoReflect && !verifyOnly) {
             await get().reflectToGdd(agent.id, final);
             updateCard(agent.id, { reflected: true });
             pushFeed({ from: "system", kind: "status", text: `📄 마스터 GDD "${agent.sectionTitle}" 섹션이 갱신되었습니다.` });
@@ -2289,11 +2304,29 @@ export const useVE = create<VEState>()((set, get) => {
 
         // 2b) 주니어·인턴이 멘토 시니어에게 기여 초안을 올린다.
         // (멘토, 주니어) 쌍은 서로 독립적이라 평탄화해서 동시 실행한다 — 기여는 2c 시작 전에만 끝나면 된다.
-        const contribPairs = owners.flatMap((o) => contributorsOf(o.id).map((jr) => ({ o, jr })));
+        //
+        // 팀장 직속 인턴(리서치·데이터 분석)도 포함한다.
+        // 실측 2026-07-26 (F-3): "리서치 인턴이 계속 대기 상태였다 — 레퍼런스 3건은 전부 메인 헤드가 직접 검색".
+        // 원인은 정책이 아니라 배선이다. 기여 호출이 **섹션 소유자에게서만** 아래로 내려가는데
+        // 이 인턴들은 팀장에게 보고하고, 팀장은 pool(SPECIALISTS)에 없다 → 영영 호출되지 않았다.
+        // 팀장의 인턴은 부서 전체를 돕는 자원이므로, 산출물을 이 부서의 모든 오너에게 붙인다.
+        const managerInterns = hasManager ? contributorsOf(manager.id) : [];
+        const contribPairs = [
+          ...owners.flatMap((o) => contributorsOf(o.id).map((jr) => ({ o, jr }))),
+          // 팀장 인턴은 대표 오너 1명에게 붙여 실행하고, 결과는 아래에서 부서 전체에 공유한다
+          ...managerInterns.map((jr) => ({ o: owners[0], jr })),
+        ];
+        // 팀장 인턴의 산출물은 특정 섹션이 아니라 부서 공용이라 따로 모았다가 전원에게 붙인다
+        const deptSupport: string[] = [];
         await runPooled(contribPairs, get().concurrency, async ({ o, jr }) => {
+          const isDeptSupport = managerInterns.some((m) => m.id === jr.id);
           try {
             setAgentStatus(jr.id, "running");
-            updateCard(jr.id, { state: "running", phase: `${o.name} 파트 지원`, startedAt: Date.now() });
+            updateCard(jr.id, {
+              state: "running",
+              phase: isDeptSupport ? `${zoneOf(zone).label} 지원 조사` : `${o.name} 파트 지원`,
+              startedAt: Date.now(),
+            });
             const cr = await gateway.runAgent(
               jr.id,
               contribPrompt(req, jr, o, getSectionBody(baseMd, o.section), juniorFocus[jr.id] ?? directive, overview),
@@ -2303,9 +2336,10 @@ export const useVE = create<VEState>()((set, get) => {
             const ctext = sanitizeAgentOutput(cr.text);
             addUsage(cr.usage, ctext);
             if (ctext && ctext.length > 20) {
-              contribCache[o.id] = (contribCache[o.id] ? contribCache[o.id] + "\n\n" : "") + `[${jr.name}] ${ctext}`;
+              if (isDeptSupport) deptSupport.push(`[${jr.name}] ${ctext}`);
+              else contribCache[o.id] = (contribCache[o.id] ? contribCache[o.id] + "\n\n" : "") + `[${jr.name}] ${ctext}`;
             }
-            pushFeed({ from: jr.id, to: o.id, kind: "draft", text: ctext });
+            pushFeed({ from: jr.id, to: isDeptSupport ? manager.id : o.id, kind: "draft", text: ctext });
             updateCard(jr.id, { state: "done", phase: undefined, output: ctext, endedAt: Date.now() });
             setAgentStatus(jr.id, "done");
             get().recordGrowth(jr.id, "talk");
@@ -2316,6 +2350,19 @@ export const useVE = create<VEState>()((set, get) => {
             pushFeed({ from: "system", kind: "status", text: `⚠️ ${jr.name} 기여 실패 (${String(e?.message ?? e).slice(0, 60)}) — 건너뜁니다.` });
           }
         });
+
+        // 팀장 인턴의 조사 결과는 부서 전원이 함께 본다 (특정 섹션의 소유물이 아니다)
+        if (deptSupport.length > 0) {
+          const shared = deptSupport.join("\n\n");
+          for (const o of owners) {
+            contribCache[o.id] = (contribCache[o.id] ? contribCache[o.id] + "\n\n" : "") + shared;
+          }
+          pushFeed({
+            from: manager.id,
+            kind: "status",
+            text: `🔎 ${managerInterns.map((m) => `${m.emoji} ${m.name}`).join(", ")}의 지원 조사를 ${zoneOf(zone).label} 전원에게 공유했습니다.`,
+          });
+        }
 
         // 2c) 시니어(오너)가 섹션을 완성한다 — 서로 다른 섹션이라 독립적이므로 동시 실행 설정만큼 겹친다
         const before = results.length;
@@ -2359,7 +2406,7 @@ export const useVE = create<VEState>()((set, get) => {
           updateCard("pm", { state: "done", phase: undefined, output: clean, endedAt: Date.now() });
           setAgentStatus("pm", "done");
           pushFeed({ from: "pm", kind: "summary", text: clean });
-          if (get().autoReflect) {
+          if (get().autoReflect && !verifyOnly) {
             await get().reflectToGdd("pm", clean);
             updateCard("pm", { reflected: true });
             pushFeed({ from: "system", kind: "status", text: `📄 마스터 GDD "개요" 섹션이 갱신되었습니다. 오케스트레이션 완료.` });
