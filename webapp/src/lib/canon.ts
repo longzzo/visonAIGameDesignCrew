@@ -130,6 +130,35 @@ export async function checkCanon(project: string, draft: string): Promise<CanonC
   return check;
 }
 
+/**
+ * 두 시점의 대조 결과를 합친다.
+ *
+ * 왜 필요한가 (실전 회의 실측 2026-07-29): 초안에는 `wall_health=100`이 그대로 있었는데,
+ * 교차 검토 수정본이 **키 문자열만 지우고 "100 HP (정본 v31)"이라는 주장은 남겼다.**
+ * 최종본만 검사하면 남은 건 실재하는 `insul_clay_wall_hp`뿐이라 날조가 사라진 것처럼 보이고,
+ * 실제로 QA가 7.8/10으로 통과시켰다(일관성 8). 즉 **수정이 세탁으로 작동했다.**
+ * 그래서 초안 시점의 발견을 최종본 검사와 합쳐서 판정한다 — 한 번 잡힌 날조는 지워지지 않는다.
+ */
+export function mergeChecks(a: CanonCheck | null, b: CanonCheck | null): CanonCheck | null {
+  if (!a) return b;
+  if (!b) return a;
+  const byKey = (arr: CanonResult[]) => new Map(arr.map((r) => [r.key, r]));
+  const fabricated = byKey([...a.fabricated, ...b.fabricated]);
+  const verified = byKey([...a.verified, ...b.verified]);
+  const proposed = byKey([...a.proposed, ...b.proposed]);
+  // 날조로 판정된 키는 다른 분류에서 뺀다 (한쪽에서 "신규 제안"으로 보였더라도 날조가 우선)
+  for (const k of fabricated.keys()) {
+    verified.delete(k);
+    proposed.delete(k);
+  }
+  return {
+    hasData: a.hasData || b.hasData,
+    verified: [...verified.values()],
+    fabricated: [...fabricated.values()],
+    proposed: [...proposed.values()],
+  };
+}
+
 /** 확인된 정본 값 — QA·작성자 프롬프트에 넣어 "진짜 정본을 반려하는" 반대 오류를 막는다 */
 export function canonFactBlock(check: CanonCheck | null): string {
   if (!check || check.verified.length === 0) return "";

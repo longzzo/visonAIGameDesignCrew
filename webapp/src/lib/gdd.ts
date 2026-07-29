@@ -356,6 +356,25 @@ export function detectLangLeak(text: string): string {
 }
 
 /** 게이트웨이 오류 문자열 감지 — 이게 산출물로 저장되면 GDD·회의가 오염된다 (2026-07-11 실측: 타임아웃 문구가 GDD 섹션에 반영됨) */
+/**
+ * 재시도해도 절대 안 되는 오류인가 — 모델이 제공자에서 내려간 경우.
+ *
+ * 실사고 2026-07-29: 팀원 31명 중 30명이 `nvidia/qwen/qwen3-next-80b-a3b-instruct`에 배정돼
+ * 있었는데 NVIDIA 카탈로그(102종)에서 그 모델이 **사라졌다**(410 Gone, qwen 계열 전멸).
+ * VE는 이걸 "게이트웨이 오류(타임아웃 등)"로 표시하고 **5초 → 2분 재시도**를 돌렸다.
+ * 원인을 잘못 지목한 데다, 될 리 없는 것을 2분 넘게 기다리게 만든다.
+ * 410/404/model not found는 기다린다고 살아나지 않는다 — 즉시 멈추고 사실대로 말해야 한다.
+ */
+export function isDeadModelError(text: string): boolean {
+  const t = text.slice(0, 600);
+  return (
+    /\b41[08]\s*status code/i.test(t) ||
+    /\b404\s*status code/i.test(t) ||
+    /model[_ ]?not[_ ]?found/i.test(t) ||
+    /unknown model|no such model|model .* (is )?(not available|has been (retired|deprecated|removed))/i.test(t)
+  );
+}
+
 export function isGatewayErrorText(text: string): boolean {
   const head = text.trim().slice(0, 300);
   return (

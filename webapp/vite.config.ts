@@ -4314,6 +4314,45 @@ function hasProviderKey(cfg: any, provider: string): boolean {
   return typeof key === "string" && key.length > 10;
 }
 
+/**
+ * 제공자가 **지금 실제로 서비스하는** 모델 id 집합 (10분 캐시).
+ *
+ * 왜 필요한가 (실사고 2026-07-29): 위 MODEL_LABELS는 손으로 관리하는 목록이라
+ * 제공자가 모델을 내리면 조용히 어긋난다. 실제로 NVIDIA가 qwen 계열을 통째로 내렸는데
+ * 드롭다운엔 "Qwen3 Next 80B · 팀원 기본 — 안정"으로 남아 있었고, **팀원 31명 중 30명이
+ * 그 모델에 배정된 채** 모든 호출이 410으로 죽었다. 오너 화면에는 "게이트웨이 연결 끊김"만 보였다.
+ *
+ * 그래서 목록을 띄우기 전에 제공자에게 직접 물어보고, 없는 모델은 고르지 못하게 한다.
+ * 조회에 실패하면(오프라인 등) **거르지 않는다** — 네트워크 문제로 선택지를 없애면 더 나쁘다.
+ */
+const liveModelCache = new Map<string, { at: number; ids: Set<string> | null }>();
+const LIVE_MODEL_TTL = 10 * 60_000;
+
+async function liveModelIds(provider: string, cfg: any): Promise<Set<string> | null> {
+  const hit = liveModelCache.get(provider);
+  if (hit && Date.now() - hit.at < LIVE_MODEL_TTL) return hit.ids;
+  const p = cfg?.models?.providers?.[provider];
+  const base = typeof p?.baseUrl === "string" ? p.baseUrl.replace(/\/+$/, "") : "";
+  const key = p?.apiKey;
+  let ids: Set<string> | null = null;
+  if (base && typeof key === "string" && key.length > 10) {
+    try {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 8000);
+      const r = await fetch(`${base}/models`, { headers: { Authorization: `Bearer ${key}` }, signal: ctl.signal });
+      clearTimeout(timer);
+      if (r.ok) {
+        const j: any = await r.json();
+        if (Array.isArray(j?.data)) ids = new Set(j.data.map((m: any) => String(m.id)));
+      }
+    } catch {
+      /* 조회 실패 = 거르지 않음 (null) */
+    }
+  }
+  liveModelCache.set(provider, { at: Date.now(), ids });
+  return ids;
+}
+
 function modelsApiPlugin(): Plugin {
   return {
     name: "vision-engine-models-api",
@@ -4340,14 +4379,23 @@ function modelsApiPlugin(): Plugin {
                 const id = `ollama/${m.id}`;
                 options.push({ id, ...(MODEL_LABELS[id] ?? { label: m.name ?? m.id }) });
               }
+              // 제공자가 내린 모델은 목록에서 뺀다 — 고를 수 있으면 반드시 누군가 배정된다(2026-07-29 사고).
+              const retired: string[] = [];
               for (const provider of ["github", "nvidia"] as const) {
                 if (!providers[provider]) continue;
+                const live = await liveModelIds(provider, cfg);
                 for (const m of cfg?.models?.providers?.[provider]?.models ?? []) {
                   const id = `${provider}/${m.id}`;
+                  if (live && !live.has(String(m.id))) {
+                    retired.push(id);
+                    continue;
+                  }
                   options.push({ id, ...(MODEL_LABELS[id] ?? { label: m.name ?? m.id }) });
                 }
               }
-              res.end(JSON.stringify({ current, agents, providers, options }));
+              // 지금 배정된 모델이 내려갔다면 반드시 알린다 — 이게 없으면 증상이 "게이트웨이 끊김"으로만 보인다.
+              const deadAssigned = [...new Set(Object.values(agents).filter((m) => retired.includes(m)))];
+              res.end(JSON.stringify({ current, agents, providers, options, retired, deadAssigned }));
               return;
             }
 

@@ -78,7 +78,7 @@ import {
 import { fetchGrowth, postGrowth, setGrowthCache, XP_RULES, type GrowthMap } from "./lib/growth";
 import { semanticRecallBlock } from "./lib/memory";
 import { designRecallBlock } from "./lib/designIntel";
-import { canonDigest, canonFactBlock, canonRejectNotes, canonRevisePrompt, checkCanon } from "./lib/canon";
+import { canonDigest, canonFactBlock, canonRejectNotes, canonRevisePrompt, checkCanon, mergeChecks, type CanonCheck } from "./lib/canon";
 import { FUNDAMENTALS, fundamentalsPrompt, parseFundamentals, prescan } from "./lib/fundamentals";
 import { listHires, hireAgentApi, fireAgentApi, type HireRequest } from "./lib/hire";
 import { readNotionPage, editNotionPage, createNotionSubpage, publishNotion, type NotionPageRead } from "./lib/notionSync";
@@ -153,6 +153,7 @@ import {
   getSectionBody,
   sanitizeAgentOutput,
   isGatewayErrorText,
+  isDeadModelError,
   detectLangLeak,
   listProjects,
   touchProject,
@@ -377,6 +378,11 @@ interface VEState {
   health: SystemHealth | null;
   /** 클라우드 모델 크레딧 소진 의심 — 배너로 로컬 전환을 제안 */
   quotaSuspect: string | null;
+  /**
+   * 에이전트에 배정돼 있는데 제공자가 내려버린 모델. 비어 있지 않으면 그 에이전트의
+   * 모든 호출이 410으로 죽는다 — 화면엔 "게이트웨이 끊김"으로만 보이므로 따로 알린다.
+   */
+  deadModels: string[];
   /** 비용 가드 발동 — 10분 호출 한도 초과로 차단됨 (배너 표시) */
   costGuardTrip: string | null;
   dismissCostGuard: () => void;
@@ -630,6 +636,16 @@ let initialized = false;
 let gddQueue: Promise<void> = Promise.resolve();
 let persistQueue: Promise<void> = Promise.resolve();
 let feedSeq = 0;
+/**
+ * 회의에 주입하는 정본 다이제스트 상한(문자).
+ *
+ * kit 데이터는 계속 늘어난다(2026-07-26 17파일·8.6KB → 07-29 21파일·12.2KB).
+ * 상한을 넘으면 뒷부분이 잘리고, **잘린 CSV의 값은 "정본에 없는 것"처럼 취급돼 오탐이 난다.**
+ * 그래서 ⓐ 여유 있게 잡고 ⓑ 서버가 key/value 정본(globals)을 앞에 정렬하며
+ * ⓒ 잘리면 피드에 경고를 남긴다. 조용히 자르는 것이 가장 위험하다.
+ */
+const CANON_INJECT_MAX = 14000;
+
 /** 회의 무응답 감시 — 피드에 뭔가 찍힐 때마다 갱신되는 심장박동 (C-4: 진행률 40분 정지 대응) */
 let lastFeedAt = Date.now();
 /** 이번 회의에서 이미 보낸 무응답 경고 단계 (0=없음, 1=4분, 2=12분) */
@@ -1060,6 +1076,17 @@ export const useVE = create<VEState>()((set, get) => {
     let r = await attempt(tag);
     for (let i = 0; i < waits.length; i++) {
       if (!isGatewayErrorText(sanitizeAgentOutput(r.text)) || signal?.aborted) return r;
+      // 모델이 제공자에서 내려간 경우(410/404)는 기다린다고 살아나지 않는다 — 즉시 멈추고 사실대로 말한다.
+      // 실사고 2026-07-29: 팀원 30명이 배정된 NVIDIA qwen 모델이 카탈로그에서 사라졌는데,
+      // VE는 "타임아웃 등"이라며 2분 재시도를 돌려 원인을 감추고 시간만 태웠다.
+      if (isDeadModelError(sanitizeAgentOutput(r.text))) {
+        pushFeed({
+          from: "system",
+          kind: "error",
+          text: `🚫 ${name}에 배정된 모델을 제공자가 더 이상 서비스하지 않습니다(410/404) — 재시도해도 복구되지 않습니다. 사이드바 **AI 모델**에서 다른 모델로 바꾸세요. (원문: ${sanitizeAgentOutput(r.text).replace(/\s+/g, " ").slice(0, 140)})`,
+        });
+        return r;
+      }
       const label = waits[i] >= 60_000 ? `${waits[i] / 60_000}분` : `${waits[i] / 1000}초`;
       pushFeed({
         from: "system",
@@ -1262,6 +1289,7 @@ export const useVE = create<VEState>()((set, get) => {
     fundFindings: [],
     fundRanAt: 0,
     fundError: "",
+    deadModels: [],
     ledgerOpen: false,
     deliverOpen: false,
     deliverFiles: [],
@@ -1393,8 +1421,14 @@ export const useVE = create<VEState>()((set, get) => {
           pushFeed({ from: "system", kind: "error", text: `⚠️ ${Math.round(quiet / 60000)}분째 무응답입니다 — 회의가 멈췄을 가능성이 높습니다. ⏹ 중단을 권합니다.` });
         }
       }, 30_000);
-      // 시스템 헬스 신호등 갱신
-      setInterval(() => void get().loadHealth(), 20000);
+      // 시스템 헬스 신호등 갱신 + 배정 모델 생존 확인
+      // (제공자가 모델을 내리는 일이 실제로 있었다 — 2026-07-29. 새로고침 없이도 배너가 갱신되게 한다)
+      setInterval(() => {
+        void get().loadHealth();
+        void getModelsInfo()
+          .then((i) => set({ modelName: i.current, deadModels: i.deadAssigned ?? [] }))
+          .catch(() => undefined);
+      }, 20000);
       // 사무실 관리인 — 대화가 임계치를 넘으면 (회의 중이 아닐 때) 자동 정리
       setInterval(() => {
         const s = get();
@@ -1413,7 +1447,11 @@ export const useVE = create<VEState>()((set, get) => {
       }, 6000);
       // 실제 배정 모델은 /api/models가 정답 — 게이트웨이 추정값(listAgents)보다 우선
       void getModelsInfo()
-        .then((i) => set({ modelName: i.current }))
+        .then((i) => {
+          // 배정된 모델을 제공자가 내렸으면 즉시 알린다. 이 신호가 없으면 증상이
+          // "게이트웨이 연결 끊김"으로만 보여 원인 추적이 사실상 불가능하다(2026-07-29 사고).
+          set({ modelName: i.current, deadModels: i.deadAssigned ?? [] });
+        })
         .catch(() => undefined);
       const ok = await gateway.connect();
       if (ok && get().modelName.startsWith("ollama/")) {
@@ -1941,19 +1979,50 @@ export const useVE = create<VEState>()((set, get) => {
           pushFeed({
             from: "system",
             kind: "status",
-            text: `📐 정본 데이터를 회의에 주입했습니다 (${(canonDigestText.length / 1024).toFixed(1)}KB) — 수치는 이 안에 있는 것만 인용할 수 있습니다.`,
+            text:
+              `📐 정본 데이터를 회의에 주입했습니다 (${(canonDigestText.length / 1024).toFixed(1)}KB) — 수치는 이 안에 있는 것만 인용할 수 있습니다.` +
+              // 잘림은 조용하면 안 된다 — 잘린 뒤쪽 CSV의 값은 "정본에 없는 것"처럼 취급돼 오탐이 난다.
+              (canonDigestText.length > CANON_INJECT_MAX
+                ? ` ⚠️ 정본이 상한(${(CANON_INJECT_MAX / 1024).toFixed(0)}KB)을 넘어 뒷부분이 잘렸습니다 — kit 데이터가 계속 늘면 상한을 올리세요.`
+                : ""),
           });
       } catch {
         /* 정본 로드 실패도 회의를 막지 않는다 */
       }
+      // ⛔ 지시문 자체를 먼저 대조한다 — 실전 회의에서 확인된 **오염의 진짜 출처**.
+      // 실측 2026-07-29: 지시문에 들어 있던 `wall_health=100`(정본에 없음)을 리서치 인턴·밸런스·
+      // 교차 검토자·QA가 차례로 사실로 받아 산출물 전체에 퍼뜨렸다. 지시가 틀리면 팀은 전원 틀린다.
+      // 여기서 한 번 걸러주면 그 아래 전 단계가 함께 산다.
+      let reqWarn = "";
+      try {
+        const reqCheck = await checkCanon(project, req);
+        if (reqCheck?.hasData && reqCheck.fabricated.length > 0) {
+          const keys = reqCheck.fabricated.map((f) => `\`${f.key}\`${f.nearest ? `(혹시 \`${f.nearest}\`?)` : ""}`).join(", ");
+          reqWarn = [
+            `⛔ **지시문에 정본에 없는 키가 있다**: ${reqCheck.fabricated.map((f) => f.key).join(", ")}`,
+            `이 값들을 사실로 전제하지 마라. 정본에서 해당하는 실제 키를 찾아 쓰고, 없으면 "정본 미확인"이라고 적어라.`,
+          ].join("\n");
+          pushFeed({
+            from: "system",
+            kind: "error",
+            text: `⛔ 지시문에 **정본에 없는 키**가 있습니다: ${keys} — 팀이 이걸 사실로 받아 산출물 전체에 퍼뜨립니다. 지시를 고치거나, 새 값이라면 "신규 제안"이라고 적어 주세요. (회의는 이 경고와 함께 계속 진행합니다)`,
+          });
+        }
+      } catch {
+        /* 대조 실패는 회의를 막지 않는다 */
+      }
       const canonBlock = canonDigestText
         ? [
             `[정본 데이터 — kit/ 실파일에서 읽은 값. 이것이 사실이다]`,
-            canonDigestText.slice(0, 9000),
+            canonDigestText.slice(0, CANON_INJECT_MAX),
             ``,
             `⛔ 위 목록에 **없는** 키·id를 "정본" "기존" "현재" "확정"이라고 인용하는 것은 날조다.`,
             `새 값이 필요하면 반드시 "신규 제안:"이라고 명시해라. 기억에 의존해 수치를 쓰지 마라.`,
-          ].join("\n")
+            `⛔ **지시문에 적힌 수치도 예외가 아니다.** 지시가 "정본의 X=N"이라고 해도 위 목록에 없으면 사실이 아니다.`,
+            reqWarn,
+          ]
+            .filter(Boolean)
+            .join("\n")
         : "";
       // canonBlock은 여기 합치지 않는다 — specialistPrompt가 decisions를 1800자로 자르므로
       // 9KB 정본이 통째로 날아간다. 별도 인자로 넘겨 온전히 주입한다.
@@ -2010,6 +2079,16 @@ export const useVE = create<VEState>()((set, get) => {
           if (isGatewayErrorText(draft)) throw new Error("게이트웨이 타임아웃이 재시도 후에도 계속됩니다 — 이 섹션은 건너뜁니다");
           pushFeed({ from: agent.id, to: boss, kind: "draft", text: draft });
 
+          // 🔎 초안 시점 정본 대조 — 교차 검토 수정본이 "키만 지우고 주장은 남기는" 세탁을 막는다.
+          // 실전 실측 2026-07-29: 초안엔 `wall_health=100`이 있었는데 수정본에서 키 문자열만 사라지고
+          // "100 HP (정본 v31)"이 남았다. 최종본만 보면 날조가 없어 보여 QA가 7.8/10로 통과시켰다.
+          let draftCanon: CanonCheck | null = null;
+          try {
+            draftCanon = await checkCanon(project, draft);
+          } catch {
+            /* 대조 실패는 회의를 막지 않는다 */
+          }
+
           let final = draft;
           const reviewerId = REVIEWERS[agent.id];
           if (get().crossReview && reviewerId && !scopeMutual(get().commScope, agent.id, reviewerId)) {
@@ -2065,7 +2144,8 @@ export const useVE = create<VEState>()((set, get) => {
           if (!get().stopRequested) {
             try {
               updateCard(agent.id, { phase: "정본 대조 중" });
-              let check = await checkCanon(project, final);
+              // 초안 시점 발견과 합친다 — 한 번 잡힌 날조는 수정본에서 키를 지워도 사라지지 않는다.
+              let check = mergeChecks(draftCanon, await checkCanon(project, final));
               if (check?.hasData && check.fabricated.length > 0) {
                 pushFeed({
                   from: "qa",
@@ -2082,7 +2162,7 @@ export const useVE = create<VEState>()((set, get) => {
                 if (fixed && fixed.length > 30 && !isGatewayErrorText(fixed)) {
                   final = fixed;
                   pushFeed({ from: agent.id, to: "qa", kind: "revision", text: final });
-                  check = await checkCanon(project, final);
+                  check = mergeChecks(draftCanon, await checkCanon(project, final));
                 }
                 if (check?.hasData && check.fabricated.length > 0) {
                   // 재작성해도 남았다 — 통과시키되 **반드시 눈에 띄게** 남긴다. 조용히 넘기면 A-1이 반복된다.

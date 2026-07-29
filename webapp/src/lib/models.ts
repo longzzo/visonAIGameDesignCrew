@@ -14,6 +14,14 @@ export interface ModelsInfo {
   agents: Record<string, string>;
   providers: { ollama: boolean; github: boolean; nvidia: boolean };
   options: ModelOption[];
+  /** 제공자가 내려서 목록에서 제외된 모델 id (서버가 실제 카탈로그와 대조해 채운다) */
+  retired?: string[];
+  /**
+   * 지금 에이전트에 배정돼 있는데 제공자가 내린 모델.
+   * 비어 있지 않으면 그 에이전트들의 모든 호출이 410으로 죽는다 —
+   * 증상이 "게이트웨이 연결 끊김"으로만 보여 원인을 찾기 어려우므로 반드시 배너로 알린다.
+   */
+  deadAssigned?: string[];
 }
 
 export async function getModelsInfo(): Promise<ModelsInfo> {
