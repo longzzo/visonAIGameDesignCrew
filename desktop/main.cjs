@@ -201,18 +201,46 @@ function createWindow() {
       win.hide();
     }
   });
+  // 창이 실제로 파괴되면 참조를 반드시 버린다.
+  // 이게 없어서 showWindow가 죽은 창을 붙들고 예외를 던졌고, 바로가기가 먹통이 됐다(2026-08-06).
+  win.on("closed", () => {
+    win = null;
+  });
   return win;
 }
 
+/**
+ * 창을 앞으로 — 바로가기 재실행(second-instance)·트레이 "열기"·activate가 전부 여기로 온다.
+ *
+ * 오너 신고 2026-08-06 "바로가기가 안 켜진다"의 원인:
+ * 이 앱은 창을 닫아도 종료하지 않고 트레이에 숨는다(close에서 preventDefault + hide).
+ * 그런데 `win`은 창이 **파괴돼도 null이 되지 않았다** — "closed" 핸들러가 없었기 때문이다.
+ * 그래서 파괴된 창이 남아 있으면 아래 `win.isMinimized()`가
+ * `TypeError: Object has been destroyed`로 던지고, 그 예외가 second-instance 핸들러 안에서
+ * 발생하므로 **바로가기를 눌러도 화면에 아무 일도 일어나지 않는다**(트레이 "열기"도 같이 먹통).
+ * 프로세스는 살아 있어서 사용자에겐 "실행이 안 된다"로만 보인다.
+ *
+ * 그래서 ⓐ 파괴 여부를 먼저 확인하고 ⓑ 그래도 던지면 창을 새로 만든다.
+ * 이 함수는 앱의 유일한 복귀 경로라 **어떤 경우에도 조용히 실패하면 안 된다.**
+ */
 function showWindow() {
-  if (!win) {
+  const revive = () => {
+    win = null;
     createWindow();
     showSplash();
     void connect();
-  } else {
+  };
+  if (!win || win.isDestroyed()) {
+    revive();
+    return;
+  }
+  try {
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
+  } catch (e) {
+    console.warn("⚠️ 기존 창 복귀 실패 — 새 창을 만듭니다:", String(e?.message ?? e));
+    revive();
   }
 }
 
@@ -255,7 +283,23 @@ if (!gotLock) {
   app.quit(); // 창·연결을 만들지 않고 즉시 물러난다. 기존 인스턴스가 second-instance로 창을 띄운다.
 } else {
   // 두 번째 실행 = 기존 창을 앞으로. 트레이에 숨어 있던 창이 이걸로 다시 뜬다.
-  app.on("second-instance", showWindow);
+  // 바로가기를 다시 누르면 여기로 온다. 여기서 던지면 사용자에겐 "실행이 안 된다"로만 보이므로,
+  // 어떤 예외가 나도 마지막에 창 하나는 반드시 띄운다(2026-08-06 오너 신고 대응).
+  app.on("second-instance", () => {
+    try {
+      showWindow();
+    } catch (e) {
+      console.warn("⚠️ second-instance 처리 실패 — 창을 새로 만듭니다:", String(e?.message ?? e));
+      try {
+        win = null;
+        createWindow();
+        showSplash();
+        void connect();
+      } catch (e2) {
+        console.error("❌ 창 생성 실패:", String(e2?.message ?? e2));
+      }
+    }
+  });
 
   // 트레이 상주 — 모든 창이 닫혀도 앱은 살아있는다 (기본 동작은 종료라서 명시)
   app.on("window-all-closed", () => {
