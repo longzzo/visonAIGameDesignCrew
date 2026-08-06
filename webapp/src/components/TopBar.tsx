@@ -245,19 +245,19 @@ export function TopBar() {
       </div>
       <nav className="view-tabs">
         <button className={view === "office" || view === "studio" ? "active" : ""} onClick={() => switchView("office")}>
-          🏢 사무실
+          🏢 <span className="lbl">사무실</span>
         </button>
         <button className={view === "orch" ? "active" : ""} onClick={() => switchView("orch")}>
-          🗂️ 오케스트레이션
+          🗂️ <span className="lbl">오케스트레이션</span>
         </button>
         <button className={view === "chat" ? "active" : ""} onClick={() => switchView("chat")}>
-          💬 채팅
+          💬 <span className="lbl">채팅</span>
         </button>
         <button className={view === "data" ? "active" : ""} onClick={() => switchView("data")} title="게임 데이터 파일(JSON/CSV) — 방치형 등 데이터 주도 게임의 밸런스·경제 테이블을 모아 편집">
-          🧮 데이터
+          🧮 <span className="lbl">데이터</span>
         </button>
         <button className={view === "gdd" ? "active" : ""} onClick={() => switchView("gdd")} title="마스터 GDD — 팀이 작성하는 기획서 (사이드 상주 대신 전용 탭)">
-          📄 GDD
+          📄 <span className="lbl">GDD</span>
         </button>
       </nav>
       <div className="topbar-right">
@@ -273,35 +273,35 @@ export function TopBar() {
           onClick={() => setNaverOpen(true)}
           title="네이버 리서치 — 국내 블로그·카페·지식iN·뉴스 검색과 검색어 트렌드"
         >
-          🔎 네이버
+          🔎<span className="lbl"> 네이버</span>
         </button>
         <button
           className="badge deck-badge"
           onClick={() => setDeckOpen(true)}
           title="발표자료 — GDD를 게임 발표용 슬라이드(HTML·PDF·PPTX)로 생성. 디자인은 옵시디안에서 커스텀."
         >
-          📊 발표자료
+          📊<span className="lbl"> 발표자료</span>
         </button>
         <button
           className="badge fund-badge"
           onClick={() => setFundOpen(true)}
           title="기초 점검 — 기획서에 게임의 기초(핵심 루프·회복·사운드·접근성 등)가 빠지지 않았는지 점검"
         >
-          🩺 기초 점검
+          🩺<span className="lbl"> 기초 점검</span>
         </button>
         <button
           className="badge ledger-badge"
           onClick={() => setLedgerOpen(true)}
           title="결정·기각 원장 — 매 회의에 주입되는 확정 사항과 금지 항목. 여기서 등록한 금지는 팀이 다시 제안하지 않는다."
         >
-          📒 원장{banCount > 0 ? ` ${banCount}` : ""}
+          📒<span className="lbl"> 원장</span>{banCount > 0 ? ` ${banCount}` : ""}
         </button>
         <button
           className="badge deliver-badge"
           onClick={() => setDeliverOpen(true)}
           title="납품물 — 이 프로젝트의 킷·아트·문서 산출물을 바로 보고 내려받기 (탐색기로 열기도 가능)"
         >
-          📦 납품물
+          📦<span className="lbl"> 납품물</span>
         </button>
         {/* 🗂️ 오류함 — 재시도(5초→2분)까지 실패한 호출이 있을 때만 보인다 */}
         {failures.length > 0 && (
@@ -313,12 +313,17 @@ export function TopBar() {
             🗂️ {failures.length}
           </button>
         )}
-        <span className="badge model-badge" title="현재 모델">
+        {/* 좁은 창에서 말줄임되므로 툴팁에 모델명을 넣는다 — "현재 모델"만 있으면 정작 이름을 못 본다 */}
+        <span className="badge model-badge" title={`현재 모델 — ${modelName}`}>
           🧠 {modelName}
         </span>
+        {/* 좁아지면 숫자만 접고 🪙는 남긴다 — 이 배지가 사용량 패널을 여는 유일한 입구라 숨기면 안 된다 */}
         <button className="badge usage-badge" onClick={() => setUsageOpen(true)} title="토큰 사용량·추정 비용·비용 가드 설정">
-          🪙 {usage.calls}회 · {(usage.input + usage.output).toLocaleString()}tk{usage.estimated ? "≈" : ""} ·{" "}
-          {costLabel}
+          🪙
+          <span className="lbl">
+            {" "}
+            {usage.calls}회 · {(usage.input + usage.output).toLocaleString()}tk{usage.estimated ? "≈" : ""} · {costLabel}
+          </span>
         </button>
         <button className="health-light" onClick={() => void onHealthClick()} title={hTitle}>
           {hLight}

@@ -58,12 +58,67 @@ button { font-family: inherit; }
   color: var(--text-dim); padding: 7px 13px; cursor: pointer; font-size: 13px;
   white-space: nowrap; /* 좁아져도 글자가 세로로 꺾이지 않게 */
 }
-/* 좁은 창에서는 모델 배지부터 줄이고 탭은 지킨다 */
-.topbar-right { min-width: 0; overflow: hidden; }
+/* ── 상단바 반응형 ────────────────────────────────────────
+ *
+ * 오너 신고 2026-08-06 "짤리네": 배지가 통째로 잘려 "📒 원장 10"이 "10"만 남았다.
+ * 실측(1280px 창): .topbar-right가 **940px 필요한데 326px**로 눌렸고, overflow:hidden이라
+ * 글자 중간에서 조용히 잘렸다. 원인은 두 가지가 겹친 것 —
+ *   ⓐ .view-tabs가 flex-shrink:0이라 491px를 통째로 지키고 오른쪽만 희생됐다
+ *   ⓑ 기존 분기점이 1240px라 1280px 창에선 **하나도 발동하지 않았다**(그런데 내용은 이미 넘쳤다)
+ * 게다가 배지는 계속 늘어난다(기초 점검·납품물·원장…). 그래서 한 번 더 늘어나도 버티게
+ * **글자만 접고 아이콘은 남기는** 단계적 축소로 바꾼다. 라벨은 .lbl span, 툴팁은 title로 이미 있다.
+ *
+ * 잘라내는 순서 = 정보 손실이 적은 것부터: 연결 문구 → 배지 글자 → 탭 글자 → 모델·사용량.
+ */
+.topbar-right { min-width: 0; }
+/* 배지는 절대 눌리지 않는다 — 눌리면 글자 중간에서 잘려 "10"처럼 의미 없는 조각만 남는다.
+   공간이 부족하면 눌러서 우겨넣지 말고, 아래 분기점에서 통째로 접거나 숨긴다. */
+.topbar-right .badge, .topbar-right .health-light, .topbar-right .conn { flex-shrink: 0; }
 .model-badge { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
-@media (max-width: 1240px) {
-  .model-badge { max-width: 120px; }
-  .usage-badge { display: none; }
+/* 탭도 함께 줄어들 수 있어야 오른쪽만 일방적으로 잘리지 않는다 */
+.view-tabs { min-width: 0; flex-shrink: 1; }
+.view-tabs button { overflow: hidden; }
+
+/* 실측 기준(2026-08-06): 전부 펼치면 약 2,060px가 필요하다
+   — 브랜드 71 + 프로젝트 316 + 탭 491 + 배지 1,112 + 여백 70.
+   즉 1920 모니터에서도 이미 안 들어간다. 아래 분기점은 그 실측에서 역산했다. */
+
+/* ① 항상 접는다 — 1920 모니터에서도 전부는 안 들어간다.
+   연결 문구는 신호등(🟢)이, 모델 전체 경로는 사이드바 "AI 모델"이 이미 보여준다. */
+.conn-label { display: none; } /* title 툴팁으로 문구는 그대로 확인된다 */
+.model-badge { max-width: 110px; }
+
+/* ② 배지 글자를 접고 아이콘만 남긴다 (이름은 title 툴팁) + 모델 배지 제거 */
+/* 1900px — 실측 임계는 약 1896px이다(1890에서 6px 넘쳤다). 여유를 두고 여기서 접는다. */
+@media (max-width: 1900px) {
+  /* 사용량은 제외 — 숫자가 실시간 정보라 더 오래 남긴다 */
+  .topbar-right .badge:not(.usage-badge) .lbl { display: none; }
+  .topbar-right { gap: 7px; }
+  .model-badge { display: none; }
+}
+/* ③ 탭 글자도 접는다 — 아이콘만으로도 위치를 기억할 수 있다 */
+@media (max-width: 1520px) {
+  .view-tabs .lbl { display: none; }
+  .view-tabs button { padding: 7px 10px; }
+  .project-ctl select { max-width: 150px; }
+}
+/* ④ 사용량 숫자도 접는다. 배지 자체는 끝까지 남긴다 —
+   이게 사용량·비용 가드 패널을 여는 유일한 입구라, 숨기면 기능이 사라진다. */
+@media (max-width: 1400px) {
+  .usage-badge .lbl { display: none; }
+}
+/* ⑤ 마지막 — 브랜드 글자(로고 ◮는 남긴다)와 여백을 줄인다. 900px 아래는 모바일 레이아웃이 받는다. */
+@media (max-width: 1200px) {
+  .brand-name { display: none; }
+  .topbar { gap: 8px; padding: 0 10px; }
+  .project-ctl select { max-width: 118px; }
+}
+/* ⑥ 900px 아래는 모바일 레이아웃이 받는다. 그 직전 구간만 여백을 더 줄여 버틴다. */
+@media (max-width: 1100px) {
+  .topbar-right .badge { padding: 4px 7px; }
+  .topbar-right { gap: 5px; }
+  .view-tabs { gap: 2px; }
+  .view-tabs button { padding: 7px 7px; }
 }
 .view-tabs button:hover { color: var(--text); background: var(--panel); }
 .view-tabs button.active { background: var(--accent-soft); color: var(--accent-2); border-color: rgba(139, 124, 246, 0.4); font-weight: 600; }
