@@ -40,6 +40,7 @@ function findWebappDir() {
 }
 
 let serverChild = null; // 우리가 띄운 경우에만 종료 시 정리
+let spawnedTarget = null; // 우리가 띄운 서버가 실제로 응답한 주소 (tailnet 모드면 127.0.0.1이 아니다)
 let win = null;
 let currentTarget = LOCAL_URL;
 
@@ -78,6 +79,48 @@ function ping(base) {
   });
 }
 
+/**
+ * 이 PC에서 서버가 떠 있을 수 있는 주소 후보.
+ *
+ * 오너 신고 2026-08-06 "바로가기로 누르면 아직도 안 열린다"의 진짜 원인:
+ * `VisionEngine-Start.bat`은 모바일 모드(`npm run dev:mobile`, VE_EXPOSE=tailnet)로 서버를 띄우는데,
+ * 그러면 vite가 **Tailscale IP(100.x)에만 배타적으로 바인딩**한다 — `127.0.0.1:5199`는 죽어 있다.
+ * 그런데 이 앱은 LOCAL_URL(127.0.0.1) 하나만 확인했다. 그래서
+ *   ① ping 실패 → ② "서버가 없구나" 하고 npm run dev를 새로 띄우려 함
+ *   → ③ 포트 5199는 이미 사용 중 + vite strictPort:true라 새 서버가 즉사
+ *   → ④ 90초를 기다린 뒤 설정 화면. 사용자에겐 "눌러도 안 열린다"로만 보인다.
+ * **Start를 먼저 시킬수록 오히려 안 열리는** 역설이 여기서 나온다.
+ *
+ * 그래서 서버의 노출 설정(보안 정책)은 건드리지 않고, 앱이 tailnet 주소까지 찾아보게 한다.
+ * 100.x(CGNAT)만 후보로 삼는다 — 일반 LAN 주소까지 뒤지면 남의 PC에 붙을 수 있다.
+ */
+function localCandidates() {
+  const out = [LOCAL_URL, "http://localhost:5199"];
+  try {
+    for (const list of Object.values(os.networkInterfaces() ?? {})) {
+      for (const ni of list ?? []) {
+        if (ni.family === "IPv4" && !ni.internal && /^100\./.test(ni.address)) {
+          out.push(`http://${ni.address}:5199`);
+        }
+      }
+    }
+  } catch {
+    /* 인터페이스 조회 실패는 무시 — 기본 후보만 쓴다 */
+  }
+  return [...new Set(out)];
+}
+
+/** 후보 중 실제로 응답하는 첫 주소 (없으면 null) */
+async function findRunningServer() {
+  for (const url of localCandidates()) {
+    if (await ping(url)) {
+      console.log("✅ 이미 떠 있는 서버 발견:", url);
+      return url;
+    }
+  }
+  return null;
+}
+
 /** 로컬 서버가 없고 이 PC에 저장소(webapp)가 있으면 직접 띄운다 */
 async function trySpawnLocalServer() {
   const webappDir = findWebappDir();
@@ -101,7 +144,12 @@ async function trySpawnLocalServer() {
   const t0 = Date.now();
   while (Date.now() - t0 < 90_000) {
     await new Promise((r) => setTimeout(r, 1200));
-    if (await ping(LOCAL_URL)) return true;
+    // 우리가 띄운 서버도 tailnet 모드면 127.0.0.1에 안 붙는다 — 후보 전체를 본다
+    const found = await findRunningServer();
+    if (found) {
+      spawnedTarget = found;
+      return true;
+    }
   }
   return false;
 }
@@ -115,8 +163,9 @@ async function resolveTarget() {
     if (await ping(LOCAL_URL)) return LOCAL_URL;
     return null;
   }
-  if (await ping(LOCAL_URL)) return LOCAL_URL;
-  if (await trySpawnLocalServer()) return LOCAL_URL;
+  const running = await findRunningServer();
+  if (running) return running;
+  if (await trySpawnLocalServer()) return spawnedTarget ?? LOCAL_URL;
   return null;
 }
 
