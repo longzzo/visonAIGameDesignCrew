@@ -26,8 +26,14 @@ const ROOT = path.resolve(process.argv[2] || process.cwd());
 
 /** 정본으로 노출할 최상위 항목 */
 const TOP_ALLOW = new Set(["GDD.md", "decisions.json", "approvals.json", "project.json", "kit"]);
-/** 파일명 기준 제외 — 백업·임시 */
-const DENY_NAME = /(\.bak[-.\w]*$)|(\.bak-)|(~$)|(^\.)|(^desktop\.ini$)/i;
+/**
+ * 파일명 기준 제외 — 백업·폐지본·임시.
+ *
+ * `.bak`만 걸렀더니 `night-waves.csv.deleted-v63`(v63에서 **폐지된** 파도 시스템)이
+ * 정본 목록에 그대로 떴다(실측 2026-08-12). 폐지본은 백업보다 더 위험하다 —
+ * 파일이 있으니 에이전트는 그 시스템이 살아 있다고 믿는다.
+ */
+const DENY_NAME = /(\.(bak|deleted|old|orig|disabled|removed|tmp)\b)|(~$)|(^\.)|(^desktop\.ini$)/i;
 
 const MAX_BYTES = 400_000; // 한 번에 돌려줄 최대 크기
 const MAX_HITS = 200;

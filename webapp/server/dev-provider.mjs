@@ -229,13 +229,24 @@ export async function runDevMeeting({ leadId, task, onStep }) {
     ["검증", test],
   ].filter(([, r]) => isEmpty(r));
 
-  const verdict = blanks.length
-    ? `⚠️ 판정 불가 — ${blanks.map(([n]) => n).join("·")} 단계가 빈 응답`
-    : /❌|미흡/.test(test.final)
-      ? "❌ 미흡"
-      : /⚠️|조건부/.test(test.final)
-        ? "⚠️ 조건부"
-        : "✅ 통과";
+  /**
+   * 본문 전체를 훑으면 오판한다 — testeng가 `**판정**: ⚠️ 조건부 (기본 미흡)`이라고 쓰자
+   * 뒤쪽 "미흡"이 먼저 걸려 **❌ 미흡**으로 뒤집혔다(실측 2026-08-12).
+   * 그래서 "판정"이라고 적힌 줄을 먼저 찾고, 그 줄에서 **가장 앞에 나온** 표식을 쓴다.
+   */
+  const readVerdict = (text) => {
+    const src = String(text ?? "");
+    const line = src.split(/\r?\n/).find((l) => /판정/.test(l) && /(✅|⚠️|❌|통과|조건부|미흡)/.test(l)) ?? src;
+    const hits = [
+      ["❌ 미흡", line.search(/❌|미흡/)],
+      ["⚠️ 조건부", line.search(/⚠️|조건부/)],
+      ["✅ 통과", line.search(/✅|통과/)],
+    ].filter(([, i]) => i >= 0);
+    if (!hits.length) return "✅ 통과";
+    return hits.sort((a, b) => a[1] - b[1])[0][0];
+  };
+
+  const verdict = blanks.length ? `⚠️ 판정 불가 — ${blanks.map(([n]) => n).join("·")} 단계가 빈 응답` : readVerdict(test.final);
   if (blanks.length) {
     const why = blanks.map(([n, r]) => `${n}(finish_reason=${r?.finishReason ?? "?"})`).join(", ");
     say("phase", `⚠️ 빈 응답 감지 — ${why}. VE_DEV_MAX_TOKENS를 올리거나 과제를 쪼개세요.`, "testeng");
