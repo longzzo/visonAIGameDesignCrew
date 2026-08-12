@@ -20,9 +20,12 @@ export interface McpFlatTool {
   inputSchema?: unknown;
 }
 
-export async function fetchMcp(): Promise<{ servers: McpServerStatus[]; tools: McpFlatTool[]; assignments?: Record<string, string[]> }> {
+/** agentId를 주면 그 에이전트에게 실제 배정된 도구만 돌려준다(배정이 다르므로 개수가 다르다) */
+export async function fetchMcp(
+  agentId?: string
+): Promise<{ servers: McpServerStatus[]; tools: McpFlatTool[]; assignments?: Record<string, string[]>; boundProject?: string | null }> {
   try {
-    const r = await fetch("/api/mcp");
+    const r = await fetch(agentId ? `/api/mcp?agent=${encodeURIComponent(agentId)}` : "/api/mcp");
     if (!r.ok) return { servers: [], tools: [] };
     return await r.json();
   } catch {

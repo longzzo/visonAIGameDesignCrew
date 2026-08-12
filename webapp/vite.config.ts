@@ -1398,12 +1398,42 @@ function chatsApiPlugin(): Plugin {
 const OPENCLAW_CFG = path.join(os.homedir(), ".openclaw", "openclaw.json");
 
 /**
- * 보안: 설정을 바꾸는 API(모델 전환·키 등록)는 PC 로컬 요청만 허용.
- * tailnet 노출 모드에서 폰은 조회·실행은 가능하지만 시스템 설정은 못 바꾼다.
+ * 이 PC 자신의 Tailscale IPv4 목록 (100.x). 30초 캐시.
+ *
+ * VE_EXPOSE=tailnet 이면 vite는 tailnet IP **하나에만** 배타 바인딩하므로
+ * 127.0.0.1 소켓이 아예 생기지 않는다. 그 상태에서 PC 브라우저가
+ * http://100.114.32.46:5199 로 붙으면 출발지 주소가 **자기 자신의 tailnet IP**가 된다
+ * (실측 2026-08-12: remoteAddress=100.114.32.46). 폰은 자기 몫의 다른 100.x를 쓴다.
+ * → 노출 범위를 넓히지 않고도 "이 PC에서 온 요청"을 정확히 구분할 수 있다.
+ *
+ * WireGuard가 피어별 주소를 강제하므로 tailnet 안에서 다른 기기가 이 주소를
+ * 사칭할 수 없다. LAN 주소(192.168.x 등)는 그런 보장이 없어 일부러 제외했다.
+ */
+let selfTailnetIps: { at: number; ips: Set<string> } = { at: 0, ips: new Set() };
+function ownTailnetIps(): Set<string> {
+  const now = Date.now();
+  if (now - selfTailnetIps.at < 30_000) return selfTailnetIps.ips;
+  const ips = new Set<string>();
+  for (const list of Object.values(os.networkInterfaces() ?? {})) {
+    for (const ni of list ?? []) {
+      if (ni.family === "IPv4" && /^100\./.test(ni.address)) {
+        ips.add(ni.address);
+        ips.add(`::ffff:${ni.address}`);
+      }
+    }
+  }
+  selfTailnetIps = { at: now, ips };
+  return ips;
+}
+
+/**
+ * 보안: 설정을 바꾸는 API(모델 전환·키 등록)와 개발 작업(실파일 관여)은 PC 로컬 요청만 허용.
+ * tailnet 노출 모드에서 폰은 조회·실행은 가능하지만 시스템 설정·파일은 못 건드린다.
  */
 function isLocalReq(req: any): boolean {
   const a = String(req?.socket?.remoteAddress ?? "");
-  return a === "127.0.0.1" || a === "::1" || a === "::ffff:127.0.0.1";
+  if (a === "127.0.0.1" || a === "::1" || a === "::ffff:127.0.0.1") return true;
+  return ownTailnetIps().has(a);
 }
 
 /** 예약작업으로 게이트웨이 재시작 — 설정 변경(키/모델) 반영용 */
@@ -4690,7 +4720,13 @@ function mcpApiPlugin(): Plugin {
             }
             if (req.method === "GET") {
               if (!h.isStarted()) await h.startHub();
-              res.end(JSON.stringify({ servers: h.statusList(), tools: h.allTools(), assignments: h.assignmentsByServer() }));
+              // ?agent=<id> 를 주면 그 에이전트에게 실제로 배정된 도구만 (기획 직군은 정본 3개뿐인데
+              // 전체 17개를 표시하면 패널이 거짓말을 한다)
+              const agent = url.searchParams.get("agent");
+              const tools = agent ? h.toolsForAgent(agent) : h.allTools();
+              res.end(
+                JSON.stringify({ servers: h.statusList(), tools, assignments: h.assignmentsByServer(), boundProject: h.boundProject?.() ?? null })
+              );
               return;
             }
             if (sub === "/reconnect" && req.method === "POST") {

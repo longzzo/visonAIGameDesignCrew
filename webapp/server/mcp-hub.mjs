@@ -66,11 +66,12 @@ function effectiveServers() {
   return list;
 }
 
-/** {{KIT}}/{{REPO}}/{{UNITY}} 치환 */
+/** {{KIT}}/{{PROJECT}}/{{REPO}}/{{UNITY}} 치환 */
 function resolveArgs(args, ctx) {
   return (args ?? []).map((a) =>
     String(a)
       .replace(/\{\{KIT\}\}/g, ctx.kit)
+      .replace(/\{\{PROJECT\}\}/g, ctx.project)
       .replace(/\{\{REPO\}\}/g, REPO)
       .replace(/\{\{UNITY\}\}/g, ctx.unity)
   );
@@ -129,12 +130,36 @@ async function connectOne(def, ctx) {
   return rec;
 }
 
+/** 마지막으로 연결할 때 물려 있던 kit 경로 — 프로젝트가 바뀌었는지 판단용 */
+let boundKit = null;
+
+/** 지금 MCP 서버들이 물고 있는 프로젝트 폴더 (없으면 null) */
+export function boundProject() {
+  return boundKit ? path.basename(path.dirname(boundKit)) : null;
+}
+
+/**
+ * 서버들이 **현재 프로젝트**를 물고 있게 보장한다.
+ *
+ * {{KIT}}/{{PROJECT}}는 startHub 시점에 "가장 최근 수정된 프로젝트"로 한 번 굳는다.
+ * 그래서 UI에서 프로젝트를 바꿔도 MCP는 옛 프로젝트를 계속 읽는다 — 에이전트는
+ * 그게 틀린 정본인 줄 모르고 인용한다. 작업 시작 전에 한 번씩 확인해 달라졌으면 재연결.
+ */
+export async function ensureCurrentProject() {
+  const kit = defaultKit();
+  if (!started || kit !== boundKit) return startHub();
+  return null;
+}
+
 /** 등록된 enabled 서버 전체 (재)연결 */
 export async function startHub() {
   started = true;
   const cfg = readConfig();
   const servers = effectiveServers();
-  const ctx = { kit: defaultKit(), unity: readUnityDir() || cfg.unityDir || REPO };
+  const kit = defaultKit();
+  boundKit = kit;
+  // {{PROJECT}} = kit의 부모(= workspace/projects/<id>). kit이 REPO 폴백이면 그대로 REPO.
+  const ctx = { kit, project: kit === REPO ? REPO : path.dirname(kit), unity: readUnityDir() || cfg.unityDir || REPO };
   const enabled = servers.filter((s) => s.enabled);
   await Promise.all(enabled.map((def) => connectOne(def, ctx)));
   // 비활성 서버도 목록엔 노출 (UI에서 상태 표시)
@@ -176,12 +201,22 @@ export function allTools() {
   return out;
 }
 
-/** 특정 에이전트에게 허용된 서버 id 집합 (assignments 없으면 전체 허용) */
+/**
+ * 특정 에이전트에게 허용된 서버 id 집합.
+ *
+ * ⚠️ 예전엔 assignments에 없는 에이전트가 **전체 허용**(fail-open)이었다.
+ * 서버가 전부 disabled였을 땐 티가 안 났지만, filesystem을 켜는 순간
+ * 배정에 없는 기획 에이전트(systems·balance·gameplay·uiux…)가 write_file·edit_file까지
+ * 전부 받게 된다(실측 2026-08-12: serversForAgent("systems") → null = 전체 허용).
+ * → assignments._default가 있으면 그것을 기본값으로 쓴다(fail-closed).
+ */
 export function serversForAgent(agentId) {
   const cfg = readConfig();
   const a = cfg.assignments && cfg.assignments[agentId];
-  if (!Array.isArray(a)) return null; // 전체 허용
-  return new Set(a);
+  if (Array.isArray(a)) return new Set(a);
+  const d = cfg.assignments && cfg.assignments._default;
+  if (Array.isArray(d)) return new Set(d);
+  return null; // _default도 없을 때만 전체 허용(구버전 설정 호환)
 }
 
 /** 에이전트별 도구 목록 — assignments에 배정된 서버의 도구만 (없으면 allTools) */

@@ -1,21 +1,29 @@
 {
-  "_note": "MCP 서버 등록 + 에이전트별 배정. enabled:false면 건너뜀. {{KIT}}=현재 프로젝트 kit 폴더, {{UNITY}}=등록한 유니티 프로젝트 경로. 유니티 서버들은 각 저장소의 에디터 패키지 설치 + 유니티 프로젝트가 열려 있어야 동작한다(그래서 기본 disabled). command는 각 저장소 안내대로 채워 넣을 것. assignments = 에이전트가 쓸 수 있는 서버 id 목록(없으면 전체 허용).",
+  "_note": "MCP 서버 등록 + 에이전트별 배정. enabled:false면 건너뜀. {{KIT}}=현재 프로젝트 kit 폴더, {{PROJECT}}=그 상위 프로젝트 폴더, {{REPO}}=VE 저장소, {{UNITY}}=등록한 유니티 프로젝트 경로. 유니티 서버들은 각 저장소의 에디터 패키지 설치 + 유니티 프로젝트가 열려 있어야 동작한다(그래서 기본 disabled). assignments = 에이전트가 쓸 수 있는 서버 id 목록. _default = 목록에 없는 에이전트의 기본값(없으면 전체 허용이라 위험).",
   "servers": [
+    {
+      "id": "canon",
+      "label": "정본 (읽기 전용)",
+      "enabled": true,
+      "command": "node",
+      "args": ["{{REPO}}/webapp/server/mcp-canon.mjs", "{{PROJECT}}"],
+      "note": "GDD·decisions·kit/data CSV를 읽기만 한다(list/read/grep). 백업(.bak)과 회의 로그는 제외. 기획 에이전트가 정본을 지어내지 않도록 주는 도구 — 쓰기 도구가 아예 없다."
+    },
     {
       "id": "filesystem",
       "label": "파일시스템 (개발 킷)",
-      "enabled": false,
+      "enabled": true,
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "{{KIT}}"],
-      "note": "개발팀 공용 — kit/ 폴더 파일 읽기/쓰기."
+      "note": "⚠️ 쓰기 포함(write_file·edit_file·move_file·create_directory). kit/ 폴더 한정. 개발 직군에만 배정할 것."
     },
     {
       "id": "git",
       "label": "Git",
       "enabled": false,
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-git", "--repository", "{{KIT}}"],
-      "note": "커밋·로그·diff."
+      "command": "uvx",
+      "args": ["mcp-server-git", "--repository", "{{REPO}}"],
+      "note": "커밋·로그·diff. 파이썬 패키지라 uv(uvx)가 필요하다 — 미설치면 켜도 error로 뜬다."
     },
     {
       "id": "unity-coplay",
@@ -43,14 +51,30 @@
     }
   ],
   "assignments": {
-    "_note": "에이전트 id → 허용 MCP 서버 id 목록. 여기 없는 에이전트는 모든 ready 서버를 쓴다. unity-project = 등록한 기존 유니티 프로젝트 파일시스템(리뷰용).",
-    "uarch": ["filesystem", "unity-project", "unity-coplay"],
-    "ugp": ["filesystem", "unity-project", "unity-coplay"],
-    "netcode": ["filesystem", "unity-project", "unity-coplay"],
-    "techart": ["filesystem", "unity-project", "unity-coplay"],
-    "edtool": ["filesystem", "unity-project", "unity-coplay"],
-    "td": ["filesystem", "unity-project", "unity-ankle"],
-    "review": ["filesystem", "unity-project", "unity-hunt"],
-    "testeng": ["filesystem", "unity-project", "unity-hunt"]
+    "_note": "에이전트 id → 허용 MCP 서버 id 목록. 기획 직군은 canon(읽기 전용)만. 개발 직군만 filesystem(쓰기)을 받는다. unity-project = 등록한 기존 유니티 프로젝트 파일시스템(리뷰용). 새 에이전트를 추가하면 여기에도 넣을 것 — 안 넣으면 _default가 적용된다.",
+    "_default": ["canon"],
+
+    "pm": ["canon"],
+    "scenario": ["canon"],
+    "gameplay": ["canon"],
+    "systems": ["canon"],
+    "uiux": ["canon"],
+    "balance": ["canon"],
+    "bm": ["canon"],
+    "visual": ["canon"],
+    "scheduler": ["canon"],
+    "marketing": ["canon"],
+    "sound": ["canon"],
+    "qa": ["canon"],
+    "fund": ["canon"],
+
+    "uarch": ["canon", "filesystem", "unity-project", "unity-coplay"],
+    "ugp": ["canon", "filesystem", "unity-project", "unity-coplay"],
+    "netcode": ["canon", "filesystem", "unity-project", "unity-coplay"],
+    "techart": ["canon", "filesystem", "unity-project", "unity-coplay"],
+    "edtool": ["canon", "filesystem", "unity-project", "unity-coplay"],
+    "td": ["canon", "filesystem", "unity-project", "unity-ankle"],
+    "review": ["canon", "filesystem", "unity-project", "unity-hunt"],
+    "testeng": ["canon", "filesystem", "unity-project", "unity-hunt"]
   }
 }

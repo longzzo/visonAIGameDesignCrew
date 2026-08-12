@@ -164,6 +164,38 @@
 
 66. **데스크톱 앱이 "안 열린다"의 진짜 원인 — Start를 시킬수록 안 열린다 (2026-08-06, 함정 65를 고친 뒤에도 지속)**: 오너가 "Start 먼저 시키고 열어야 하냐, 바로가기는 아직도 안 열린다"고 물어 다시 팠다. `netstat`을 보니 5199가 **`100.114.32.46`(Tailscale IP)에만** LISTENING이고 **`127.0.0.1:5199`는 죽어 있었다.** 원인 사슬: `VisionEngine-Start.bat` → `start-vision-engine.ps1 -Mobile` → `npm run dev:mobile`(`VE_EXPOSE=tailnet`) → `resolveDevHost()`가 **특정 Tailscale IP 하나를 반환**하고 vite가 그 주소에만 배타적으로 바인딩한다. 그런데 `desktop/main.cjs`는 `LOCAL_URL = http://127.0.0.1:5199` **하나만** ping했다. 그래서 ⑴ ping 실패 → ⑵ "서버가 없구나" 하고 `npm run dev`를 새로 spawn → ⑶ 포트 5199는 이미 사용 중 + vite `strictPort:true`라 새 서버가 즉사 → ⑷ **90초를 기다린 뒤** 설정 화면. 사용자에겐 그냥 "눌러도 안 열린다"다. **즉 폰에서 쓰려고 Start를 모바일 모드로 켤수록 데스크톱 앱이 안 열리는 역설**이었다. **처방(앱 쪽만 고침)**: `localCandidates()`가 `127.0.0.1` · `localhost` · **이 PC의 100.x(Tailscale CGNAT) 주소**를 후보로 만들고, `findRunningServer()`가 순회해 응답하는 첫 주소를 쓴다. 서버의 노출 설정(보안 정책)은 건드리지 않았다 — `0.0.0.0` 바인딩으로 바꾸면 127.0.0.1도 살지만 **LAN 전체에 노출**되므로 그건 오너 판단이다. 100.x만 후보로 삼는 이유는 일반 LAN 주소까지 뒤지면 남의 PC에 붙을 수 있어서다. **검증**: tailnet 전용 바인딩 상태에서 바로가기 실행 → 창 정상 표시, 리스너는 여전히 1개(중복 spawn 없음), 앱이 `100.114.32.46:5199`로 established. **교훈**: "localhost로 안 되면 서버가 없다"는 가정이 틀렸다. **바인딩 주소를 확인하지 않고 포트만 보면 진단을 통째로 놓친다** — `Get-NetTCPConnection -LocalPort 5199 -State Listen`의 **LocalAddress**를 반드시 봐라.
 
+## 2-b. 🔴 개발 회의(`/api/dev-meeting`) 장애 3+3건 — 2026-08-11 실측
+
+**전문: [`docs/ISSUE-devmeeting-20260811.md`](./ISSUE-devmeeting-20260811.md)**
+
+한 줄 요약: **tailnet 모드에서 개발 회의는 구조적으로 못 쓴다.** `VE_EXPOSE=tailnet`이면 vite가 Tailscale IP에만 바인딩해서 `isLocalReq`(127.0.0.1)가 **영원히 false** → PC 브라우저로 열어도 403.
+
+| # | 증상 | 원인 | 상태 |
+|---|---|---|:--|
+| 1 | 403 | tailnet 바인딩 ↔ loopback 가드 충돌 (`vite.config.ts:4641`·`1404`·`4746`) | ✅ **함정 67** (노출 설정 안 건드림) |
+| 2 | **빈 결과에 `✅ 통과`** | `dev-provider.mjs` `max_tokens:2048` — gpt-oss가 reasoning에 2,425자 쓰고 `finish_reason=length` | ✅ 8192 + `VE_DEV_MAX_TOKENS` |
+| 3 | HTTP 410 | 폴백 모델 `qwen/qwen3-next-80b-a3b-instruct`가 2026-07-27 EOL | ✅ `openai/gpt-oss-120b` |
+| 4 | **에이전트 도구 0개** | `config/mcp.json` 5개 서버 **전부 `enabled:false`** | ✅ 오너 승인(8/12) — **함정 68** |
+| 5 | ~~켜도 기획 직군은 0개~~ | **보고서가 반대로 적었다** — 실제로는 **전체 허용(fail-open)** | ✅ **함정 68** |
+| 6 | 빈 응답을 통과로 판정 | `runDevMeeting` 판정이 정규식 하나 | ✅ **함정 69** |
+
+**함정으로 남길 것 — #4가 `review`·`testeng` 환각의 진짜 원인이었다.** 페르소나가 *"도구로 파일을 직접 읽어라"* 라고 시키는데 도구가 없으니, 모델은 "못 읽었다"고 하는 대신 **그럴듯한 파일명을 지어낸다**(`recipes.csv`·`RecipeData.json`·CI 파이프라인·서버사이드 검증). 실측 대조: **프롬프트에 현황 브리핑을 직접 붙이자 날조한 보스 2종 → 0, review 환각 4종류 → 1종류로 떨어졌다.**
+→ 8/12에 MCP를 켜서 근본 처방으로 갔다(함정 68). **설계 회의(`/api/agent` → OpenClaw)는 여전히 MCP를 안 쓴다** — 거기는 정본 다이제스트 주입(`canon.ts`)이 담당한다. 두 경로를 헷갈리지 마라.
+
+---
+
+## 2-c. 🔧 개발 회의 장애 마무리 — 2026-08-12 (함정 67~70)
+
+67. **tailnet 모드 403의 진짜 해법은 "노출을 넓히기"가 아니다 (2026-08-12)**: 보고서는 선택지를 셋으로 좁혔다 — PC 모드로만 쓰기 / `0.0.0.0` 바인딩 / 원격 허용. 셋 다 **폰 접속을 잃거나 LAN에 노출**된다. 그런데 실측하면 네 번째가 있다: **PC 브라우저가 자기 tailnet IP로 접속하면 `req.socket.remoteAddress`가 자기 자신의 100.x가 된다**(실측: `REMOTE=100.114.32.46`). 폰은 자기 몫의 **다른** 100.x를 쓴다. 그래서 `isLocalReq`가 **"이 PC가 가진 100.x 주소들"**(`os.networkInterfaces()`, 30초 캐시)을 함께 인정하면, **바인딩을 1비트도 안 바꾸고** PC=허용 / 폰=차단이 정확히 갈린다. WireGuard가 피어별 주소를 강제하므로 tailnet 안에서 사칭이 안 된다. **LAN 주소(192.168.x)는 일부러 뺐다** — 거기엔 그런 보장이 없다. **교훈: 보안 가드가 막을 때 노출 범위부터 넓히지 마라. 가드가 무엇을 보고 판단하는지를 먼저 봐라.**
+
+68. **MCP 배정은 fail-open이었다 — 켜는 순간 기획 직군이 쓰기 권한을 받는다 (2026-08-12)**: 보고서 #5는 *"켜도 기획 에이전트는 도구 0개 — `assignmentsByServer()`에 `systems`·`balance`가 없다"*라고 적었다. **반대다.** `assignmentsByServer()`는 **UI용 역맵**일 뿐이고, 실제 강제는 `serversForAgent()`가 한다 — 그리고 그건 *"assignments에 없으면 **전체 허용**"*이었다(실측: `serversForAgent("systems") → null`). 서버가 전부 disabled였을 땐 0개라 티가 안 났지만, `filesystem`을 켜는 순간 **배정에 없는 전원이 `write_file`·`edit_file`·`move_file`까지** 받는다(도구 14개 중 4개가 쓰기). **처방**: ⑴ `assignments._default`를 지원해 fail-closed로 ⑵ 21명 전원 명시 배정 ⑶ 기획 직군엔 쓰기 서버 대신 **읽기 전용 정본 서버**(아래). **교훈: 보고서가 "권한이 없다"고 할 때 그 근거가 UI 표시용 함수면 의심해라 — 강제 경로를 직접 호출해서 확인해라.**
+
+69. **읽기 전용 정본 MCP — `server-filesystem`에는 읽기 전용 모드가 없다 (2026-08-12)**: 기획 직군에 정본을 주려고 `@modelcontextprotocol/server-filesystem`을 배정하면 쓰기 4종이 딸려 온다. 그래서 `webapp/server/mcp-canon.mjs`를 새로 만들었다 — `canon__list` / `canon__read` / `canon__grep` **3개뿐, 쓰기 도구가 존재하지 않는다.** 노출은 `GDD.md`·`decisions.json`·`approvals.json`·`project.json`·`kit/**`로 한정하고 **`*.bak*`를 목록·읽기 양쪽에서 제외**한다 — 백업을 같이 보여주면 에이전트가 **v37/v55 같은 낡은 판을 정본으로 인용**한다(프로젝트 폴더에 `.bak` 10여 개가 있다). `grep`이 0건이면 *"정본에 없다, 신규면 신규라고 명시하라"*고 되돌려준다. **실측 검증 10종 전부 통과**: 백업 읽기 차단 · `../` 탈출 차단 · `feed.json`/`chats/` 차단 · 쓰기 도구 0개 · 목록에 `.bak` 0개. **실전 회의**: balance가 `canon__grep`→`canon__read`로 **강철이 HP=2800, `kit/data/yokai-stats.csv` 8행**을 맞췄고(정답), review가 지적한 `content-status.csv` 불일치도 **실제 832행에 존재**했다 — **날조 0건.**
+
+70. **`runDevTask`의 시스템 프롬프트와 판정이 도구 현실과 어긋나 있었다 (2026-08-12)**: ⑴ 프롬프트가 도구 유무와 무관하게 *"도구로 코드를 작성·수정해라"*라고 고정돼 있었다 → 도구 개수·쓰기 가능 여부·정본 서버 유무에 따라 문장을 바꾸도록 했다(도구 0개면 *"지어내지 말고 확인 불가라고 말해라"*). ⑵ 판정이 `/❌|미흡/` → `/⚠️|조건부/` → **나머지 전부 `✅ 통과`**라서 **본문이 비어도 통과**였다. 이제 3단계 각각을 빈 응답 검사(`empty` 플래그·40자 미만·`(응답 없음)`)하고 하나라도 비면 **`⚠️ 판정 불가`** + `finish_reason`을 보여준다. **재현 검증**: `VE_DEV_MAX_TOKENS=180`으로 원 증상을 되살리니 3단계 전부 빈 응답 → 옛 코드면 `✅ 통과`, 지금은 `⚠️ 판정 불가 — 구현·리뷰·검증 단계가 빈 응답`. ⑶ **MCP 서버는 `startHub()` 시점의 "가장 최근 수정된 프로젝트"에 고정된다** — UI에서 프로젝트를 바꿔도 옛 정본을 계속 읽는다. `ensureCurrentProject()`가 작업 시작 전 kit 경로 변화를 보고 필요할 때만 재연결한다. 확인용으로 `canon__list`가 항상 루트 프로젝트 id를 먼저 출력한다.
+
+---
+
 ## 3. 추천 로드맵 (다음 모델에게 — 우선순위순)
 
 **P1 — 사용량 누적·일별 저장.** 현재 사용량(🪙)은 세션 단위라 새로고침에 날아간다. 서버에 `config/usage-log.json`(일별 append) + `/api/usage` 신설, `addUsage`에서 fire-and-forget POST, UsagePanel에 "오늘/이번 주/누적" 3줄이면 충분. 유료 API 전환 시 오너가 가장 먼저 찾을 기능.

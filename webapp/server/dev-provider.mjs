@@ -43,11 +43,16 @@ function toolsForOpenAI(agentId) {
   }));
 }
 
+// 추론형 모델(gpt-oss 등)은 reasoning_content에 토큰을 먼저 쓴다.
+// 2048이면 긴 과제에서 추론만 하다 예산이 끝나 content가 빈 채 finish_reason=length로 돌아온다
+// (실측 2026-08-11: reasoning_content 2,425자를 먼저 쓰고 finish_reason=length로 본문 잘림). 상향하고 env로 뺐다.
+const MAX_TOKENS = Number(process.env.VE_DEV_MAX_TOKENS ?? 8192);
+
 async function nvidiaChat(model, messages, tools, key, baseUrl) {
   const body = {
     model,
     messages,
-    max_tokens: 2048,
+    max_tokens: MAX_TOKENS,
     temperature: 0.3,
   };
   if (tools.length) {
@@ -79,11 +84,13 @@ export async function runDevTask({ agentId, task, model, maxSteps = 8, onStep })
   if (!key || String(key).includes("{{")) {
     throw new Error("NVIDIA API 키가 없습니다 — 사이드바 🔑로 등록하세요 (개발 작업은 함수호출 지원 클라우드 모델 필요).");
   }
-  const useModel = model || cfg?.models?.agents?.[agentId] || cfg?.agents?.defaults?.model?.primary || "qwen/qwen3-next-80b-a3b-instruct";
+  // ⚠️ 구 폴백 "qwen/qwen3-next-80b-a3b-instruct"는 2026-07-27 EOL — NIM이 HTTP 410을 준다(실측 2026-08-11).
+  const useModel = model || cfg?.models?.agents?.[agentId] || cfg?.agents?.defaults?.model?.primary || "openai/gpt-oss-120b";
   // provider 접두사(nvidia/) 제거 — NIM API는 순수 모델 id를 받는다
   const modelId = String(useModel).replace(/^nvidia\//, "");
 
-  if (!hub.isStarted()) await hub.startHub();
+  // 프로젝트가 바뀌었으면 MCP를 그 프로젝트로 다시 물린다(안 하면 옛 정본을 읽는다)
+  await hub.ensureCurrentProject();
   const tools = toolsForOpenAI(agentId);
 
   const transcript = [];
@@ -96,13 +103,26 @@ export async function runDevTask({ agentId, task, model, maxSteps = 8, onStep })
     }
   };
 
+  // 배정된 도구에 맞춰 지시를 바꾼다. 읽기 전용 에이전트에게 "코드를 수정해라"라고 시키면
+  // 없는 도구를 호출하려다 실패하거나, 안 한 일을 했다고 보고한다.
+  const canWrite = tools.some((t) => /^\w+__(write_file|edit_file|move_file|create_directory)$/.test(t.function.name));
+  const hasCanon = tools.some((t) => t.function.name.startsWith("canon__"));
   const system = [
     personaOf(agentId),
     "",
-    "너는 지금 실제 프로젝트 파일에 접근할 수 있는 도구를 가지고 있다. 필요하면 도구로 파일을 읽고 확인한 뒤 작업해라.",
-    "도구로 코드를 작성·수정할 때는 기존 파일을 먼저 읽어 맥락을 파악하고, 최소한의 변경으로 정확히 반영해라.",
+    tools.length === 0
+      ? "⚠️ 지금 너에게는 파일 접근 도구가 없다. 파일 내용을 추측하거나 파일명을 지어내지 말고, '도구가 없어 확인할 수 없다'고 명시해라."
+      : "너는 지금 실제 프로젝트 파일에 접근할 수 있는 도구를 가지고 있다. 추측하지 말고 반드시 도구로 읽어 확인한 뒤 답해라.",
+    hasCanon
+      ? "정본(GDD·decisions·kit/data CSV)은 canon__list / canon__read / canon__grep 으로 읽는다. 수치·id·규칙을 말하기 전에 canon__grep으로 실재를 확인해라. 0건이면 정본에 없는 것이니, 새로 제안하는 것이라면 '신규'라고 명시해라."
+      : "",
+    canWrite
+      ? "파일을 작성·수정할 때는 기존 파일을 먼저 읽어 맥락을 파악하고, 최소한의 변경으로 정확히 반영해라."
+      : "너에게는 쓰기 도구가 없다. 파일을 고치지 말고 무엇을 어떻게 바꿔야 하는지 위치와 함께 제안만 해라.",
     "작업을 마치면 무엇을 왜 했는지 한국어로 요약해라.",
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   const messages = [
     { role: "system", content: system },
@@ -121,7 +141,16 @@ export async function runDevTask({ agentId, task, model, maxSteps = 8, onStep })
     if (msg.content && msg.content.trim()) push({ kind: "say", text: msg.content.trim() });
 
     if (calls.length === 0) {
-      return { ok: true, transcript, final: (msg.content ?? "").trim() || "(작업 완료)" };
+      const body = (msg.content ?? "").trim();
+      // 추론형 모델이 예산을 다 쓰면 content가 빈 채로 돌아온다(finish_reason=length).
+      // 그걸 "(작업 완료)"로 덮으면 다음 단계가 빈 입력을 받고도 정상처럼 흘러간다 → 플래그로 남긴다.
+      return {
+        ok: true,
+        transcript,
+        final: body || "(응답 없음 — 모델이 본문을 반환하지 않았습니다)",
+        empty: !body,
+        finishReason: res?.choices?.[0]?.finish_reason ?? null,
+      };
     }
 
     for (const call of calls) {
@@ -191,7 +220,26 @@ export async function runDevMeeting({ leadId, task, onStep }) {
     onStep: emit("testeng"),
   });
 
-  const verdict = /❌|미흡/.test(test.final) ? "❌ 미흡" : /⚠️|조건부/.test(test.final) ? "⚠️ 조건부" : "✅ 통과";
+  // 빈 응답을 통과로 읽지 않는다. 판정 정규식은 "❌도 ⚠️도 없으면 통과"라서
+  // 본문이 비어 있어도 ✅가 나왔다(실측 2026-08-11: 3단계 전부 빈 채로 ✅ 통과).
+  const isEmpty = (r) => !!r?.empty || !r?.final || r.final.trim().length < 40 || /^\(응답 없음|^\(작업 완료\)$/.test(r.final.trim());
+  const blanks = [
+    ["구현", impl],
+    ["리뷰", rev],
+    ["검증", test],
+  ].filter(([, r]) => isEmpty(r));
+
+  const verdict = blanks.length
+    ? `⚠️ 판정 불가 — ${blanks.map(([n]) => n).join("·")} 단계가 빈 응답`
+    : /❌|미흡/.test(test.final)
+      ? "❌ 미흡"
+      : /⚠️|조건부/.test(test.final)
+        ? "⚠️ 조건부"
+        : "✅ 통과";
+  if (blanks.length) {
+    const why = blanks.map(([n, r]) => `${n}(finish_reason=${r?.finishReason ?? "?"})`).join(", ");
+    say("phase", `⚠️ 빈 응답 감지 — ${why}. VE_DEV_MAX_TOKENS를 올리거나 과제를 쪼개세요.`, "testeng");
+  }
   onStep?.({ kind: "done", final: `개발 회의 완료 — 최종 판정 ${verdict}` });
-  return { ok: true, impl, rev, test, verdict };
+  return { ok: true, impl, rev, test, verdict, blanks: blanks.map(([n]) => n) };
 }

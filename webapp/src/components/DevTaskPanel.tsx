@@ -29,7 +29,7 @@ export function DevTaskPanel({
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    void fetchMcp().then((m) => setToolCount(m.tools.length));
+    void fetchMcp(agentId).then((m) => setToolCount(m.tools.length));
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && !running && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
