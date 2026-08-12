@@ -132,7 +132,7 @@ export function McpPanel({ onClose }: { onClose: () => void }) {
                 <b>{s.label}</b>
                 <span className="dim">
                   {s.status === "ready"
-                    ? `도구 ${s.tools.length}개`
+                    ? `도구 ${s.tools.length}개${s.hiddenTools ? ` · 🔒 ${s.hiddenTools}개 차단` : ""}`
                     : s.status === "disabled"
                       ? "비활성 (config에서 enabled:true)"
                       : s.status === "error"

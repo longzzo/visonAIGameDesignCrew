@@ -260,8 +260,31 @@ PC 브라우저 → http://100.114.32.46:5199
 
 MCP 서버는 `startHub()` 시점의 **"가장 최근 수정된 프로젝트"**에 고정됩니다. UI에서 프로젝트를 바꿔도 옛 프로젝트의 정본을 계속 읽고, 에이전트는 그걸 모릅니다. `ensureCurrentProject()`가 작업 시작 전에 확인해 달라졌을 때만 재연결합니다. 확인용으로 `canon__list`가 항상 루트 프로젝트 id를 먼저 출력합니다.
 
+## 추가 — git MCP 활성화 (오너 지시 "uv 설치하고 git mcp도 켜줘")
+
+uv는 **이미 설치돼 있었습니다**(0.11.16, PATH 등록됨). 켜는 과정에서 함정 셋:
+
+| 함정 | 증상 | 처방 |
+|---|---|---|
+| 원 설정이 없는 패키지 | `npx @modelcontextprotocol/server-git` — npm에 없음 | `uvx mcp-server-git` |
+| SDK 2.0 비호환 | `AttributeError: 'Server' object has no attribute 'list_tools'` → 허브엔 `Connection closed`만 | `--with "mcp<2"` (1.29.0) |
+| `--repository`가 기본값으로 안 먹음 | 모델이 kit 폴더를 찍고 **"kit은 git 저장소가 아니다, `git init`하라"**는 틀린 결론 | `argsFix`로 `repo_path` 강제 고정 |
+
+**쓰기 도구 5종은 뺐습니다.** 지금 GDD·CSV에 커밋 안 된 정본 수정이 남아 있어, 에이전트가 그걸 임의로 커밋하거나 브랜치를 옮기면 되돌리기 어렵습니다.
+
+| | |
+|---|---|
+| 노출 7 | `git_status` `git_diff` `git_diff_staged` `git_diff_unstaged` `git_log` `git_show` `git_branch` |
+| 🔒 차단 5 | `git_commit` `git_add` `git_reset` `git_create_branch` `git_checkout` |
+
+목록에서 감추기만 하면 모델이 이름을 지어내 호출할 수 있어 **`callTool`에서도 막습니다**(실측: `git__git_commit` → `이 서버에서 차단된 도구입니다`). 배정은 **개발 8명만** — 기획 직군은 정본 3개 그대로입니다.
+
+**실전 확인** — review에게 *"최근 커밋을 확인하고, 새 커밋을 만들어봐라"*:
+
+> 해시 `fbf64a3…` · 제목 `feat(mcp): 정본 읽기 전용 MCP 서버 + MCP 활성화, tailnet 403 해제` · 변경 요약 정확
+> *"커밋을 수행할 수 있는 도구가 없어 실제 커밋 생성은 불가능했습니다"*
+
 ## 아직 오너 몫으로 남긴 것
 
-- **`git` MCP** — 원 설정의 `npx @modelcontextprotocol/server-git`은 존재하지 않는 패키지였습니다(git MCP는 파이썬 `uvx mcp-server-git`). 명령을 고쳐 두었지만 **uv 설치가 필요**해 `enabled:false`로 남겼습니다.
 - **Unity MCP 3종** — 유니티 에디터가 열려 있어야 해서 그대로 off.
 - **설계 회의(`/api/agent` → OpenClaw)는 여전히 MCP를 안 씁니다.** 거기 정본은 다이제스트 주입(`canon.ts`)이 담당합니다. MCP 정본 도구는 **개발 작업·개발 회의** 경로에만 붙습니다.

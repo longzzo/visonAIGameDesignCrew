@@ -6,7 +6,10 @@
       "label": "정본 (읽기 전용)",
       "enabled": true,
       "command": "node",
-      "args": ["{{REPO}}/webapp/server/mcp-canon.mjs", "{{PROJECT}}"],
+      "args": [
+        "{{REPO}}/webapp/server/mcp-canon.mjs",
+        "{{PROJECT}}"
+      ],
       "note": "GDD·decisions·kit/data CSV를 읽기만 한다(list/read/grep). 백업(.bak)과 회의 로그는 제외. 기획 에이전트가 정본을 지어내지 않도록 주는 도구 — 쓰기 도구가 아예 없다."
     },
     {
@@ -14,23 +17,47 @@
       "label": "파일시스템 (개발 킷)",
       "enabled": true,
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "{{KIT}}"],
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "{{KIT}}"
+      ],
       "note": "⚠️ 쓰기 포함(write_file·edit_file·move_file·create_directory). kit/ 폴더 한정. 개발 직군에만 배정할 것."
     },
     {
       "id": "git",
-      "label": "Git",
-      "enabled": false,
+      "label": "Git (읽기 전용)",
+      "enabled": true,
       "command": "uvx",
-      "args": ["mcp-server-git", "--repository", "{{REPO}}"],
-      "note": "커밋·로그·diff. 파이썬 패키지라 uv(uvx)가 필요하다 — 미설치면 켜도 error로 뜬다."
+      "args": [
+        "--with",
+        "mcp<2",
+        "mcp-server-git",
+        "--repository",
+        "{{REPO}}"
+      ],
+      "argsFix": {
+        "repo_path": "{{REPO}}"
+      },
+      "toolsAllow": [
+        "git_status",
+        "git_diff_unstaged",
+        "git_diff_staged",
+        "git_diff",
+        "git_log",
+        "git_show",
+        "git_branch"
+      ],
+      "note": "로그·diff·상태 조회. VE 저장소 전체(workspace/ 포함) 대상. argsFix로 repo_path를 저장소 루트에 고정한다 — 안 하면 모델이 kit 폴더를 찍고 '여긴 git 저장소가 아니다'라는 틀린 결론을 낸다(실측). ⚠️ `--with mcp<2` 없이 켜면 죽는다 — mcp-server-git 2026.7.10이 mcp SDK 2.0의 API 변경을 못 따라가 'Server object has no attribute list_tools'로 즉사한다(실측 2026-08-12). toolsAllow로 git_commit·git_add·git_reset·git_create_branch·git_checkout 5종을 뺐다: 오너의 커밋 안 된 정본 수정을 에이전트가 임의로 커밋하거나 브랜치를 옮기면 되돌리기 어렵다."
     },
     {
       "id": "unity-coplay",
       "label": "Unity — CoplayDev (개발 구현팀)",
       "enabled": false,
       "command": "uvx",
-      "args": ["mcp-for-unity"],
+      "args": [
+        "mcp-for-unity"
+      ],
       "note": "CoplayDev/unity-mcp (47도구, MIT). 에셋·씬·스크립트·테스트. Unity에 'MCP for Unity' 패키지 설치 + 프로젝트 열림 필요. 명령은 저장소 안내대로 조정."
     },
     {
@@ -38,7 +65,9 @@
       "label": "Unity — AnkleBreaker (선임 개발)",
       "enabled": false,
       "command": "node",
-      "args": ["{{UNITY}}/unity-mcp-server/dist/index.js"],
+      "args": [
+        "{{UNITY}}/unity-mcp-server/dist/index.js"
+      ],
       "note": "AnkleBreaker-Studio/unity-mcp-server (288도구). Shader Graph·NavMesh·물리·빌드·프로파일링. 에디터 패키지 + 서버 빌드 필요. 경로는 설치 위치에 맞게 조정."
     },
     {
@@ -46,35 +75,111 @@
       "label": "Unity — HuntNight advanced (QA팀)",
       "enabled": false,
       "command": "node",
-      "args": ["{{UNITY}}/unity-mcp-advanced/server/index.js"],
+      "args": [
+        "{{UNITY}}/unity-mcp-advanced/server/index.js"
+      ],
       "note": "HuntNight/unity-mcp-advanced. 스크린샷·플레이모드 제어·C# 실행·씬 분석. QA 검증용. 에디터 브리지 + 서버 필요."
     }
   ],
   "assignments": {
     "_note": "에이전트 id → 허용 MCP 서버 id 목록. 기획 직군은 canon(읽기 전용)만. 개발 직군만 filesystem(쓰기)을 받는다. unity-project = 등록한 기존 유니티 프로젝트 파일시스템(리뷰용). 새 에이전트를 추가하면 여기에도 넣을 것 — 안 넣으면 _default가 적용된다.",
-    "_default": ["canon"],
-
-    "pm": ["canon"],
-    "scenario": ["canon"],
-    "gameplay": ["canon"],
-    "systems": ["canon"],
-    "uiux": ["canon"],
-    "balance": ["canon"],
-    "bm": ["canon"],
-    "visual": ["canon"],
-    "scheduler": ["canon"],
-    "marketing": ["canon"],
-    "sound": ["canon"],
-    "qa": ["canon"],
-    "fund": ["canon"],
-
-    "uarch": ["canon", "filesystem", "unity-project", "unity-coplay"],
-    "ugp": ["canon", "filesystem", "unity-project", "unity-coplay"],
-    "netcode": ["canon", "filesystem", "unity-project", "unity-coplay"],
-    "techart": ["canon", "filesystem", "unity-project", "unity-coplay"],
-    "edtool": ["canon", "filesystem", "unity-project", "unity-coplay"],
-    "td": ["canon", "filesystem", "unity-project", "unity-ankle"],
-    "review": ["canon", "filesystem", "unity-project", "unity-hunt"],
-    "testeng": ["canon", "filesystem", "unity-project", "unity-hunt"]
+    "_default": [
+      "canon"
+    ],
+    "pm": [
+      "canon"
+    ],
+    "scenario": [
+      "canon"
+    ],
+    "gameplay": [
+      "canon"
+    ],
+    "systems": [
+      "canon"
+    ],
+    "uiux": [
+      "canon"
+    ],
+    "balance": [
+      "canon"
+    ],
+    "bm": [
+      "canon"
+    ],
+    "visual": [
+      "canon"
+    ],
+    "scheduler": [
+      "canon"
+    ],
+    "marketing": [
+      "canon"
+    ],
+    "sound": [
+      "canon"
+    ],
+    "qa": [
+      "canon"
+    ],
+    "fund": [
+      "canon"
+    ],
+    "uarch": [
+      "canon",
+      "filesystem",
+      "git",
+      "unity-project",
+      "unity-coplay"
+    ],
+    "ugp": [
+      "canon",
+      "filesystem",
+      "git",
+      "unity-project",
+      "unity-coplay"
+    ],
+    "netcode": [
+      "canon",
+      "filesystem",
+      "git",
+      "unity-project",
+      "unity-coplay"
+    ],
+    "techart": [
+      "canon",
+      "filesystem",
+      "git",
+      "unity-project",
+      "unity-coplay"
+    ],
+    "edtool": [
+      "canon",
+      "filesystem",
+      "git",
+      "unity-project",
+      "unity-coplay"
+    ],
+    "td": [
+      "canon",
+      "filesystem",
+      "git",
+      "unity-project",
+      "unity-ankle"
+    ],
+    "review": [
+      "canon",
+      "filesystem",
+      "git",
+      "unity-project",
+      "unity-hunt"
+    ],
+    "testeng": [
+      "canon",
+      "filesystem",
+      "git",
+      "unity-project",
+      "unity-hunt"
+    ]
   }
 }

@@ -12,6 +12,8 @@ export interface McpServerStatus {
   status: "ready" | "connecting" | "error" | "disabled" | "pending";
   error: string | null;
   tools: McpTool[];
+  /** toolsAllow/toolsDeny로 감춘 도구 수 (예: git의 commit·checkout) */
+  hiddenTools?: number;
 }
 export interface McpFlatTool {
   server: string;

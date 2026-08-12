@@ -94,6 +94,19 @@ function defaultKit() {
   return REPO;
 }
 
+/**
+ * 서버 정의의 도구 화이트/블랙리스트 검사.
+ *
+ * 서버를 통째로 켜거나 끄는 것밖에 없으면 "git은 diff만 보게 하고 commit은 막는다"가 불가능했다.
+ * `toolsAllow`가 있으면 그 목록만, 없으면 `toolsDeny`를 뺀 나머지. 둘 다 없으면 전부.
+ * 목록에서 감추는 것만으로는 부족하다(모델이 이름을 지어내 호출할 수 있다) — callTool에서도 막는다.
+ */
+function toolAllowed(def, name) {
+  if (Array.isArray(def?.toolsAllow)) return def.toolsAllow.includes(name);
+  if (Array.isArray(def?.toolsDeny)) return !def.toolsDeny.includes(name);
+  return true;
+}
+
 async function connectOne(def, ctx) {
   const prev = conns.get(def.id);
   if (prev?.client) {
@@ -117,11 +130,18 @@ async function connectOne(def, ctx) {
     const { tools } = await client.listTools();
     rec.client = client;
     rec.transport = transport;
-    rec.tools = (tools ?? []).map((t) => ({
-      name: t.name,
-      description: t.description ?? "",
-      inputSchema: t.inputSchema ?? { type: "object" },
-    }));
+    rec.tools = (tools ?? [])
+      .filter((t) => toolAllowed(def, t.name))
+      .map((t) => ({
+        name: t.name,
+        description: t.description ?? "",
+        inputSchema: t.inputSchema ?? { type: "object" },
+      }));
+    rec.hiddenTools = (tools ?? []).length - rec.tools.length;
+    // argsFix의 {{…}}는 연결 시점에 실제 경로로 굳혀 둔다
+    rec.argsFix = Object.fromEntries(
+      Object.entries(def.argsFix ?? {}).map(([k, v]) => [k, resolveArgs([v], ctx)[0]])
+    );
     rec.status = "ready";
   } catch (e) {
     rec.status = "error";
@@ -185,6 +205,7 @@ export function statusList() {
       status: rec?.status ?? (def.enabled ? "pending" : "disabled"),
       error: rec?.error ?? null,
       tools: rec?.tools ?? [],
+      hiddenTools: rec?.hiddenTools ?? 0,
     };
   });
 }
@@ -240,7 +261,13 @@ export function assignmentsByServer() {
 export async function callTool(server, name, args) {
   const rec = conns.get(server);
   if (!rec || rec.status !== "ready" || !rec.client) throw new Error(`MCP 서버 미연결: ${server}`);
-  const res = await rec.client.callTool({ name, arguments: args ?? {} });
+  // 목록에서 감춘 도구를 이름으로 직접 호출하는 것까지 막는다
+  if (!toolAllowed(rec.def, name)) throw new Error(`이 서버에서 차단된 도구입니다: ${server}__${name}`);
+  // argsFix로 지정한 인자는 모델이 뭘 넣든 덮어쓴다.
+  // (실측 2026-08-12: mcp-server-git은 --repository를 기본값으로 안 쓰고 매 호출 repo_path를 받는다.
+  //  모델이 kit 폴더를 찍어 넣고 "kit은 git 저장소가 아니다"라는 틀린 결론을 냈다.)
+  const fixed = { ...(args ?? {}), ...(rec.argsFix ?? {}) };
+  const res = await rec.client.callTool({ name, arguments: fixed });
   // content 배열 → 텍스트로 평탄화
   const text = (res.content ?? [])
     .map((c) => (c.type === "text" ? c.text : `[${c.type}]`))
