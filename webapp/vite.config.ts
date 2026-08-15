@@ -1,5 +1,4 @@
-import { defineConfig, type Plugin, type ViteDevServer } from "vite";
-import react from "@vitejs/plugin-react";
+import type { Plugin, ViteDevServer } from "vite";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -8,9 +7,16 @@ import { spawn, execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
+import { gatewayRelayPlugin } from "./server/gateway-relay.mjs";
+import { usageStorePlugin } from "./server/usage-store.mjs";
+import { jobStorePlugin } from "./server/job-store.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const WORKSPACE = path.resolve(__dirname, "../workspace");
+const REPO_ROOT = process.env.VE_REPO_ROOT ? path.resolve(process.env.VE_REPO_ROOT) : path.resolve(__dirname, "..");
+const WEBAPP_ROOT = process.env.VE_WEBAPP_ROOT ? path.resolve(process.env.VE_WEBAPP_ROOT) : __dirname;
+const DATA_ROOT = process.env.VE_DATA_ROOT ? path.resolve(process.env.VE_DATA_ROOT) : REPO_ROOT;
+const CONFIG_DIR = path.join(DATA_ROOT, "config");
+const WORKSPACE = path.join(DATA_ROOT, "workspace");
 const PROJECTS_DIR = path.join(WORKSPACE, "projects");
 const LEGACY_GDD = path.join(WORKSPACE, "GDD.md");
 
@@ -195,7 +201,7 @@ function readRawBody(req: any, maxBytes = 40 * 1024 * 1024): Promise<Buffer> {
 }
 
 /* ── 플러그인: 에이전트 페르소나(AGENTS.md) 읽기/편집 ── */
-const AGENTS_DIR = path.resolve(__dirname, "..", "agents");
+const AGENTS_DIR = path.join(REPO_ROOT, "agents");
 function personaApiPlugin(): Plugin {
   return {
     name: "vision-engine-persona-api",
@@ -255,7 +261,7 @@ function personaApiPlugin(): Plugin {
  *   GET  /api/growth → 전체 성장 데이터
  *   POST /api/growth { agentId, addXp? , lesson?, skill?, removeSkill? } → 갱신 (레벨업 여부 반환)
  */
-const GROWTH_FILE = path.resolve(__dirname, "..", "config", "agent-growth.json");
+const GROWTH_FILE = path.join(CONFIG_DIR, "agent-growth.json");
 /** 누적 XP 임계 — Lv n 도달에 40·n·(n-1) (L2=80, L3=240, L4=480 …) */
 function levelOf(xp: number): number {
   let n = 1;
@@ -581,7 +587,7 @@ function notionApiPlugin(): Plugin {
  * POST { fire: id } → openclaw.json·custom-agents.json에서 제거 (페르소나 폴더는 보존).
  * GET → 채용된 직원 목록 (클라이언트 로스터 복원용).
  */
-const CUSTOM_AGENTS_FILE = path.resolve(__dirname, "..", "config", "custom-agents.json");
+const CUSTOM_AGENTS_FILE = path.join(CONFIG_DIR, "custom-agents.json");
 const HIRE_ZONES = new Set(["plan", "dev", "biz", "art", "qa"]);
 const HIRE_COLORS = ["#7dd3fc", "#fda4af", "#bef264", "#fcd34d", "#c4b5fd", "#5eead4", "#f9a8d4", "#93c5fd"];
 /** 기존 에이전트와 동일한 도구 차단 목록 — 채용 직원도 텍스트 산출만 한다 */
@@ -731,7 +737,7 @@ function hireApiPlugin(): Plugin {
  *    · 첫 사용 시 언어 데이터(~15MB)를 config/ocr-cache/에 내려받아 이후 오프라인 동작
  *    · 페이지를 이미지로 렌더(@napi-rs/canvas) 후 인식 — 페이지당 수~수십 초
  */
-const OCR_CACHE = path.resolve(__dirname, "..", "config", "ocr-cache");
+const OCR_CACHE = path.join(CONFIG_DIR, "ocr-cache");
 const OCR_MAX_PAGES = 15;
 
 async function ocrPdfPages(doc: any): Promise<{ text: string; done: number; truncated: boolean }> {
@@ -1465,8 +1471,8 @@ function restartGateway(): void {
  * 무료 티어: 검색 API 일 25,000회 / 월 775,000회, 데이터랩 월 50,000회.
  * **한도에 닿으면 조용히 실패하지 않고 exhausted를 돌려준다** — 호출부가 웹 검색으로 자동 폴백한다(오너 요청).
  */
-const NAVER_CFG = path.resolve(__dirname, "..", "config", "naver.json");
-const NAVER_USAGE = path.resolve(__dirname, "..", "config", "naver-usage.json");
+const NAVER_CFG = path.join(CONFIG_DIR, "naver.json");
+const NAVER_USAGE = path.join(CONFIG_DIR, "naver-usage.json");
 /** 오너가 건 안전 한도 — 실제 무료 한도보다 낮게 잡아 초과 과금·차단을 피한다 */
 const NAVER_DEFAULT_CAPS = { daily: 20000, monthly: 700000, trendMonthly: 45000 };
 /**
@@ -2919,7 +2925,16 @@ function normalizeDeckHtmlBlocks(md: string): string {
   return out.join("\n");
 }
 
-const MARP_ENTRY = path.resolve(process.cwd(), "node_modules/@marp-team/marp-cli/marp-cli.js");
+const MARP_ENTRY = path.join(WEBAPP_ROOT, "node_modules", "@marp-team", "marp-cli", "marp-cli.js");
+
+async function renderMarpHtml(markdown: string, themeCss: string, outPath: string): Promise<void> {
+  const { Marp } = await import("@marp-team/marp-core");
+  const marp = new Marp({ html: true });
+  if (themeCss) marp.themeSet.add(themeCss);
+  const rendered = marp.render(markdown);
+  const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${rendered.css}</style></head><body>${rendered.html}</body></html>`;
+  fs.writeFileSync(outPath, html, "utf-8");
+}
 
 function runMarp(args: string[], cwd: string, timeoutMs = 120_000): Promise<{ code: number; out: string }> {
   return new Promise((resolve) => {
@@ -2960,7 +2975,7 @@ const DECK_MIME: Record<string, string> = {
 // 🎨 디자인 인텔리전스 — ui-ux-pro-max(109k★, MIT) 디자인 DB를 로컬 python으로 쿼리한다.
 // 벤더링: webapp/assets/design-intel/{scripts,data}. 회의에서 UI/UX·아트 에이전트를 게임 장르별
 // 검증된 팔레트·타이포·UX 규칙에 접지시켜 "AI 티" 일반론을 막는다(오너 목표 2026-07-23).
-const DESIGN_INTEL_DIR = path.resolve(__dirname, "assets", "design-intel");
+const DESIGN_INTEL_DIR = path.join(WEBAPP_ROOT, "assets", "design-intel");
 const DESIGN_SEARCH_PY = path.join(DESIGN_INTEL_DIR, "scripts", "search.py");
 let _pyCmd: string | null | undefined; // undefined=미탐색, null=없음(있으면 실행자 이름)
 function resolvePython(): string | null {
@@ -3573,9 +3588,22 @@ function deckApiPlugin(): Plugin {
             // 포맷별로 각각 굽는다(marp는 1회 1포맷). PDF·PPTX는 헤드리스 크롬이라 느리다.
             for (const fmt of formats) {
               const outName = `deck.${fmt}`;
+              const outPath = path.join(deckDir, outName);
+              if (fmt === "html") {
+                try {
+                  await renderMarpHtml(md, theme.css, outPath);
+                  results.push({ fmt, name: outName, bytes: fs.statSync(outPath).size });
+                } catch (e: any) {
+                  errors.push(`html: ${String(e?.message ?? e).slice(0, 200)}`);
+                }
+                continue;
+              }
+              if (!fs.existsSync(MARP_ENTRY)) {
+                errors.push(`${fmt}: 보안상 Chromium 기반 Marp CLI는 독립 실행 패키지에서 제외됩니다. 개발 환경에서만 생성할 수 있습니다.`);
+                continue;
+              }
               const fmtFlag = fmt === "pdf" ? ["--pdf"] : fmt === "pptx" ? ["--pptx"] : [];
               const r = await runMarp([...fmtFlag, ...baseArgs, "-o", outName], deckDir, 150_000);
-              const outPath = path.join(deckDir, outName);
               if (r.code === 0 && fs.existsSync(outPath)) {
                 results.push({ fmt, name: outName, bytes: fs.statSync(outPath).size });
               } else {
@@ -4146,7 +4174,7 @@ function kitApiPlugin(): Plugin {
  * 생성은 PC 로컬 요청만 허용 — 저장 위치가 앱 소스 트리(public/)이기 때문.
  */
 function officeBgPlugin(): Plugin {
-  const officeDir = path.resolve(__dirname, "public", "office");
+  const officeDir = path.join(WEBAPP_ROOT, "public", "office");
   const metaFile = path.join(officeDir, "custom.json");
   return {
     name: "vision-engine-office-bg",
@@ -4277,19 +4305,6 @@ const PROVIDER_TEMPLATES: Record<string, any> = {
         },
       },
       {
-        id: "qwen/qwen3-next-80b-a3b-instruct",
-        name: "Qwen3 Next 80B (NVIDIA)",
-        input: ["text"],
-        contextWindow: 131072,
-        maxTokens: 8192,
-        compat: {
-          maxTokensField: "max_tokens",
-          supportsStore: false,
-          supportsDeveloperRole: false,
-          supportsReasoningEffort: false,
-        },
-      },
-      {
         id: "deepseek-ai/deepseek-v4-flash",
         name: "DeepSeek V4 Flash (NVIDIA)",
         input: ["text"],
@@ -4330,7 +4345,6 @@ const MODEL_LABELS: Record<string, { label: string; note?: string }> = {
   // 오너 스튜디오는 한국어가 결과물이라 "한국어를 안 깨뜨리는가"가 모델 선택의 1순위다.
   "nvidia/openai/gpt-oss-120b": { label: "GPT-OSS 120B · NVIDIA", note: "✅ 한국어 누수 0 · 최속(5s) — PM·팀원 추천" },
   "nvidia/z-ai/glm-5.2": { label: "GLM 5.2 · NVIDIA", note: "✅ 한국어 누수 0 · 13s — 대안" },
-  "nvidia/qwen/qwen3-next-80b-a3b-instruct": { label: "Qwen3 Next 80B · NVIDIA", note: "팀원 기본 — 안정" },
   "nvidia/minimaxai/minimax-m3": { label: "MiniMax M3 · NVIDIA", note: "신규 — 미검증" },
   "nvidia/deepseek-ai/deepseek-v4-pro": { label: "DeepSeek V4 Pro · NVIDIA", note: "신규 — 미검증" },
   "nvidia/meta/llama-4-maverick-17b-128e-instruct": { label: "Llama 4 Maverick · NVIDIA", note: "⚠️ 실측 시 180s 타임아웃" },
@@ -4809,7 +4823,11 @@ function devTaskApiPlugin(): Plugin {
           const task = String(j.task || "").trim();
           if (!agentId || !task) return void send({ kind: "error", text: "agentId·task 필요" });
           const dp = await load();
-          const out = await dp.runDevTask({
+          const out = j.engine === "codex" ? await dp.runCodexTask({
+            agentId,
+            task,
+            onStep: (step: unknown) => send(step),
+          }) : await dp.runDevTask({
             agentId,
             task,
             model: j.model,
@@ -4825,17 +4843,19 @@ function devTaskApiPlugin(): Plugin {
           const task = String(j.task || "").trim();
           if (!leadId || !task) return void send({ kind: "error", text: "leadId·task 필요" });
           const dp = await load();
-          await dp.runDevMeeting({ leadId, task, onStep: (step: unknown) => send(step) });
+          await dp.runDevMeeting({ leadId, task, engine: j.engine, onStep: (step: unknown) => send(step) });
         })
       );
     },
   };
 }
 
-export default defineConfig({
-  plugins: [
+export function visionApiPlugins(): Plugin[] {
+  return [
     securityGuardPlugin(), // 반드시 첫 번째 — 모든 요청의 Host/Origin 검증
-    react(),
+    gatewayRelayPlugin(), // 토큰을 브라우저에 노출하지 않는 읽기 전용 이벤트 릴레이
+    usageStorePlugin(), // 세션이 끝나도 남는 일·주·전체 토큰 사용량
+    jobStorePlugin(), // 비정상 종료된 회의의 요청·종료 상태 체크포인트
     projectsApiPlugin(),
     gddApiPlugin(),
     chatsApiPlugin(),
@@ -4867,22 +4887,20 @@ export default defineConfig({
     agentBridgePlugin(),
     mcpApiPlugin(),
     devTaskApiPlugin(),
-  ],
-  server: {
-    port: 5199,
-    // 포트가 차 있으면 조용히 5200으로 옮겨 뜨는 대신 명확히 실패시킨다 (중복 실행 방지)
-    strictPort: true,
-    host: resolveDevHost(),
-    allowedHosts: true,
-    proxy: {
-      // 브라우저 -> Vite -> OpenClaw 게이트웨이 WebSocket 프록시(서버측).
-      "/gateway-ws": {
-        target: "ws://127.0.0.1:18789",
-        ws: true,
-        changeOrigin: true,
-        rewrite: () => "/",
-        headers: { Origin: "http://127.0.0.1:18789" },
-      },
+  ];
+}
+
+export default async function visionViteConfig() {
+  const [{ default: react }] = await Promise.all([import("@vitejs/plugin-react")]);
+  const apiPlugins = visionApiPlugins();
+  return {
+    plugins: [apiPlugins[0], apiPlugins[1], react(), ...apiPlugins.slice(2)],
+    server: {
+      port: 5199,
+      // 포트가 차 있으면 조용히 5200으로 옮겨 뜨는 대신 명확히 실패시킨다 (중복 실행 방지)
+      strictPort: true,
+      host: resolveDevHost(),
+      allowedHosts: true,
     },
-  },
-});
+  };
+}

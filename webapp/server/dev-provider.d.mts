@@ -10,8 +10,15 @@ export function runDevTask(opts: {
   maxSteps?: number;
   onStep?: (step: DevStep) => void;
 }): Promise<{ ok: boolean; transcript: DevStep[]; final: string }>;
+export function runCodexTask(opts: {
+  agentId: string;
+  task: string;
+  onStep?: (step: DevStep) => void;
+}): Promise<{ ok: boolean; transcript: DevStep[]; final: string }>;
 export function runDevMeeting(opts: {
   leadId: string;
   task: string;
+  engine?: "codex" | "provider";
   onStep?: (step: DevStep) => void;
 }): Promise<{ ok: boolean; verdict: string }>;
+export function resolveProvider(model: string, config: any): any;

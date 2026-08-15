@@ -9,8 +9,10 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CFG_FILE = path.resolve(__dirname, "..", "..", "config", "notion.json");
-const MAP_FILE = path.resolve(__dirname, "..", "..", "config", "notion-map.json");
+const REPO = process.env.VE_REPO_ROOT ? path.resolve(process.env.VE_REPO_ROOT) : path.resolve(__dirname, "..", "..");
+const DATA_ROOT = process.env.VE_DATA_ROOT ? path.resolve(process.env.VE_DATA_ROOT) : REPO;
+const CFG_FILE = path.join(DATA_ROOT, "config", "notion.json");
+const MAP_FILE = path.join(DATA_ROOT, "config", "notion-map.json");
 const API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
 
@@ -713,7 +715,7 @@ export async function publishProject({ projectId, projectName, gddMd, reports, k
  *                       반영 전 원본을 config/notion-edits/에 백업한다.
  */
 
-const EDIT_BACKUP_DIR = path.resolve(__dirname, "..", "..", "config", "notion-edits");
+const EDIT_BACKUP_DIR = path.join(DATA_ROOT, "config", "notion-edits");
 
 /** 안전하게 삭제·재작성할 수 있는 블록 타입 (텍스트 계열) */
 const SAFE_TYPES = new Set([

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Vision Engine** — 게임 기획·개발 멀티에이전트 스튜디오. 두 가지 실행 모드가 공존한다:
 
-1. **웹앱 (주력)** — `webapp/`의 React 앱. OpenClaw 게이트웨이에 붙은 19명 에이전트(기획 12 + 개발 7)가 픽셀아트/3D 사무실에서 GDD를 만들고 실제 코드를 다룬다. Electron 데스크톱 셸(`desktop/`)로도 포장됨.
+1. **웹앱 (주력)** — `webapp/`의 React 앱. OpenClaw 게이트웨이에 붙은 21명 기본 에이전트(기획·지원 14 + 개발 7)가 픽셀아트/3D 사무실에서 GDD를 만들고 실제 코드를 다룬다. Electron 데스크톱 셸(`desktop/`)로도 포장됨.
 2. **Claude Code 스튜디오 모드 (초기 설계, 여전히 동작)** — 이 저장소를 Claude Code로 열면 메인 세션이 PM이 되고 `.claude/agents/`의 7개 서브에이전트(scenario·gameplay·uiux·systems·balance·bm·visual)를 Task로 병렬 호출한다.
 
 ## 명령어
@@ -30,21 +30,21 @@ curl -X POST http://127.0.0.1:5199/api/health -d '{"restart":"gateway"}'
 
 ## 웹앱 아키텍처 (큰 그림)
 
-**백엔드가 따로 없다.** 서버 로직 전부가 `webapp/vite.config.ts`(~2300줄)의 미들웨어 플러그인(`/api/*`)이다. 프로젝트/GDD/보고서/아트/킷은 전부 `workspace/<프로젝트>/` 파일로 저장 (DB 없음). **주의: vite.config.ts를 수정하면 dev 서버가 재시작돼 진행 중인 에이전트 실행이 끊긴다** — 오케스트레이션 도중엔 편집 금지.
+**별도 Python 백엔드는 없다.** `/api/*`는 `webapp/vite.config.ts`의 플러그인과 `webapp/server/` 모듈이 맡고, 개발 시 Vite·배포 시 `dist-server/runtime.mjs`가 같은 플러그인을 구동한다. 프로젝트/GDD/보고서/아트/킷은 `VE_DATA_ROOT/workspace/<프로젝트>/`에 저장한다(DB 없음). **주의: vite.config.ts를 수정하면 dev 서버가 재시작돼 진행 중인 에이전트 실행이 끊긴다** — 오케스트레이션 도중엔 편집 금지.
 
 **상태는 zustand 단일 스토어** `webapp/src/store.ts`(~2400줄) — 연결·채팅·오케스트레이션 파이프라인(지시 분배→초안→교차검토→QA 게이트→GDD 반영)·회의 연출 상태(`agentStatus`/`livePeek`/`feed`/`meetingMembers`)가 모두 여기 있다. 2D(`OfficeView`)와 3D(`Office3D`) 사무실은 같은 스토어 상태를 다르게 그린 것. DEV 빌드에서만 `window.__VE = useVE`가 노출되어 브라우저에서 상태 주입 테스트가 가능하다.
 
 **에이전트 정의는 두 곳이 짝을 이룬다:**
 - `webapp/src/lib/agents.ts` — 로스터(AgentDef: GDD 섹션 소유권, `phase: plan|dev`, `staff`)와 **모든 프롬프트 빌더**. 개발팀 7명은 `staff:true, phase:"dev"`로 기획 팬아웃에서 제외된다.
-- `~/.openclaw/openclaw.json` — 실제 게이트웨이(포트 18789) 에이전트 19명. **전원 write/edit/exec 도구가 deny**되어 있다 — 프롬프트의 "도구 호출 금지" 문구는 불충분하고 이 deny 목록이 진짜 강제 장치다. 배포용 키리스 템플릿은 `config/openclaw.json`(`{{API_KEY}}` 플레이스홀더).
+- `~/.openclaw/openclaw.json` — 실제 게이트웨이(포트 18789) 에이전트. 기본 로스터 21명의 정본은 `config/agents.manifest.json`이며 채용 직원이 추가될 수 있다. **전원 write/edit/exec 도구가 deny**되어 있다 — 프롬프트의 "도구 호출 금지" 문구는 불충분하고 이 deny 목록이 진짜 강제 장치다. 배포용 키리스 템플릿은 `config/openclaw.json`(`{{API_KEY}}` 플레이스홀더).
 
-**LLM 라우팅(오너 방침, docs/DESKTOP-PLAN.md):** 로컬(Ollama)이 최종 목표, 클라우드(NVIDIA NIM)는 과도기, 제공자는 스왑 가능해야 한다. OpenClaw는 걷어내지 않는다. 기획 에이전트는 OpenClaw 게이트웨이(WS) 경유, **개발팀은 `webapp/server/dev-provider.mjs`의 다이렉트 함수호출 루프**(NVIDIA OpenAI 호환, SSE 스트리밍, `/api/dev-task`·`/api/dev-meeting`)를 쓴다 — OpenClaw 보완이지 대체가 아님.
+**LLM 라우팅(오너 방침, docs/DESKTOP-PLAN.md):** 로컬(Ollama)이 최종 목표, 클라우드는 과도기, 제공자는 스왑 가능해야 한다. OpenClaw는 걷어내지 않는다. 기획 에이전트는 OpenClaw 게이트웨이 경유, 개발팀은 기본적으로 공식 Codex SDK의 `workspace-write` 샌드박스를 쓰고 필요하면 `webapp/server/dev-provider.mjs`의 OpenAI 호환 제공자+MCP 루프로 전환한다. 총괄·코딩 경계의 정본은 `config/execution-policy.json`이다.
 
 **MCP:** `webapp/server/mcp-hub.mjs`가 클라이언트 허브. `config/mcp.json`에 서버 목록 + **에이전트별 도구 배정**(assignments; 예: td→unity-ankle, 구현팀→unity-coplay, QA→unity-hunt). 유니티 프로젝트는 `config/unity.local.json`(gitignored)에 경로만 등록하면 `unity-project` 파일시스템 서버가 자동 합성돼 개발팀 8명에게 배정된다. 가이드: `docs/UNITY-REVIEW.md`.
 
 **아트:** `webapp/server/image-provider.mjs` — 로컬 SD(webui `--api`)가 최우선, NVIDIA genai(`ai.api.nvidia.com/v1/genai/*` — LLM과 다른 엔드포인트)는 GPU 없는 과도기용. 규제 소지 키워드(유혈·무기 등 게임 아트 단골)는 자동으로 로컬로 라우팅하고, NVIDIA 정책 거부 시 로컬 폴백.
 
-**데스크톱(`desktop/main.cjs`, Electron 33):** 웹앱을 번들하지 않는 얇은 셸 — 설정된 원격 서버 → 로컬 재사용 → `npm run dev` 스폰 순으로 접속. 트레이 상주(닫기=숨김), `Ctrl+Shift+V`, 단일 인스턴스. 설치파일은 electron-builder NSIS(서명 없음 — `signAndEditExecutable:false`).
+**데스크톱(`desktop/main.cjs`, Electron 33):** 개발 모드에선 설정된 원격 서버 → 로컬 재사용 → Vite 스폰 순으로 접속하고, 설치본은 번들된 `dist-server/runtime.mjs`를 자체 실행한다. 코드/기본 자산과 사용자 데이터(`app.getPath("userData")/vision-engine-data`)를 분리한다. 트레이 상주(닫기=숨김), `Ctrl+Shift+V`, 단일 인스턴스. 설치파일은 electron-builder NSIS다.
 
 ## 함정 (이 저장소에서 실제로 겪은 것)
 

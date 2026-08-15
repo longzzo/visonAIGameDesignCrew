@@ -1,4 +1,4 @@
-// 개발 작업 — 다이렉트 프로바이더 SSE 스트림 소비
+// 개발 작업 — Codex SDK 또는 OpenAI 호환 제공자 SSE 스트림 소비
 
 export interface DevStep {
   kind: "task" | "say" | "tool" | "toolResult" | "done" | "error" | "phase";
@@ -35,11 +35,18 @@ async function consumeSSE(res: Response, onStep: (s: DevStep) => void): Promise<
 }
 
 /** 개발 회의 — 리드 구현 → 코드 리뷰 → 테스트 검증을 순차 스트리밍 */
-export async function runDevMeeting(leadId: string, task: string, onStep: (s: DevStep) => void): Promise<void> {
+export type DevEngine = "codex" | "provider";
+
+export async function runDevMeeting(
+  leadId: string,
+  task: string,
+  onStep: (s: DevStep) => void,
+  engine: DevEngine = "provider"
+): Promise<void> {
   const res = await fetch("/api/dev-meeting", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ leadId, task }),
+    body: JSON.stringify({ leadId, task, engine }),
   });
   await consumeSSE(res, onStep);
 }
@@ -49,12 +56,13 @@ export async function runDevTask(
   agentId: string,
   task: string,
   onStep: (s: DevStep) => void,
-  model?: string
+  model?: string,
+  engine: DevEngine = "provider"
 ): Promise<void> {
   const res = await fetch("/api/dev-task", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ agentId, task, model }),
+    body: JSON.stringify({ agentId, task, model, engine }),
   });
   await consumeSSE(res, onStep);
 }

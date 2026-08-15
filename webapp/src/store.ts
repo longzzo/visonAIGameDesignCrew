@@ -78,6 +78,14 @@ import {
 import { fetchGrowth, postGrowth, setGrowthCache, XP_RULES, type GrowthMap } from "./lib/growth";
 import { semanticRecallBlock } from "./lib/memory";
 import { designRecallBlock } from "./lib/designIntel";
+import { emptyUsageSummary, loadUsage, recordUsage, type UsageSummary } from "./lib/usage";
+import {
+  createOrchestrationJob,
+  finishOrchestrationJob,
+  heartbeatOrchestrationJob,
+  loadRecoverableJob,
+  type RecoverableJob,
+} from "./lib/jobs";
 import { canonDigest, canonFactBlock, canonRejectNotes, canonRevisePrompt, checkCanon, mergeChecks, type CanonCheck } from "./lib/canon";
 import { FUNDAMENTALS, fundamentalsPrompt, parseFundamentals, prescan } from "./lib/fundamentals";
 import { listHires, hireAgentApi, fireAgentApi, type HireRequest } from "./lib/hire";
@@ -431,6 +439,10 @@ interface VEState {
   gddPreview: { ts: number; markdown: string } | null;
 
   usage: UsageTotals;
+  usageHistory: UsageSummary;
+  recoverableJob: RecoverableJob | null;
+  dismissRecoverableJob: () => void;
+  resumeRecoverableJob: () => Promise<void>;
 
   init: () => Promise<void>;
   reconnect: () => Promise<void>;
@@ -652,6 +664,7 @@ let lastFeedAt = Date.now();
 let stallStage = 0;
 /** 진행 중 오케스트레이션의 중단 컨트롤러 — ⏹ 클릭 시 실행 중 호출까지 즉시 끊는다 */
 let orchAbort: AbortController | null = null;
+let orchJobHeartbeat: ReturnType<typeof setInterval> | null = null;
 
 /* 사무실 관리인 임계치 — 피드/채팅이 이 길이를 넘으면 오래된 부분을 요약으로 접는다 */
 const JANITOR_FEED_MAX = 240;
@@ -701,23 +714,23 @@ export const useVE = create<VEState>()((set, get) => {
     persistQueue = persistQueue.then(() => saveChatHistory(project, agentId, messages));
   };
 
-  const addUsage = (u: RunUsage | undefined, fallbackText?: string) =>
-    set((s) => {
-      if (u && (u.input || u.output)) {
-        return {
-          usage: {
-            input: s.usage.input + (u.input ?? 0),
-            output: s.usage.output + (u.output ?? 0),
-            calls: s.usage.calls + 1,
-            estimated: s.usage.estimated,
-          },
-        };
-      }
-      const est = fallbackText ? estimateTokens(fallbackText) : 0;
-      return {
-        usage: { input: s.usage.input, output: s.usage.output + est, calls: s.usage.calls + 1, estimated: true },
-      };
-    });
+  const addUsage = (u: RunUsage | undefined, fallbackText?: string) => {
+    const exact = Boolean(u && (u.input || u.output));
+    const delta: UsageTotals = exact
+      ? { input: u?.input ?? 0, output: u?.output ?? 0, calls: 1, estimated: false }
+      : { input: 0, output: fallbackText ? estimateTokens(fallbackText) : 0, calls: 1, estimated: true };
+    set((s) => ({
+      usage: {
+        input: s.usage.input + delta.input,
+        output: s.usage.output + delta.output,
+        calls: s.usage.calls + 1,
+        estimated: s.usage.estimated || delta.estimated,
+      },
+    }));
+    void recordUsage({ ...delta, model: get().modelName })
+      .then((usageHistory) => set({ usageHistory }))
+      .catch(() => undefined);
+  };
 
   const handleEvent = (frame: EventFrame) => {
     const p = frame.payload ?? {};
@@ -1310,6 +1323,15 @@ export const useVE = create<VEState>()((set, get) => {
     gddPreview: null,
 
     usage: { input: 0, output: 0, calls: 0, estimated: false },
+    usageHistory: emptyUsageSummary(),
+    recoverableJob: null,
+    dismissRecoverableJob: () => set({ recoverableJob: null }),
+    resumeRecoverableJob: async () => {
+      const job = get().recoverableJob;
+      if (!job || get().orchRunning) return;
+      set({ recoverableJob: null });
+      await get().startOrch({ request: job.request, poolIds: job.poolIds, autoRoute: job.autoRoute });
+    },
 
     init: async () => {
       if (initialized) return;
@@ -1335,10 +1357,18 @@ export const useVE = create<VEState>()((set, get) => {
       });
       void get().loadBraveStatus();
       await get().loadProjects();
+      void loadUsage().then((usageHistory) => set({ usageHistory })).catch(() => undefined);
       void get().loadGdd();
       // 저장된 피드/기본 에이전트 채팅 복원
       const project = get().activeProject;
       if (project) {
+        void loadRecoverableJob(project).then((recoverableJob) => set({ recoverableJob })).catch(() => undefined);
+        // 같은 서버에서 브라우저만 새로고침된 경우 heartbeat 만료 뒤 한 번 더 복구 상태를 확인한다.
+        setTimeout(() => {
+          const current = get().activeProject;
+          if (current !== project || get().orchRunning) return;
+          void loadRecoverableJob(project).then((recoverableJob) => set({ recoverableJob })).catch(() => undefined);
+        }, 35_000);
         const feed = await loadFeedHistory(project);
         if (feed.length > 0 && get().activeProject === project) set({ feed });
         void ensureChatLoaded(get().activeAgent);
@@ -1535,6 +1565,7 @@ export const useVE = create<VEState>()((set, get) => {
         failures: [],
         kitFiles: [],
         devKitLog: [],
+        recoverableJob: null,
       });
       await get().loadGdd();
       const feed = await loadFeedHistory(id);
@@ -1547,6 +1578,9 @@ export const useVE = create<VEState>()((set, get) => {
       void get().loadApprovals();
       void get().loadFailures();
       void get().loadKit();
+      void loadRecoverableJob(id).then((recoverableJob) => {
+        if (get().activeProject === id) set({ recoverableJob });
+      }).catch(() => undefined);
     },
 
     createProjectAction: async (name) => {
@@ -1771,6 +1805,19 @@ export const useVE = create<VEState>()((set, get) => {
       const autoRoute = opts?.autoRoute ?? st.autoRoute;
       const project = st.activeProject || "np";
       const runTag = `${project}-orch-${Date.now().toString(36)}`;
+      let jobId = "";
+      try {
+        jobId = await createOrchestrationJob(project, {
+          request: req,
+          poolIds: pool.map((agent) => agent.id),
+          autoRoute,
+        });
+        orchJobHeartbeat = setInterval(() => {
+          void heartbeatOrchestrationJob(project, jobId).catch(() => undefined);
+        }, 10_000);
+      } catch {
+        pushFeed({ from: "system", kind: "status", text: "⚠️ 작업 체크포인트를 저장하지 못했습니다 — 회의는 계속 진행합니다." });
+      }
 
       // 회의 참가 캐스트 — 회의를 실제로 이끄는 팀장(escalationTarget)과 초안을 올리는 주니어·인턴
       // 기여자까지 모두 회의실로 모은다. 이전엔 [pm + 선택 시니어]만 앉아, 정작 지시를 내리는
@@ -2660,9 +2707,14 @@ export const useVE = create<VEState>()((set, get) => {
       // 본문 도중 예외가 나면 orchRunning이 true로 굳어 ① 진행률이 그 자리에 멈추고
       // ② 이후 모든 지시가 "이미 회의 중"으로 조용히 무시된다. 사용자에겐 "걸었는데 아무 일도 없다"로만 보인다.
       // 따라서 어떤 경로로 끝나든 반드시 회의를 닫고, 닫힌 사유를 피드에 남긴다.
+      let jobStatus: "completed" | "failed" | "stopped" = "failed";
+      let jobError = "";
       try {
         await runBody();
+        jobStatus = get().stopRequested ? "stopped" : "completed";
       } catch (e: any) {
+        jobStatus = get().stopRequested ? "stopped" : "failed";
+        jobError = String(e?.message ?? e).slice(0, 1000);
         if (!get().stopRequested)
           pushFeed({
             from: "system",
@@ -2679,6 +2731,11 @@ export const useVE = create<VEState>()((set, get) => {
             });
           endMeeting();
         }
+      }
+      if (jobId) void finishOrchestrationJob(project, jobId, jobStatus, jobError).catch(() => undefined);
+      if (orchJobHeartbeat) {
+        clearInterval(orchJobHeartbeat);
+        orchJobHeartbeat = null;
       }
 
       // 회의 중 승인돼 예약된 안건이 있으면 이어서 자동 착수 (한 건씩)

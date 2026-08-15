@@ -1,4 +1,4 @@
-// Vision Engine — OpenClaw 에이전트 19명(기획 12 + 개발 7) 자동 설정
+// Vision Engine — manifest 기반 OpenClaw 에이전트 자동 설정
 // config/openclaw.json 템플릿을 ~/.openclaw/openclaw.json 에 적용한다.
 //   - 이미 등록된 API 키·게이트웨이 토큰은 그대로 보존
 //   - 기존 설정은 openclaw.json.bak-setup-<시각> 으로 백업
@@ -15,6 +15,8 @@ const HOME = os.homedir();
 const CFG_DIR = path.join(HOME, ".openclaw");
 const CFG = path.join(CFG_DIR, "openclaw.json");
 const TEMPLATE = path.join(REPO, "config", "openclaw.json");
+const MANIFEST = path.join(REPO, "config", "agents.manifest.json");
+const MODEL_POLICY = path.join(REPO, "config", "model-policy.json");
 
 const isPlaceholder = (s) => typeof s !== "string" || s.includes("{{") || s.includes("—") || s.length === 0;
 
@@ -23,6 +25,8 @@ let raw = fs.readFileSync(TEMPLATE, "utf-8");
 raw = raw.replaceAll("{{REPO}}", REPO.replaceAll("\\", "\\\\"));
 raw = raw.replaceAll("{{HOME}}", HOME.replaceAll("\\", "\\\\"));
 const next = JSON.parse(raw);
+const manifest = JSON.parse(fs.readFileSync(MANIFEST, "utf-8"));
+const modelPolicy = JSON.parse(fs.readFileSync(MODEL_POLICY, "utf-8"));
 
 // 2) 기존 설정에서 보존할 것들 회수
 let prev = null;
@@ -45,6 +49,31 @@ for (const [name, p] of Object.entries(next.models?.providers ?? {})) {
     p.apiKey = !isPlaceholder(prevKey) ? prevKey : name === "ollama" ? "ollama-local" : "";
   }
 }
+
+// 사용자 모델 선택은 보존하되, 제공 종료가 확인된 모델만 역할별 안전 기본값으로 교체한다.
+const retired = (model) =>
+  typeof model === "string" && modelPolicy.retiredModelPatterns.some((needle) => model.includes(needle));
+const prevAgents = new Map((prev?.agents?.list ?? []).map((agent) => [agent.id, agent]));
+const roles = new Map(manifest.agents.map((agent) => [agent.id, agent.modelRole]));
+const providerReady = (model) => {
+  const providerName = String(model ?? "").split("/")[0];
+  const provider = next.models?.providers?.[providerName];
+  if (!provider) return true;
+  const key = provider.apiKey;
+  return providerName === "ollama" || (!!key && !isPlaceholder(key));
+};
+for (const agent of next.agents.list) {
+  const previous = prevAgents.get(agent.id)?.model;
+  if (previous && !retired(previous)) agent.model = previous;
+  if (!agent.model || retired(agent.model)) {
+    agent.model = modelPolicy.roles[roles.get(agent.id)] ?? modelPolicy.localFallback;
+  }
+  if (!providerReady(agent.model)) agent.model = modelPolicy.localFallback;
+}
+const previousDefault = prev?.agents?.defaults?.model?.primary;
+if (previousDefault && !retired(previousDefault)) next.agents.defaults.model.primary = previousDefault;
+if (retired(next.agents.defaults.model.primary)) next.agents.defaults.model.primary = modelPolicy.roles.planner;
+if (!providerReady(next.agents.defaults.model.primary)) next.agents.defaults.model.primary = modelPolicy.localFallback;
 
 // 3) 백업 후 기록
 fs.mkdirSync(CFG_DIR, { recursive: true });

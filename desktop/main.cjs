@@ -4,7 +4,7 @@
 //   · 클라이언트 PC(다른 컴퓨터): 설정된 서버 주소(예: 노트북의 Tailscale 주소)로 접속
 // 서버 주소는 첫 실행 설정 화면 또는 연결 실패 시 설정 화면에서 저장한다.
 const { app, BrowserWindow, shell, Menu, ipcMain, Tray, globalShortcut, nativeImage } = require("electron");
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -16,6 +16,29 @@ let quitting = false;
 
 const LOCAL_URL = "http://127.0.0.1:5199";
 
+/** 설치본에 포함된 독립 실행 Studio 런타임. 개발 중에는 null. */
+function packagedStudio() {
+  if (!app.isPackaged) return null;
+  const root = path.join(process.resourcesPath, "vision-engine");
+  const runtime = path.join(root, "webapp", "dist-server", "runtime.mjs");
+  return fs.existsSync(runtime) ? { root, runtime, webapp: path.join(root, "webapp") } : null;
+}
+
+/** 새 PC에서만 OpenClaw 기본 설정을 만든다. 기존 설정은 자동으로 덮지 않는다. */
+function ensurePackagedOpenclaw(studio) {
+  const cfg = path.join(os.homedir(), ".openclaw", "openclaw.json");
+  if (fs.existsSync(cfg)) return;
+  const setup = path.join(studio.root, "scripts", "setup-openclaw.mjs");
+  if (!fs.existsSync(setup)) return;
+  const result = spawnSync(process.execPath, [setup], {
+    cwd: studio.root,
+    windowsHide: true,
+    encoding: "utf-8",
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+  });
+  if (result.status !== 0) console.warn("⚠️ OpenClaw 초기 설정 실패:", String(result.stderr || result.stdout || "알 수 없는 오류").slice(0, 500));
+}
+
 /**
  * webapp 폴더 탐색 — 설치된 앱은 __dirname이 resources/app이라 ../webapp이 없다.
  * 후보: 설정(repoDir) → 환경변수 → 개발 체크아웃(../webapp) → 알려진 설치 경로.
@@ -23,6 +46,7 @@ const LOCAL_URL = "http://127.0.0.1:5199";
 function findWebappDir() {
   const cfg = loadConfig();
   const candidates = [
+    packagedStudio()?.webapp,
     cfg.repoDir && path.join(cfg.repoDir, "webapp"),
     process.env.VE_REPO && path.join(process.env.VE_REPO, "webapp"),
     path.resolve(__dirname, "..", "webapp"),
@@ -123,11 +147,39 @@ async function findRunningServer() {
 
 /** 로컬 서버가 없고 이 PC에 저장소(webapp)가 있으면 직접 띄운다 */
 async function trySpawnLocalServer() {
+  const packaged = packagedStudio();
+  if (packaged) {
+    ensurePackagedOpenclaw(packaged);
+    console.log("⏳ 내장 Studio 런타임 기동 중…", packaged.runtime);
+    showSplash("Vision Engine Studio를 기동하고 있습니다…");
+    try {
+      serverChild = spawn(process.execPath, [packaged.runtime], {
+        cwd: path.dirname(packaged.runtime),
+        windowsHide: true,
+        stdio: "ignore",
+        shell: false,
+        env: {
+          ...process.env,
+          ELECTRON_RUN_AS_NODE: "1",
+          VE_REPO_ROOT: packaged.root,
+          VE_WEBAPP_ROOT: packaged.webapp,
+          VE_DATA_ROOT: path.join(app.getPath("userData"), "vision-engine-data"),
+          VE_RUNTIME_HOST: "127.0.0.1",
+          VE_RUNTIME_PORT: "5199",
+        },
+      });
+      serverChild.on("error", (e) => console.warn("⚠️ 내장 런타임 기동 실패:", String(e?.message ?? e)));
+    } catch (e) {
+      console.warn("⚠️ 내장 런타임 spawn 예외:", String(e?.message ?? e));
+      return false;
+    }
+  }
+
   const webappDir = findWebappDir();
-  if (!webappDir) return false;
-  console.log("⏳ 로컬 서버 기동 중…", webappDir);
-  showSplash("로컬 서버를 기동하고 있습니다…");
-  try {
+  if (!packaged && !webappDir) return false;
+  if (!packaged) try {
+    console.log("⏳ 개발 서버 기동 중…", webappDir);
+    showSplash("개발 서버를 기동하고 있습니다…");
     // Windows: Node 20+(CVE-2024-27980)는 .cmd/.bat을 shell:false로 spawn하면 EINVAL로 죽는다.
     // 반드시 shell:true 로 실행해야 npm.cmd가 뜬다. 실패해도 설정 화면으로 안전하게 폴백.
     serverChild = spawn("npm.cmd", ["run", "dev"], {

@@ -1,4 +1,6 @@
-// Vision Engine 8개 에이전트 정의 (OpenClaw 설정과 동일한 id 사용)
+// Vision Engine 에이전트 정의 — 정적 메타데이터의 정본은 agents.manifest.json.
+
+import agentManifest from "../../../config/agents.manifest.json";
 
 /**
  * 오너에게 보이는 산출물의 언어 규칙 — **공용 상수 (한 곳에서 관리)**.
@@ -46,35 +48,14 @@ export const RANK_LABEL: Record<Rank, string> = {
 };
 export const RANK_EMOJI: Record<Rank, string> = { exec: "👑", manager: "🎖️", senior: "", junior: "🌱", intern: "🐣" };
 
-export const AGENTS: AgentDef[] = [
-  { id: "pm", name: "PM 디렉터", emoji: "🎯", role: "총괄·컨셉·GDD 통합", section: "## 1.", sectionTitle: "개요", color: "#8b7cf6" },
-  { id: "scenario", name: "시나리오 라이터", emoji: "📖", role: "세계관·스토리·캐릭터", section: "## 2.", sectionTitle: "세계관·스토리", color: "#f472b6" },
-  { id: "gameplay", name: "게임플레이 디자이너", emoji: "🕹️", role: "코어 루프·메커니크", section: "## 3.", sectionTitle: "게임플레이", color: "#60a5fa" },
-  { id: "systems", name: "시스템 디자이너", emoji: "⚙️", role: "성장·경제·콘텐츠 구조", section: "## 4.", sectionTitle: "시스템", color: "#fbbf24" },
-  { id: "uiux", name: "UI/UX 디자이너", emoji: "🧭", role: "화면 구조·온보딩", section: "## 5.", sectionTitle: "UI/UX", color: "#34d399" },
-  { id: "balance", name: "밸런스 디자이너", emoji: "⚖️", role: "수치·난이도 곡선", section: "## 6.", sectionTitle: "밸런스", color: "#a3e635" },
-  { id: "bm", name: "BM 전략가", emoji: "💰", role: "수익모델·라이브옵스 (읽기 전용)", section: "## 7.", sectionTitle: "수익모델", color: "#fde047" },
-  { id: "visual", name: "아트 디렉터", emoji: "🎨", role: "아트 스타일·팔레트", section: "## 8.", sectionTitle: "아트", color: "#e879f9" },
-  { id: "td", name: "선임 개발자", emoji: "🛠️", role: "개발 명세·기능 목록·개발 순서(로드맵)·기술 리스크", section: "## 9.", sectionTitle: "기술", color: "#38bdf8" },
-  { id: "scheduler", name: "스케줄러", emoji: "📅", role: "일정 설계·마일스톤·대회 역산", section: "## 10.", sectionTitle: "일정", color: "#fb923c" },
-  { id: "marketing", name: "마케팅 담당관", emoji: "📢", role: "마케팅 전략·트렌드 조사 (웹서치 기본)", section: "## 11.", sectionTitle: "마케팅", color: "#f87171" },
-  // 사운드는 12번으로 **덧붙인다** — 기존 절 번호(6-3·9-0처럼 문서 전체가 인용)를 재번호하면
-  // 정본이 통째로 깨진다. 오너 지시 2026-07-26: "기초적인 사운드를 놓친 게 많다".
-  { id: "sound", name: "사운드 디자이너", emoji: "🔊", role: "BGM·SFX·오디오 피드백·믹싱", section: "## 12.", sectionTitle: "사운드", color: "#2dd4bf" },
-  { id: "qa", name: "QA 디렉터", emoji: "🧪", role: "산출물 품질 채점·반려 (섹션 없음)", section: "## —", sectionTitle: "품질", color: "#94a3b8", staff: true },
-  // 🩺 기초 점검관 — "쓴 것"의 품질은 QA가 보지만 "없는 것"은 아무도 못 봤다(실사고: HP 회복 부재를
-  // 7/23에야 발견, 사운드 담당 0, 해상도 정본 누락, 접근성 0). 게임 기초 체크리스트로 결손을 찾는다.
-  { id: "fund", name: "기초 점검관", emoji: "🩺", role: "게임 기초 구성요소 누락 점검 (섹션 없음)", section: "## —", sectionTitle: "기초", color: "#f59e0b", staff: true },
+type ManifestAgent = Omit<AgentDef, "phase" | "rank"> & {
+  phase?: "plan" | "dev";
+  rank: Rank;
+  modelRole: "head" | "planner" | "developer" | "reviewer";
+  default?: boolean;
+};
 
-  // ── 개발팀 (phase: dev) — GDD 섹션 없이 실제 코드/산출물을 다룬다. 기획 팬아웃 대상 아님. ──
-  { id: "uarch", name: "Unity 아키텍트", emoji: "🏛️", role: "데이터 주도 설계·ScriptableObject·시스템 구조", section: "## —", sectionTitle: "아키텍처", color: "#38bdf8", staff: true, phase: "dev" },
-  { id: "ugp", name: "게임플레이 스크립터", emoji: "🎯", role: "Unity 게임플레이 구현·상태머신·튜닝 노출", section: "## —", sectionTitle: "게임플레이 구현", color: "#a78bfa", staff: true, phase: "dev" },
-  { id: "netcode", name: "멀티플레이 엔지니어", emoji: "🔗", role: "NGO·서버 권위·예측/보정·안티치트", section: "## —", sectionTitle: "네트워크", color: "#22d3ee", staff: true, phase: "dev" },
-  { id: "techart", name: "테크니컬 아티스트", emoji: "✨", role: "Shader Graph/HLSL·URP/HDRP·VFX·성능예산", section: "## —", sectionTitle: "렌더링", color: "#f0abfc", staff: true, phase: "dev" },
-  { id: "edtool", name: "에디터 툴 개발자", emoji: "🛠️", role: "EditorWindow·PropertyDrawer·검증 자동화", section: "## —", sectionTitle: "에디터 툴", color: "#cbd5e1", staff: true, phase: "dev" },
-  { id: "review", name: "코드 리뷰어", emoji: "👁️", role: "정확성·보안·유지보수·성능 코드 검토", section: "## —", sectionTitle: "코드 리뷰", color: "#c084fc", staff: true, phase: "dev" },
-  { id: "testeng", name: "테스트 엔지니어", emoji: "🧪", role: "증거 기반 통합 테스트·엣지 케이스 (기본 미흡)", section: "## —", sectionTitle: "테스트", color: "#f43f5e", staff: true, phase: "dev" },
-];
+export const AGENTS: AgentDef[] = (agentManifest.agents as ManifestAgent[]).map(({ modelRole: _modelRole, default: _default, ...agent }) => ({ ...agent }));
 
 /** 개발팀 (phase: dev) — 킷을 넘겨받아 실제 코드를 짜고·리뷰하고·검증한다 */
 export const DEV_TEAM = AGENTS.filter((a) => a.phase === "dev");
@@ -84,29 +65,6 @@ export const DEV_TEAM = AGENTS.filter((a) => a.phase === "dev");
  * 팀장(manager): visual/td/qa 승격 + 신규 planlead/bizlead(채용 시 등록).
  * 시니어는 각 본부 팀장에게 보고. 팀장·대표는 아래에서 기본값 처리.
  */
-const BUILTIN_RANK: Record<string, Rank> = {
-  pm: "exec",
-  visual: "manager",
-  td: "manager",
-  qa: "manager",
-};
-const BUILTIN_REPORTS: Record<string, string> = {
-  // 기획 본부 시니어 → 기획 팀장(채용 전이면 아래 managerOf가 pm으로 폴백)
-  scenario: "planlead", gameplay: "planlead", systems: "planlead", uiux: "planlead", balance: "planlead",
-  // 사업 본부 시니어 → 사업 팀장
-  bm: "bizlead", scheduler: "bizlead", marketing: "bizlead",
-  // 아트/개발/품질 팀장은 대표에 직보
-  visual: "pm", td: "pm", qa: "pm",
-  // 개발 본부 시니어 → 개발 팀장(td)
-  uarch: "td", ugp: "td", netcode: "td", techart: "td", edtool: "td",
-  // 품질 본부 시니어 → QA 팀장(qa)
-  review: "qa", testeng: "qa",
-};
-for (const a of AGENTS) {
-  a.rank = BUILTIN_RANK[a.id] ?? "senior";
-  if (a.id !== "pm") a.reportsTo = BUILTIN_REPORTS[a.id] ?? "pm";
-}
-
 export const AGENT_MAP: Record<string, AgentDef> = Object.fromEntries(
   AGENTS.map((a) => [a.id, a])
 );

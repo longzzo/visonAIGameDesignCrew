@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "retiredModelPatterns": [
+    "qwen/qwen3-next-80b-a3b-instruct"
+  ],
+  "roles": {
+    "head": "nvidia/openai/gpt-oss-120b",
+    "planner": "nvidia/openai/gpt-oss-120b",
+    "developer": "nvidia/openai/gpt-oss-120b",
+    "reviewer": "nvidia/openai/gpt-oss-120b"
+  },
+  "localFallback": "ollama/qwen3:8b"
+}

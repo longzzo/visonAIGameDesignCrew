@@ -1,10 +1,5 @@
-// OpenClaw 게이트웨이 WebSocket 클라이언트 (Vision Engine 웹앱 전용 최소 구현)
-//
-// 프로토콜 개요 (docs.openclaw.ai/gateway/protocol):
-//  - 서버가 { type:"event", event:"connect.challenge" } 를 보내면
-//    클라이언트가 { type:"req", method:"connect", params:{ auth:{token}, ... } } 로 응답
-//  - 이후 { type:"req"|"res"|"event" } JSON 프레임을 주고받는다.
-//  - 메시지 전송: method "chat.send" (스트리밍 이벤트 "chat") 또는 method "agent" (완료 시 res)
+// OpenClaw 게이트웨이 브라우저 클라이언트.
+// 인증 토큰은 서버의 gateway-relay에만 있고, 브라우저는 제한된 SSE 이벤트만 받는다.
 
 import { loadGuard } from "./cost";
 import { skillDirective } from "./growth";
@@ -25,46 +20,16 @@ export interface RunResult {
   raw?: any;
 }
 
-type Pending = {
-  resolve: (v: any) => void;
-  reject: (e: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-};
-
 const CONNECT_TIMEOUT = 12_000;
-// 로컬 8B 모델은 긴 산출물에 수 분이 걸릴 수 있다.
-const DEFAULT_REQ_TIMEOUT = 420_000;
-
-function env(key: string): string {
-  return ((import.meta as any).env?.[key] as string) || "";
-}
 
 export class GatewayClient {
-  private ws: WebSocket | null = null;
-  private pending = new Map<string, Pending>();
+  private events: EventSource | null = null;
   private eventListeners = new Set<(f: EventFrame) => void>();
   private statusListeners = new Set<(s: ConnStatus, detail: string) => void>();
   /** 에이전트 실행 실패 알림 — 크레딧 소진 등 반복 오류 감지용 */
   private runErrorListeners = new Set<(msg: string) => void>();
-  private seq = 0;
-  private connectSent = false;
-  private connectResolve: ((ok: boolean) => void) | null = null;
-  private manualClose = false;
-
   status: ConnStatus = "idle";
   detail = "";
-  hello: any = null;
-
-  private urls(): string[] {
-    const direct = env("VITE_GATEWAY_URL") || "ws://127.0.0.1:18789";
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const proxied = `${proto}://${location.host}/gateway-ws`;
-    // 폰 등 원격(비 localhost) 접속이면 direct(127.0.0.1)는 상대 기기를 가리켜 실패하므로
-    // 서버측 프록시를 먼저 시도해 12초 타임아웃 지연을 피한다.
-    const host = location.hostname;
-    const isLocal = host === "127.0.0.1" || host === "localhost" || host === "::1";
-    return isLocal ? [direct, proxied] : [proxied, direct];
-  }
 
   onEvent(fn: (f: EventFrame) => void): () => void {
     this.eventListeners.add(fn);
@@ -89,172 +54,45 @@ export class GatewayClient {
 
   async connect(): Promise<boolean> {
     if (this.status === "connected") return true;
-    if (this.status === "connecting") return false;
-    this.manualClose = false;
-    for (const url of this.urls()) {
-      const ok = await this.tryUrl(url).catch(() => false);
-      if (ok) return true;
+    this.setStatus("connecting", "서버 릴레이 확인 중");
+    if (!this.events) {
+      const events = new EventSource("/api/gateway/events");
+      this.events = events;
+      events.onmessage = (message) => {
+        try {
+          const frame = JSON.parse(message.data) as EventFrame;
+          if (frame.event === "gateway.status") {
+            const connected = !!frame.payload?.connected;
+            this.setStatus(connected ? "connected" : "closed", String(frame.payload?.detail ?? ""));
+            return;
+          }
+          this.eventListeners.forEach((listener) => listener(frame));
+        } catch {
+          /* 잘못된 릴레이 프레임은 무시 */
+        }
+      };
+      events.onerror = () => this.setStatus("closed", "게이트웨이 이벤트 릴레이 연결이 끊겼습니다");
     }
-    this.setStatus("error", "게이트웨이 연결 실패 — OpenClaw 게이트웨이가 켜져 있는지 확인하세요 (openclaw daemon status)");
-    return false;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CONNECT_TIMEOUT);
+    try {
+      const response = await fetch("/api/gateway/status", { signal: controller.signal });
+      const result = await response.json();
+      const ok = !!result?.connected;
+      this.setStatus(ok ? "connected" : "error", String(result?.detail ?? "게이트웨이 연결 실패"));
+      return ok;
+    } catch {
+      this.setStatus("error", "Vision Engine 서버의 게이트웨이 릴레이에 연결할 수 없습니다");
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   disconnect() {
-    this.manualClose = true;
-    try {
-      this.ws?.close();
-    } catch {
-      /* noop */
-    }
-  }
-
-  private tryUrl(url: string): Promise<boolean> {
-    this.setStatus("connecting", url);
-    this.connectSent = false;
-    return new Promise<boolean>((resolve) => {
-      let settled = false;
-      let ws: WebSocket;
-      const finish = (ok: boolean) => {
-        if (settled) return;
-        settled = true;
-        if (!ok) {
-          try {
-            ws?.close();
-          } catch {
-            /* noop */
-          }
-        }
-        resolve(ok);
-      };
-      try {
-        ws = new WebSocket(url);
-      } catch {
-        finish(false);
-        return;
-      }
-      this.ws = ws;
-      const connectTimer = setTimeout(() => finish(false), CONNECT_TIMEOUT);
-      // 일부 구현은 challenge 이벤트 없이 바로 connect 요청을 기대할 수 있어
-      // 잠시 기다렸다가 선제적으로 전송한다.
-      const preemptive = setTimeout(() => this.sendConnect(), 1500);
-      this.connectResolve = (ok) => {
-        clearTimeout(connectTimer);
-        clearTimeout(preemptive);
-        if (ok) this.setStatus("connected", url);
-        finish(ok);
-      };
-      ws.onmessage = (m) => this.handleMessage(m);
-      ws.onclose = () => {
-        clearTimeout(connectTimer);
-        clearTimeout(preemptive);
-        const wasConnected = this.status === "connected";
-        this.failAllPending("게이트웨이 연결이 끊어졌습니다");
-        this.setStatus("closed");
-        finish(false);
-        if (wasConnected && !this.manualClose) {
-          setTimeout(() => void this.connect(), 2500);
-        }
-      };
-    });
-  }
-
-  private sendConnect() {
-    if (this.connectSent || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    this.connectSent = true;
-    const id = `connect-${++this.seq}`;
-    const timer = setTimeout(() => {
-      this.pending.delete(id);
-      this.connectResolve?.(false);
-      this.connectResolve = null;
-    }, CONNECT_TIMEOUT);
-    this.pending.set(id, {
-      resolve: (payload) => {
-        clearTimeout(timer);
-        this.hello = payload;
-        this.connectResolve?.(true);
-        this.connectResolve = null;
-      },
-      reject: (e) => {
-        clearTimeout(timer);
-        this.detail = e.message;
-        console.warn("[gateway] connect 거부:", e.message);
-        this.connectResolve?.(false);
-        this.connectResolve = null;
-      },
-      timer,
-    });
-    this.ws.send(
-      JSON.stringify({
-        type: "req",
-        id,
-        method: "connect",
-        params: {
-          minProtocol: 3,
-          maxProtocol: 4,
-          // client.id / client.mode 는 게이트웨이 enum 검증 대상 — CLI와 동일 신원 사용
-          client: { id: "cli", version: "0.1.0", platform: "web", mode: "cli" },
-          role: "operator",
-          scopes: ["operator.read", "operator.write"],
-          auth: { token: env("VITE_GATEWAY_TOKEN") },
-          locale: "ko-KR",
-        },
-      })
-    );
-  }
-
-  private handleMessage(m: MessageEvent) {
-    let frame: any;
-    try {
-      frame = JSON.parse(String(m.data));
-    } catch {
-      return;
-    }
-    if (frame?.type === "res") {
-      const p = this.pending.get(frame.id);
-      if (!p) return;
-      this.pending.delete(frame.id);
-      clearTimeout(p.timer);
-      if (frame.ok === false || frame.error) {
-        const msg =
-          frame.error?.message ??
-          (typeof frame.error === "string" ? frame.error : JSON.stringify(frame.error ?? "요청 실패"));
-        p.reject(new Error(msg));
-      } else {
-        p.resolve(frame.payload);
-      }
-      return;
-    }
-    if (frame?.type === "event") {
-      if (frame.event === "connect.challenge") {
-        this.sendConnect();
-        return;
-      }
-      this.eventListeners.forEach((f) => f(frame as EventFrame));
-    }
-  }
-
-  private failAllPending(msg: string) {
-    for (const [, p] of this.pending) {
-      clearTimeout(p.timer);
-      p.reject(new Error(msg));
-    }
-    this.pending.clear();
-  }
-
-  request(method: string, params: any, timeoutMs = DEFAULT_REQ_TIMEOUT): Promise<any> {
-    return new Promise((resolve, reject) => {
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN || this.status !== "connected") {
-        reject(new Error("게이트웨이에 연결되어 있지 않습니다"));
-        return;
-      }
-      const id = `${method}-${Date.now()}-${++this.seq}`;
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`${method} 요청 시간 초과 (${Math.round(timeoutMs / 1000)}초)`));
-      }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
-      this.ws.send(JSON.stringify({ type: "req", id, method, params }));
-    });
+    this.events?.close();
+    this.events = null;
+    this.setStatus("closed");
   }
 
   /** res 페이로드에서 최종 텍스트/사용량을 방어적으로 추출 */
@@ -358,10 +196,9 @@ export class GatewayClient {
   /** 게이트웨이에 등록된 에이전트 목록 (실패해도 무해 — 정적 목록으로 폴백) */
   async listAgents(): Promise<any[]> {
     try {
-      const payload = await this.request("agents.list", {}, 15_000);
-      if (Array.isArray(payload)) return payload;
-      if (Array.isArray(payload?.agents)) return payload.agents;
-      return [];
+      const response = await fetch("/api/gateway/agents");
+      const payload = await response.json();
+      return Array.isArray(payload?.agents) ? payload.agents : [];
     } catch {
       return [];
     }

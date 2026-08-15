@@ -7,7 +7,7 @@ import { useVE } from "../store";
 
 /** 사용량·비용 패널 — 토큰/호출/추정 비용 + 비용 가드(10분 호출 한도) 설정 */
 function UsagePanel({ onClose }: { onClose: () => void }) {
-  const { usage, modelName } = useVE();
+  const { usage, usageHistory, modelName } = useVE();
   const [guard, setGuard] = useState<CostGuard>(loadGuard());
   const [, tick] = useState(0);
   useEffect(() => {
@@ -36,7 +36,7 @@ function UsagePanel({ onClose }: { onClose: () => void }) {
         <div className="doc-head">
           <b>🪙 사용량 · 비용</b>
           <span className="dim" style={{ flex: 1, fontSize: 11.5 }}>
-            이번 세션 기준 · 단가는 추정치 — 실제 청구는 제공자 대시보드가 정답입니다
+            세션·오늘·이번 주·전체 기록 · 단가는 추정치 — 실제 청구는 제공자 대시보드가 정답입니다
           </span>
           <button className="btn small" onClick={onClose} title="닫기 (Esc)">
             ✕
@@ -66,6 +66,10 @@ function UsagePanel({ onClose }: { onClose: () => void }) {
               <span className="dim">추정 비용</span>
               <b>{fmtUsd(cost)}</b>
             </div>
+          </div>
+          <div className="usage-price dim">
+            영속 기록 — 오늘 {usageHistory.today.calls.toLocaleString()}회 · 이번 주 {usageHistory.week.calls.toLocaleString()}회 · 전체{" "}
+            {usageHistory.all.calls.toLocaleString()}회 / {usageHistory.all.output.toLocaleString()} 출력 토큰
           </div>
           <div className="usage-price dim">
             현재 모델 <b>{modelName}</b> → {price.label} (입력 ${price.inPrice}/1M · 출력 ${price.outPrice}/1M)

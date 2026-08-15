@@ -1,11 +1,10 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useVE } from "./store";
 import { Onboarding, needsOnboarding } from "./components/Onboarding";
 import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
 import { ChatPanel } from "./components/ChatPanel";
 import { OrchestrationView } from "./components/OrchestrationView";
-import { OfficeView } from "./components/OfficeView";
 import { DataPanel } from "./components/DataPanel";
 import { GddPanel } from "./components/GddPanel";
 import { AgentProfile } from "./components/AgentProfile";
@@ -21,6 +20,9 @@ import { DeliverPanel } from "./components/DeliverPanel";
 import { FundPanel } from "./components/FundPanel";
 import { LedgerPanel } from "./components/LedgerPanel";
 
+// Three.js 사무실은 초기 JS의 대부분을 차지하므로 해당 화면을 열 때만 내려받는다.
+const OfficeView = lazy(() => import("./components/OfficeView").then((module) => ({ default: module.OfficeView })));
+
 /**
  * 연결 끊김 배너 — **무엇이** 끊겼는지 구분한다.
  *
@@ -28,7 +30,7 @@ import { LedgerPanel } from "./components/LedgerPanel";
  * 아무리 기다려도 복구되지 않았다. 확인해보니 **게이트웨이(18789)는 멀쩡했고 VE 앱 서버(5199)가
  * 죽어 있었다**(netstat: LISTENING 없음, 앱이 SYN_SENT만 반복).
  *
- * 게이트웨이 WebSocket은 Vite의 `/gateway-ws` 프록시를 지나가므로, **앱 서버가 죽으면 증상이
+ * 게이트웨이 이벤트는 앱 서버의 `/api/gateway/events` 릴레이를 지나가므로, **앱 서버가 죽으면 증상이
  * "게이트웨이 끊김"으로 나타난다** — 원인을 정반대로 지목하는 셈이다. 게다가 이 경우엔
  * 자동 재연결이 영원히 성공하지 못한다(붙을 서버 자체가 없다). 그래서 안내가 아니라 오진이었다.
  *
@@ -102,6 +104,9 @@ export default function App() {
     ledgerOpen,
     setLedgerOpen,
     setDeckOpen,
+    recoverableJob,
+    dismissRecoverableJob,
+    resumeRecoverableJob,
   } = useVE();
 
   const [onboard, setOnboard] = useState(false);
@@ -141,6 +146,18 @@ export default function App() {
           </button>
         </div>
       )}
+      {recoverableJob && (
+        <div className="app-banner warn">
+          ♻️ <b>이전 회의가 중단되었습니다.</b>{" "}
+          <span className="dim">{recoverableJob.request.slice(0, 100)}{recoverableJob.request.length > 100 ? "…" : ""}</span>
+          <button className="btn tiny" onClick={() => void resumeRecoverableJob()}>
+            같은 요청 다시 시작
+          </button>
+          <button className="btn tiny" onClick={dismissRecoverableJob}>
+            닫기
+          </button>
+        </div>
+      )}
       {/* 마스터 GDD는 사이드 상주 대신 📄 GDD 탭에서만 — 오너 가독성 요청 (사이드 3번째 컬럼 제거) */}
       <div className={`app-body no-side-gdd panel-${mobilePanel} ${view === "office" || view === "studio" ? "office-full" : ""}`}>
         <Sidebar />
@@ -149,7 +166,9 @@ export default function App() {
             <OrchestrationView />
           ) : view === "office" || view === "studio" ? (
             // "studio" = 사무실 스튜디오의 별칭 — 첫 방문 기본 화면이 3D 스튜디오가 되도록
-            <OfficeView />
+            <Suspense fallback={<div className="empty-hint">3D 스튜디오를 불러오는 중…</div>}>
+              <OfficeView />
+            </Suspense>
           ) : view === "data" ? (
             <DataPanel />
           ) : view === "gdd" ? (

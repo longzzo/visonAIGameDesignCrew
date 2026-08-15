@@ -8,10 +8,11 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO = path.resolve(__dirname, "..", "..");
+const REPO = process.env.VE_REPO_ROOT ? path.resolve(process.env.VE_REPO_ROOT) : path.resolve(__dirname, "..", "..");
+const DATA_ROOT = process.env.VE_DATA_ROOT ? path.resolve(process.env.VE_DATA_ROOT) : REPO;
 const MCP_CONFIG = path.join(REPO, "config", "mcp.json");
-const UNITY_CONFIG = path.join(REPO, "config", "unity.local.json"); // 사용자별, gitignore
-const PROJECTS_DIR = path.join(REPO, "workspace", "projects");
+const UNITY_CONFIG = path.join(DATA_ROOT, "config", "unity.local.json"); // 사용자별, gitignore
+const PROJECTS_DIR = path.join(DATA_ROOT, "workspace", "projects");
 
 /** id → { def, status, client, transport, tools, error } */
 const conns = new Map();

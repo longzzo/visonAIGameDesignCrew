@@ -6,6 +6,7 @@
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
+    "predist": "npm --prefix ../webapp run build:studio && node ../webapp/scripts/prepare-desktop-runtime.mjs",
     "dist": "electron-builder --win nsis"
   },
   "devDependencies": {
@@ -23,6 +24,17 @@
       "preload.cjs",
       "settings.html",
       "tray-icon.png"
+    ],
+    "extraResources": [
+      { "from": "../webapp/dist", "to": "vision-engine/webapp/dist" },
+      { "from": "../webapp/dist-server", "to": "vision-engine/webapp/dist-server" },
+      { "from": "../webapp/.desktop-runtime/node_modules", "to": "vision-engine/webapp/node_modules" },
+      { "from": "../webapp/public", "to": "vision-engine/webapp/public" },
+      { "from": "../webapp/assets", "to": "vision-engine/webapp/assets" },
+      { "from": "../agents", "to": "vision-engine/agents", "filter": ["**/AGENTS.md"] },
+      { "from": "../config", "to": "vision-engine/config", "filter": ["agents.manifest.json", "execution-policy.json", "mcp.json", "model-policy.json", "openclaw.json"] },
+      { "from": "../scripts", "to": "vision-engine/scripts", "filter": ["setup-openclaw.mjs", "sync-agent-manifest.mjs"] },
+      { "from": "../templates", "to": "vision-engine/templates" }
     ],
     "win": {
       "target": [

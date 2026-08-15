@@ -1,0 +1,27 @@
+name: Vision Engine CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - name: 의존성 설치
+        working-directory: webapp
+        run: npm ci --ignore-scripts
+      - name: 전체 검증
+        working-directory: webapp
+        run: npm run check
+      - name: 운영 의존성 보안 감사
+        working-directory: webapp
+        run: npm audit --omit=dev --audit-level=high
+      - name: 데스크톱 진입점 문법 검사
+        run: node --check desktop/main.cjs

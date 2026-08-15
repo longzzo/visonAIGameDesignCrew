@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { AGENT_MAP, DEV_TEAM } from "../lib/agents";
-import { runDevTask, runDevMeeting, type DevStep } from "../lib/devtask";
+import { runDevTask, runDevMeeting, type DevEngine, type DevStep } from "../lib/devtask";
 import { fetchMcp } from "../lib/mcp";
 import { notify } from "../lib/notify";
 
 /**
  * 개발 작업 패널 — 개발팀 에이전트에게 실제 작업을 시킨다.
- * OpenClaw 브리지가 아니라 다이렉트 프로바이더(NVIDIA)로 함수호출 루프를 돌며
- * MCP 도구(파일 읽기/쓰기 등)로 진짜 프로젝트 파일에 관여한다.
+ * Codex SDK 또는 OpenAI 호환 제공자의 함수호출 루프로 실제 프로젝트에 관여한다.
  */
 export function DevTaskPanel({
   agentId,
@@ -25,6 +24,7 @@ export function DevTaskPanel({
   const [steps, setSteps] = useState<DevStep[]>([]);
   const [running, setRunning] = useState(false);
   const [meetingMode, setMeetingMode] = useState(!!autoMeeting);
+  const [engine, setEngine] = useState<DevEngine>(() => localStorage.getItem("ve-dev-engine") === "provider" ? "provider" : "codex");
   const [toolCount, setToolCount] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -51,8 +51,8 @@ export function DevTaskPanel({
       }
     };
     try {
-      if (meetingMode) await runDevMeeting(agentId, task.trim(), onStep);
-      else await runDevTask(agentId, task.trim(), onStep);
+      if (meetingMode) await runDevMeeting(agentId, task.trim(), onStep, engine);
+      else await runDevTask(agentId, task.trim(), onStep, undefined, engine);
     } catch (e: any) {
       setSteps((prev) => [...prev, { kind: "error", text: String(e?.message ?? e) }]);
     }
@@ -86,6 +86,21 @@ export function DevTaskPanel({
             disabled={running}
           />
           <div className="devtask-run">
+            <label className="devtask-mode" title="Codex는 공식 SDK로 작업 폴더 안에서 코딩합니다. 제공자 모드는 기존 MCP 함수호출을 사용합니다.">
+              실행 엔진{" "}
+              <select
+                value={engine}
+                onChange={(e) => {
+                  const next = e.target.value as DevEngine;
+                  setEngine(next);
+                  localStorage.setItem("ve-dev-engine", next);
+                }}
+                disabled={running}
+              >
+                <option value="codex">Codex (권장)</option>
+                <option value="provider">MCP 제공자</option>
+              </select>
+            </label>
             <label className="devtask-mode" title="켜면 구현 → 코드 리뷰어 검토 → 테스트 엔지니어 검증까지 3단계 교차 검증으로 진행합니다 (시간이 더 걸립니다)">
               <input type="checkbox" checked={meetingMode} onChange={(e) => setMeetingMode(e.target.checked)} disabled={running} />
               🤝 회의 모드
@@ -99,7 +114,7 @@ export function DevTaskPanel({
         <div className="devtask-log">
           {steps.length === 0 && !running && (
             <div className="empty-hint">
-              개발팀은 OpenClaw가 아니라 다이렉트 프로바이더(NVIDIA 함수호출)로 동작합니다. MCP 도구가 연결돼 있으면 파일을 직접 읽고 수정합니다.
+              Codex는 공식 SDK의 작업공간 쓰기 샌드박스로 코딩합니다. MCP 제공자 모드는 연결된 도구 범위 안에서 파일을 읽고 수정합니다.
             </div>
           )}
           {steps.map((s, i) => (

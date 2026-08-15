@@ -1,5 +1,5 @@
-// 다이렉트 프로바이더 (v2.1b) — 개발팀 에이전트가 MCP 도구를 함수호출로 쓰며 실제 코드에 관여.
-// OpenClaw CLI 브리지를 우회해 NVIDIA NIM(OpenAI 호환) API를 직접 호출하고,
+// 개발 실행 어댑터 — Codex SDK 또는 OpenAI 호환 제공자 + MCP 도구 루프로 실제 코드에 관여.
+// 제공자 전용 하드코딩 없이 모델 접두사로 OpenClaw 설정의 provider를 찾아 호출하고,
 // 모델이 tool_calls를 내면 MCP 허브로 실행해 결과를 되먹인다 (에이전틱 루프).
 import fs from "node:fs";
 import os from "node:os";
@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import * as hub from "./mcp-hub.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO = path.resolve(__dirname, "..", "..");
+const REPO = process.env.VE_REPO_ROOT ? path.resolve(process.env.VE_REPO_ROOT) : path.resolve(__dirname, "..", "..");
 const OPENCLAW_CFG = path.join(os.homedir(), ".openclaw", "openclaw.json");
 
 function readCfg() {
@@ -48,25 +48,47 @@ function toolsForOpenAI(agentId) {
 // (실측 2026-08-11: reasoning_content 2,425자를 먼저 쓰고 finish_reason=length로 본문 잘림). 상향하고 env로 뺐다.
 const MAX_TOKENS = Number(process.env.VE_DEV_MAX_TOKENS ?? 8192);
 
-async function nvidiaChat(model, messages, tools, key, baseUrl) {
+function resolveApiKey(providerId, provider) {
+  const envName = `${providerId.replace(/\W/g, "_").toUpperCase()}_API_KEY`;
+  const ref = String(provider?.secretRef || "");
+  if (ref.startsWith("env:")) return process.env[ref.slice(4)] || "";
+  if (process.env[envName]) return process.env[envName];
+  const raw = typeof provider?.apiKey === "string" ? provider.apiKey : "";
+  return raw.includes("{{") ? "" : raw;
+}
+
+export function resolveProvider(model, cfg) {
+  const fullModel = String(model || "");
+  const providerId = fullModel.split("/")[0];
+  const provider = cfg?.models?.providers?.[providerId];
+  if (!provider) throw new Error(`모델 제공자를 찾지 못했습니다: ${providerId || "(없음)"}`);
+  let baseUrl = String(provider.baseUrl || "").replace(/\/+$/, "");
+  if (provider.api === "ollama" && !baseUrl.endsWith("/v1")) baseUrl += "/v1";
+  const modelId = fullModel.slice(providerId.length + 1);
+  const catalog = (provider.models || []).find((item) => item.id === modelId);
+  const key = resolveApiKey(providerId, provider) || (provider.api === "ollama" ? "ollama-local" : "");
+  return { id: providerId, label: providerId, baseUrl, key, modelId, maxTokensField: catalog?.compat?.maxTokensField || "max_tokens" };
+}
+
+async function openAICompatibleChat(provider, messages, tools) {
   const body = {
-    model,
+    model: provider.modelId,
     messages,
-    max_tokens: MAX_TOKENS,
     temperature: 0.3,
   };
+  body[provider.maxTokensField] = MAX_TOKENS;
   if (tools.length) {
     body.tools = tools;
     body.tool_choice = "auto";
   }
-  const r = await fetch(`${baseUrl.replace(/\/+$/, "")}/chat/completions`, {
+  const r = await fetch(`${provider.baseUrl}/chat/completions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${provider.key}` },
     body: JSON.stringify(body),
   });
   if (!r.ok) {
     const txt = await r.text().catch(() => "");
-    throw new Error(`NVIDIA ${r.status}: ${txt.slice(0, 200)}`);
+    throw new Error(`${provider.label} ${r.status}: ${txt.slice(0, 200)}`);
   }
   return r.json();
 }
@@ -78,16 +100,9 @@ async function nvidiaChat(model, messages, tools, key, baseUrl) {
  */
 export async function runDevTask({ agentId, task, model, maxSteps = 8, onStep }) {
   const cfg = readCfg();
-  const provider = cfg?.models?.providers?.nvidia;
-  const key = provider?.apiKey;
-  const baseUrl = provider?.baseUrl ?? "https://integrate.api.nvidia.com/v1";
-  if (!key || String(key).includes("{{")) {
-    throw new Error("NVIDIA API 키가 없습니다 — 사이드바 🔑로 등록하세요 (개발 작업은 함수호출 지원 클라우드 모델 필요).");
-  }
-  // ⚠️ 구 폴백 "qwen/qwen3-next-80b-a3b-instruct"는 2026-07-27 EOL — NIM이 HTTP 410을 준다(실측 2026-08-11).
   const useModel = model || cfg?.models?.agents?.[agentId] || cfg?.agents?.defaults?.model?.primary || "openai/gpt-oss-120b";
-  // provider 접두사(nvidia/) 제거 — NIM API는 순수 모델 id를 받는다
-  const modelId = String(useModel).replace(/^nvidia\//, "");
+  const provider = resolveProvider(useModel, cfg);
+  if (!provider.key) throw new Error(`${provider.label} API 키가 없습니다 — 환경 변수 또는 사이드바 🔑로 등록하세요.`);
 
   // 프로젝트가 바뀌었으면 MCP를 그 프로젝트로 다시 물린다(안 하면 옛 정본을 읽는다)
   await hub.ensureCurrentProject();
@@ -132,7 +147,7 @@ export async function runDevTask({ agentId, task, model, maxSteps = 8, onStep })
   push({ kind: "task", text: task });
 
   for (let step = 0; step < maxSteps; step++) {
-    const res = await nvidiaChat(modelId, messages, tools, key, baseUrl);
+    const res = await openAICompatibleChat(provider, messages, tools);
     const msg = res?.choices?.[0]?.message;
     if (!msg) throw new Error("빈 응답");
     messages.push(msg);
@@ -185,18 +200,61 @@ export async function runDevTask({ agentId, task, model, maxSteps = 8, onStep })
   return { ok: true, transcript, final: "(최대 단계 도달 — 작업이 길어 중단됨)" };
 }
 
+/** 공식 Codex SDK 기반 코딩 실행 — 작업 폴더 쓰기만 허용하고 권한 확대·네트워크는 막는다. */
+export async function runCodexTask({ agentId, task, onStep }) {
+  const { Codex } = await import("@openai/codex-sdk");
+  const workingDirectory = path.resolve(process.env.VE_CODEX_WORKDIR || hub.readUnityDir() || REPO);
+  const push = (step) => {
+    try { onStep?.(step); } catch { /* noop */ }
+  };
+  push({ kind: "task", text: task });
+  push({ kind: "phase", text: `🤖 Codex 구현 — ${workingDirectory}` });
+  const codex = new Codex();
+  const thread = codex.startThread({
+    workingDirectory,
+    sandboxMode: "workspace-write",
+    approvalPolicy: "never",
+    networkAccessEnabled: false,
+  });
+  const { events } = await thread.runStreamed(`${personaOf(agentId)}\n\n작업 지시:\n${task}`);
+  let final = "";
+  for await (const event of events) {
+    if (event.type === "error") throw new Error(event.message);
+    if (event.type === "turn.failed") throw new Error(event.error?.message || "Codex 실행 실패");
+    if (event.type !== "item.completed") continue;
+    const item = event.item;
+    if (item.type === "agent_message") {
+      final = item.text || final;
+      push({ kind: "say", text: item.text, agent: agentId });
+    } else if (item.type === "command_execution") {
+      push({
+        kind: "toolResult",
+        server: "codex",
+        name: "shell",
+        isError: item.status === "failed",
+        text: `${item.command}\n${item.aggregated_output || ""}`.slice(0, 2000),
+      });
+    } else if (item.type === "file_change") {
+      push({ kind: "tool", server: "codex", name: "apply_patch", args: item.changes });
+    }
+  }
+  return { ok: true, transcript: [], final: final || "Codex 작업이 끝났지만 최종 설명이 없습니다.", empty: !final };
+}
+
 /**
  * 개발 회의 — 구현(리드) → 코드 리뷰어 검토 → 테스트 엔지니어 검증을 순차로.
  * 각 단계가 MCP 도구로 실제 kit 파일을 읽고(리뷰·테스트)/쓰며(구현) 교차 검증한다.
  * onStep에 { agent } 태그를 붙여 누가 말하는지 구분한다.
  */
-export async function runDevMeeting({ leadId, task, onStep }) {
+export async function runDevMeeting({ leadId, task, engine = "provider", onStep }) {
   const emit = (agent) => (s) => onStep?.({ ...s, agent });
   const say = (kind, text, agent) => onStep?.({ kind, text, agent });
 
   // 1) 구현
   say("phase", `🔨 구현 — ${leadId}`, leadId);
-  const impl = await runDevTask({ agentId: leadId, task, maxSteps: 10, onStep: emit(leadId) });
+  const impl = engine === "codex"
+    ? await runCodexTask({ agentId: leadId, task, onStep: emit(leadId) })
+    : await runDevTask({ agentId: leadId, task, maxSteps: 10, onStep: emit(leadId) });
 
   // 2) 코드 리뷰
   say("phase", "👁️ 코드 리뷰 — review", "review");

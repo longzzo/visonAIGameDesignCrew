@@ -426,6 +426,7 @@ export function OfficeView() {
     selected,
     toggleSelected,
     growth,
+    setMobilePanel,
   } = useVE();
   useVE((s) => s.rosterVersion); // 채용/퇴사 시 로스터 다시 그리기
   const [hireOpen, setHireOpen] = useState(false);
@@ -555,6 +556,9 @@ export function OfficeView() {
         {new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false })}
       </span>
       {orchRunning && <span className="office-live">● 진행 중</span>}
+      <button className="os-abtn" onClick={() => setMobilePanel("agents")} title="모바일 인력 로스터 열기">
+        👥 인력
+      </button>
       <button className="os-abtn" onClick={() => setBoardOpen(true)} title="라이브 프로세스 — 전사 워크스트림 현황">
         📋 보드
       </button>
