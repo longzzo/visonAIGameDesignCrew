@@ -134,11 +134,20 @@ cd ..
 
 ### 💻 데스크톱 앱 & 다른 PC에서 쓰기
 
-**이 PC(서버 노트북)에서 프로그램으로 쓰기**: `VisionEngine-Desktop.bat` 더블클릭 — 네이티브 창이 뜹니다. 서버가 없으면 알아서 켭니다.
+**Windows 설치형 앱으로 쓰기**: `desktop/dist-installer/VisionEngine-Setup-3.5.0.exe`를 설치하고 바탕화면의 **Vision Engine**을 실행합니다. 웹앱 서버와 Codex CLI는 설치본에 포함돼 있어 Node.js나 저장소 없이도 창이 열립니다. AI 실행에는 OpenClaw와 Ollama가 별도로 필요합니다.
+
+첫 실행에서는 **🖥️ PC 앱 준비 확인**을 누릅니다.
+
+1. 기존 저장소가 감지되면 프로젝트(`workspace`)를 앱 데이터 폴더로 비파괴 이전합니다. 수동으로 다시 가져올 수도 있으며 기존 파일은 덮어쓰지 않습니다.
+2. OpenClaw가 설치돼 있지만 예약 작업이 없다면 **OpenClaw 온보딩**을 누릅니다. 설치 자체가 안 돼 있으면 먼저 `npm install -g openclaw`가 필요합니다.
+3. **Codex 로그인**을 누르면 공식 `codex login` 브라우저 인증 창이 열립니다.
+4. **코딩 폴더 선택**에서 Codex가 실제로 수정할 게임/Unity 프로젝트 폴더를 지정합니다.
+
+준비 화면은 닫은 뒤에도 상단 **⚙️ PC 준비**에서 다시 열 수 있습니다. OpenClaw 설정을 앱 버전별로 병합할 때 기존 사용자 에이전트·채널·플러그인·API 키는 보존하고 백업을 남깁니다.
 
 **다른 PC에 설치해서 쓰기** (서버는 노트북에 그대로 두고):
 1. 서버 PC에서 `VisionEngine-Start.bat` 실행 (Tailscale 주소로 서버가 열립니다 — 창에 주소 표시)
-2. 다른 PC에 `desktop/dist-installer/VisionEngine-Setup-2.0.0.exe`를 복사해 설치 (바탕화면 바로가기 생성)
+2. 다른 PC에 `desktop/dist-installer/VisionEngine-Setup-3.5.0.exe`를 복사해 설치 (바탕화면 바로가기 생성)
 3. 첫 실행 시 서버 주소 입력: `http://100.x.x.x:5199` (서버 PC의 Tailscale 주소) → 🔌 연결 테스트 → 저장
 4. 두 PC 모두 [Tailscale](https://tailscale.com)에 같은 계정으로 로그인돼 있어야 합니다
 

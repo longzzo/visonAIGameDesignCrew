@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as hub from "./mcp-hub.mjs";
+import { resolveCodexWorkdir } from "./readiness.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = process.env.VE_REPO_ROOT ? path.resolve(process.env.VE_REPO_ROOT) : path.resolve(__dirname, "..", "..");
@@ -203,7 +204,11 @@ export async function runDevTask({ agentId, task, model, maxSteps = 8, onStep })
 /** 공식 Codex SDK 기반 코딩 실행 — 작업 폴더 쓰기만 허용하고 권한 확대·네트워크는 막는다. */
 export async function runCodexTask({ agentId, task, onStep }) {
   const { Codex } = await import("@openai/codex-sdk");
-  const workingDirectory = path.resolve(process.env.VE_CODEX_WORKDIR || hub.readUnityDir() || REPO);
+  const selected = resolveCodexWorkdir();
+  if (!selected.exists || !selected.writable) {
+    throw new Error(`Codex 작업 폴더를 사용할 수 없습니다: ${selected.dir}. 첫 실행 준비에서 쓰기 가능한 프로젝트 폴더를 선택하세요.`);
+  }
+  const workingDirectory = selected.dir;
   const push = (step) => {
     try { onStep?.(step); } catch { /* noop */ }
   };
@@ -212,6 +217,7 @@ export async function runCodexTask({ agentId, task, onStep }) {
   const codex = new Codex();
   const thread = codex.startThread({
     workingDirectory,
+    skipGitRepoCheck: true,
     sandboxMode: "workspace-write",
     approvalPolicy: "never",
     networkAccessEnabled: false,

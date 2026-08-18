@@ -10,6 +10,7 @@ import zlib from "node:zlib";
 import { gatewayRelayPlugin } from "./server/gateway-relay.mjs";
 import { usageStorePlugin } from "./server/usage-store.mjs";
 import { jobStorePlugin } from "./server/job-store.mjs";
+import { readinessApiPlugin } from "./server/readiness.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = process.env.VE_REPO_ROOT ? path.resolve(process.env.VE_REPO_ROOT) : path.resolve(__dirname, "..");
@@ -4856,6 +4857,7 @@ export function visionApiPlugins(): Plugin[] {
     gatewayRelayPlugin(), // 토큰을 브라우저에 노출하지 않는 읽기 전용 이벤트 릴레이
     usageStorePlugin(), // 세션이 끝나도 남는 일·주·전체 토큰 사용량
     jobStorePlugin(), // 비정상 종료된 회의의 요청·종료 상태 체크포인트
+    readinessApiPlugin(), // 설치형 PC 앱의 OpenClaw·Codex·데이터 준비 상태
     projectsApiPlugin(),
     gddApiPlugin(),
     chatsApiPlugin(),

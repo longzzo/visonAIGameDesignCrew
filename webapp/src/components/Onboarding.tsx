@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { registerModelKey, getModelsInfo } from "../lib/models";
 
 /**
@@ -24,8 +24,15 @@ export function needsOnboarding(): boolean {
   }
 }
 
-type Path = null | "connect" | "custom";
+type Path = null | "connect" | "custom" | "pc";
 type Provider = "ollama" | "nvidia" | "github";
+type Readiness = {
+  gateway: { running: boolean; configured: boolean; agents: number };
+  ollama: { running: boolean };
+  codex: { installed: boolean; authenticated: boolean; detail: string; workdir: { dir: string; exists: boolean; writable: boolean; configured: boolean } };
+  data: { projects: number; root?: string; migration?: { source?: string } | null };
+  desktop: boolean;
+};
 
 export function Onboarding({ onClose }: { onClose: () => void }) {
   const [path, setPath] = useState<Path>(null);
@@ -33,6 +40,79 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [ready, setReady] = useState<Readiness | null>(null);
+
+  const refreshReadiness = async () => {
+    try {
+      const response = await fetch("/api/readiness", { cache: "no-store" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "준비 상태 확인 실패");
+      setReady(body);
+    } catch (error: any) {
+      setMsg(`⚠️ ${String(error?.message || error)}`);
+    }
+  };
+
+  useEffect(() => { void refreshReadiness(); }, []);
+
+  const postReadiness = async (body: Record<string, string>) => {
+    const response = await fetch("/api/readiness", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || "설정 실패");
+    await refreshReadiness();
+  };
+
+  const chooseCodexWorkdir = async () => {
+    setBusy(true); setMsg("");
+    try {
+      const desktop = (window as any).veDesktop;
+      if (!desktop?.chooseDirectory) throw new Error("PC 앱에서만 폴더 선택 창을 열 수 있습니다.");
+      const dir = await desktop.chooseDirectory("Codex가 코딩할 프로젝트 폴더 선택");
+      if (dir) { await postReadiness({ action: "set-codex-workdir", dir }); setMsg("✅ Codex 작업 폴더를 저장했습니다."); }
+    } catch (error: any) { setMsg(`⚠️ ${String(error?.message || error)}`); }
+    finally { setBusy(false); }
+  };
+
+  const importExistingData = async () => {
+    setBusy(true); setMsg("");
+    try {
+      const desktop = (window as any).veDesktop;
+      if (!desktop?.chooseDirectory) throw new Error("PC 앱에서만 기존 폴더를 선택할 수 있습니다.");
+      const source = await desktop.chooseDirectory("기존 Vision Engine 프로젝트 루트 선택");
+      if (source) { await postReadiness({ action: "import-data", source }); setMsg("✅ 기존 프로젝트를 비파괴 방식으로 가져왔습니다."); }
+    } catch (error: any) { setMsg(`⚠️ ${String(error?.message || error)}`); }
+    finally { setBusy(false); }
+  };
+
+  const loginCodex = async () => {
+    setMsg("");
+    const desktop = (window as any).veDesktop;
+    if (!desktop?.codexLogin) { setMsg("⚠️ PC 앱에서 실행하세요. 터미널에서는 `codex login`을 사용할 수 있습니다."); return; }
+    const result = await desktop.codexLogin();
+    setMsg(result?.ok ? "브라우저 로그인 창을 열었습니다. 완료 후 ‘다시 확인’을 누르세요." : `⚠️ ${result?.error || "로그인 창을 열지 못했습니다."}`);
+  };
+
+  const startOpenClaw = async () => {
+    try {
+      const desktop = (window as any).veDesktop;
+      if (desktop?.startOpenClaw) {
+        const result = await desktop.startOpenClaw();
+        if (result?.ok === false) throw new Error(result.error || "Gateway 시작 실패");
+      }
+      else await fetch("/api/health", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ restart: "gateway" }) });
+      setMsg("OpenClaw Gateway 시작을 요청했습니다. 잠시 후 다시 확인하세요.");
+      setTimeout(() => void refreshReadiness(), 2500);
+    } catch (error: any) { setMsg(`⚠️ ${String(error?.message || error)}`); }
+  };
+
+  const onboardOpenClaw = async () => {
+    const desktop = (window as any).veDesktop;
+    if (!desktop?.openclawOnboard) { setMsg("⚠️ PC 앱에서 실행하거나 터미널에서 `openclaw onboard`를 실행하세요."); return; }
+    const result = await desktop.openclawOnboard();
+    setMsg(result?.ok ? "OpenClaw 온보딩 창을 열었습니다. 완료 후 Gateway 시작을 누르세요." : `⚠️ ${result?.error || "온보딩 창을 열지 못했습니다."}`);
+  };
 
   // 닫는 중 — 투명 방패를 잠깐 유지한다.
   //
@@ -96,6 +176,13 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
           <>
             <div className="onb-q">어떻게 시작할까요?</div>
             <div className="onb-choices">
+              <button className="onb-choice" onClick={() => setPath("pc")}>
+                <div className="onb-choice-icon">🖥️</div>
+                <div className="onb-choice-title">PC 앱 준비 확인</div>
+                <div className="onb-choice-desc dim">
+                  기존 프로젝트를 가져오고 OpenClaw·Codex 로그인·코딩 폴더를 한 번에 점검합니다.
+                </div>
+              </button>
               <button className="onb-choice" onClick={() => setPath("connect")}>
                 <div className="onb-choice-icon">🔗</div>
                 <div className="onb-choice-title">접속해서 쓰기</div>
@@ -110,6 +197,45 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
                   내 컴퓨터에서 직접 돌립니다. 어떤 AI 모델을 쓸지 고르고 필요하면 API 키를 넣어요.
                 </div>
               </button>
+            </div>
+          </>
+        )}
+
+        {path === "pc" && (
+          <>
+            <div className="onb-q">PC 앱 실행 준비</div>
+            {!ready ? <p className="onb-p dim">상태를 확인하는 중…</p> : (
+              <div className="onb-ready-grid">
+                <div className={`onb-ready ${ready.data.projects > 0 ? "ok" : "warn"}`}>
+                  <b>{ready.data.projects > 0 ? "✅" : "⚠️"} 프로젝트 데이터</b>
+                  <span>{ready.data.projects}개 · {ready.data.root || "원격 서버"}</span>
+                  <button className="btn tiny" onClick={() => void importExistingData()} disabled={busy}>기존 데이터 가져오기</button>
+                </div>
+                <div className={`onb-ready ${ready.gateway.running ? "ok" : "warn"}`}>
+                  <b>{ready.gateway.running ? "✅" : "⚠️"} OpenClaw Gateway</b>
+                  <span>{ready.gateway.running ? `실행 중 · 에이전트 ${ready.gateway.agents}명` : ready.gateway.configured ? "설정됨 · 현재 중지" : "초기 설정 필요"}</span>
+                  <div className="onb-ready-actions">
+                    <button className="btn tiny" onClick={() => void startOpenClaw()}>Gateway 시작</button>
+                    {!ready.gateway.running && <button className="btn tiny" onClick={() => void onboardOpenClaw()}>OpenClaw 온보딩</button>}
+                  </div>
+                </div>
+                <div className={`onb-ready ${ready.codex.authenticated ? "ok" : "warn"}`}>
+                  <b>{ready.codex.authenticated ? "✅" : "⚠️"} Codex 로그인</b>
+                  <span>{ready.codex.detail || (ready.codex.installed ? "로그인 필요" : "CLI 없음")}</span>
+                  <button className="btn tiny" onClick={() => void loginCodex()}>Codex 로그인</button>
+                </div>
+                <div className={`onb-ready ${ready.codex.workdir.exists && ready.codex.workdir.writable ? "ok" : "warn"}`}>
+                  <b>{ready.codex.workdir.exists && ready.codex.workdir.writable ? "✅" : "⚠️"} Codex 작업 폴더</b>
+                  <span title={ready.codex.workdir.dir}>{ready.codex.workdir.dir || "선택되지 않음"}</span>
+                  <button className="btn tiny" onClick={() => void chooseCodexWorkdir()} disabled={busy}>코딩 폴더 선택</button>
+                </div>
+              </div>
+            )}
+            {msg && <div className="onb-msg">{msg}</div>}
+            <div className="onb-actions">
+              <button className="btn" onClick={() => setPath(null)} disabled={busy}>← 뒤로</button>
+              <button className="btn" onClick={() => void refreshReadiness()} disabled={busy}>다시 확인</button>
+              <button className="btn primary" onClick={finish}>확인하고 시작 →</button>
             </div>
           </>
         )}

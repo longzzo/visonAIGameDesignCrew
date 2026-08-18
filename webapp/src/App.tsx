@@ -114,6 +114,11 @@ export default function App() {
     void init();
     setOnboard(needsOnboarding());
   }, [init]);
+  useEffect(() => {
+    const open = () => setOnboard(true);
+    window.addEventListener("ve:open-readiness", open);
+    return () => window.removeEventListener("ve:open-readiness", open);
+  }, []);
 
 
   return (

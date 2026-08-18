@@ -569,7 +569,7 @@ button { font-family: inherit; }
 /* 온보딩이 닫힌 직후 뒤 버튼이 눌리는 것을 막는 투명 방패 (C-3, Onboarding.tsx finish 참조) */
 .onb-shield { position: fixed; inset: 0; z-index: 201; background: transparent; }
 .onb-card {
-  width: min(600px, 96vw); max-height: 92vh; overflow-y: auto;
+  width: min(760px, 96vw); max-height: 92vh; overflow-y: auto;
   background: var(--panel); border: 1px solid var(--border); border-radius: 18px;
   padding: 28px 30px; box-shadow: var(--shadow); position: relative;
 }
@@ -580,7 +580,8 @@ button { font-family: inherit; }
 .onb-q { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 14px; }
 .onb-p { font-size: 13px; line-height: 1.7; margin: 4px 0 18px; }
 .onb-p code, .onb-key + .onb-p code { background: var(--bg-2); border-radius: 5px; padding: 1px 6px; }
-.onb-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.onb-choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 720px) { .onb-choices { grid-template-columns: 1fr; } }
 @media (max-width: 540px) { .onb-choices { grid-template-columns: 1fr; } }
 .onb-choice {
   text-align: left; background: var(--bg-2); border: 1.5px solid var(--border); border-radius: 14px;
@@ -609,6 +610,15 @@ button { font-family: inherit; }
 }
 .onb-key:focus { outline: none; border-color: var(--accent); }
 .onb-msg { font-size: 12.5px; color: #fca5b4; background: rgba(251, 113, 133, 0.1); border-radius: 8px; padding: 8px 11px; margin-bottom: 12px; line-height: 1.5; }
+.onb-ready-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+.onb-ready { display: flex; flex-direction: column; gap: 7px; min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: 11px; background: var(--bg-2); }
+.onb-ready.ok { border-color: rgba(74, 222, 128, 0.4); }
+.onb-ready.warn { border-color: rgba(251, 191, 36, 0.4); }
+.onb-ready b { font-size: 13px; }
+.onb-ready span { color: var(--text-dim); font-size: 11.5px; line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.onb-ready .btn { align-self: flex-start; }
+.onb-ready-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+@media (max-width: 640px) { .onb-ready-grid { grid-template-columns: 1fr; } }
 .onb-actions { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; }
 .onb-skip {
   display: block; margin: 18px auto 0; background: none; border: none; color: var(--text-mute);

@@ -5,4 +5,8 @@ contextBridge.exposeInMainWorld("veDesktop", {
   getConfig: () => ipcRenderer.invoke("ve:getConfig"),
   test: (url) => ipcRenderer.invoke("ve:test", url),
   save: (url) => ipcRenderer.invoke("ve:save", url),
+  chooseDirectory: (title) => ipcRenderer.invoke("ve:chooseDirectory", title),
+  codexLogin: () => ipcRenderer.invoke("ve:codexLogin"),
+  startOpenClaw: () => ipcRenderer.invoke("ve:startOpenClaw"),
+  openclawOnboard: () => ipcRenderer.invoke("ve:openclawOnboard"),
 });

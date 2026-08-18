@@ -1,6 +1,6 @@
 {
   "name": "vision-engine-desktop",
-  "version": "3.4.2",
+  "version": "3.5.0",
   "private": true,
   "description": "Vision Engine — 게임 개발 멀티에이전트 스튜디오 (데스크톱 셸)",
   "main": "main.cjs",
@@ -33,7 +33,7 @@
       { "from": "../webapp/assets", "to": "vision-engine/webapp/assets" },
       { "from": "../agents", "to": "vision-engine/agents", "filter": ["**/AGENTS.md"] },
       { "from": "../config", "to": "vision-engine/config", "filter": ["agents.manifest.json", "execution-policy.json", "mcp.json", "model-policy.json", "openclaw.json"] },
-      { "from": "../scripts", "to": "vision-engine/scripts", "filter": ["setup-openclaw.mjs", "sync-agent-manifest.mjs"] },
+      { "from": "../scripts", "to": "vision-engine/scripts", "filter": ["setup-openclaw.mjs", "openclaw-merge.mjs", "sync-agent-manifest.mjs"] },
       { "from": "../templates", "to": "vision-engine/templates" }
     ],
     "win": {

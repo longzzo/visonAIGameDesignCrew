@@ -3,7 +3,7 @@
 //   · 서버 PC(이 노트북): 로컬 서버를 재사용/자동 기동해서 로드
 //   · 클라이언트 PC(다른 컴퓨터): 설정된 서버 주소(예: 노트북의 Tailscale 주소)로 접속
 // 서버 주소는 첫 실행 설정 화면 또는 연결 실패 시 설정 화면에서 저장한다.
-const { app, BrowserWindow, shell, Menu, ipcMain, Tray, globalShortcut, nativeImage } = require("electron");
+const { app, BrowserWindow, shell, Menu, ipcMain, Tray, globalShortcut, nativeImage, dialog } = require("electron");
 const { spawn, spawnSync } = require("node:child_process");
 const path = require("node:path");
 const fs = require("node:fs");
@@ -15,6 +15,7 @@ let tray = null;
 let quitting = false;
 
 const LOCAL_URL = "http://127.0.0.1:5199";
+const desktopDataRoot = () => path.join(app.getPath("userData"), "vision-engine-data");
 
 /** 설치본에 포함된 독립 실행 Studio 런타임. 개발 중에는 null. */
 function packagedStudio() {
@@ -24,19 +25,109 @@ function packagedStudio() {
   return fs.existsSync(runtime) ? { root, runtime, webapp: path.join(root, "webapp") } : null;
 }
 
-/** 새 PC에서만 OpenClaw 기본 설정을 만든다. 기존 설정은 자동으로 덮지 않는다. */
+/** 앱 버전별 1회 안전 병합한다. 워크스페이스는 설치 리소스가 아닌 쓰기 가능한 데이터 폴더에 둔다. */
 function ensurePackagedOpenclaw(studio) {
-  const cfg = path.join(os.homedir(), ".openclaw", "openclaw.json");
-  if (fs.existsSync(cfg)) return;
+  const marker = path.join(desktopDataRoot(), "openclaw-setup.json");
+  try {
+    const done = JSON.parse(fs.readFileSync(marker, "utf-8"));
+    if (done.version === app.getVersion()) return false;
+  } catch { /* 최초 설치 또는 새 앱 버전 */ }
+  const sourceAgents = path.join(studio.root, "agents");
+  const targetAgents = path.join(desktopDataRoot(), "agents");
+  if (fs.existsSync(sourceAgents)) {
+    fs.mkdirSync(targetAgents, { recursive: true });
+    fs.cpSync(sourceAgents, targetAgents, { recursive: true, force: false, errorOnExist: false, preserveTimestamps: true });
+  }
   const setup = path.join(studio.root, "scripts", "setup-openclaw.mjs");
-  if (!fs.existsSync(setup)) return;
+  if (!fs.existsSync(setup)) return false;
   const result = spawnSync(process.execPath, [setup], {
     cwd: studio.root,
     windowsHide: true,
     encoding: "utf-8",
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", VE_AGENT_REPO: desktopDataRoot() },
   });
-  if (result.status !== 0) console.warn("⚠️ OpenClaw 초기 설정 실패:", String(result.stderr || result.stdout || "알 수 없는 오류").slice(0, 500));
+  if (result.status !== 0) {
+    console.warn("⚠️ OpenClaw 초기 설정 실패:", String(result.stderr || result.stdout || "알 수 없는 오류").slice(0, 500));
+    return false;
+  }
+  fs.mkdirSync(path.dirname(marker), { recursive: true });
+  fs.writeFileSync(marker, JSON.stringify({ version: app.getVersion(), updatedAt: Date.now() }, null, 2));
+  return true;
+}
+
+function hasProjects(root) {
+  const dir = path.join(root, "workspace", "projects");
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true })
+      .some((entry) => entry.isDirectory() && fs.existsSync(path.join(dir, entry.name, "project.json")));
+  } catch { return false; }
+}
+
+/** 설치 전 체크아웃의 사용자 데이터만 새 앱 데이터 폴더로 비파괴 이전한다. */
+function migratePackagedDataIfEmpty(studio) {
+  if (!app.isPackaged || hasProjects(desktopDataRoot())) return null;
+  const cfg = loadConfig();
+  const candidates = [
+    cfg.repoDir,
+    process.env.VE_REPO,
+    "D:\\Claude\\vision-engine\\vision-engine",
+    path.join(os.homedir(), "vision-engine"),
+  ].filter(Boolean).map((value) => path.resolve(value));
+  const source = candidates.find((root) => root !== studio.root && hasProjects(root));
+  if (!source) return null;
+  const target = desktopDataRoot();
+  fs.mkdirSync(target, { recursive: true });
+  fs.cpSync(path.join(source, "workspace"), path.join(target, "workspace"), {
+    recursive: true, force: false, errorOnExist: false, preserveTimestamps: true,
+  });
+  const copied = ["workspace"];
+  for (const name of ["custom-agents.json", "agent-growth.json", "unity.local.json", "notion.json", "notion-map.json", "naver.json"]) {
+    const from = path.join(source, "config", name);
+    if (!fs.existsSync(from)) continue;
+    const to = path.join(target, "config", name);
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    if (!fs.existsSync(to)) { fs.copyFileSync(from, to); copied.push(`config/${name}`); }
+  }
+  fs.writeFileSync(path.join(target, "migration.json"), JSON.stringify({ source, target, copied, importedAt: Date.now(), automatic: true }, null, 2));
+  console.log("✅ 기존 프로젝트 데이터 비파괴 이전:", source, "→", target);
+  return source;
+}
+
+/** 등록돼 있다면 OpenClaw 예약 작업을 기동한다. 미설치 PC에서는 조용히 건너뛴다. */
+function tryStartOpenClawGateway(restart = false) {
+  if (process.platform !== "win32" || process.env.VE_SKIP_OPENCLAW_GATEWAY === "1") return { ok: false, error: "격리 실행에서는 Gateway를 시작하지 않습니다." };
+  if (restart) spawnSync("schtasks.exe", ["/End", "/TN", "OpenClaw Gateway"], { windowsHide: true, encoding: "utf-8" });
+  const result = spawnSync("schtasks.exe", ["/Run", "/TN", "OpenClaw Gateway"], { windowsHide: true, encoding: "utf-8" });
+  if (result.status === 0) {
+    console.log("✅ OpenClaw Gateway 시작 요청 완료");
+    return { ok: true };
+  }
+  return { ok: false, error: "OpenClaw 예약 작업이 없습니다. OpenClaw 설치 후 ‘온보딩’을 먼저 실행하세요." };
+}
+
+function findOpenClawCli() {
+  if (process.platform !== "win32") return "openclaw";
+  for (const command of ["openclaw.cmd", "openclaw.exe", "openclaw"]) {
+    const result = spawnSync("where.exe", [command], { windowsHide: true, encoding: "utf-8" });
+    const found = String(result.stdout || "").split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+    if (result.status === 0 && found) return found;
+  }
+  return "";
+}
+
+function launchOpenClawOnboard() {
+  const cli = findOpenClawCli();
+  if (!cli) return { ok: false, error: "OpenClaw CLI가 설치되어 있지 않습니다. 먼저 `npm install -g openclaw`를 실행하세요." };
+  try {
+    const child = spawn("powershell.exe", [
+      "-NoLogo", "-NoProfile", "-NoExit", "-Command",
+      "& $env:VE_OPENCLAW_CLI onboard; Write-Host ''; Write-Host '온보딩이 끝나면 이 창을 닫고 Vision Engine에서 Gateway 시작을 누르세요.'",
+    ], { windowsHide: false, detached: true, stdio: "ignore", env: { ...process.env, VE_OPENCLAW_CLI: cli } });
+    child.unref();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error).slice(0, 200) };
+  }
 }
 
 /**
@@ -55,7 +146,7 @@ function findWebappDir() {
   ].filter(Boolean);
   for (const dir of candidates) {
     try {
-      if (fs.existsSync(path.join(dir, "package.json"))) return dir;
+      if (fs.existsSync(path.join(dir, "package.json")) || fs.existsSync(path.join(dir, "dist-server", "runtime.mjs"))) return dir;
     } catch {
       /* noop */
     }
@@ -149,7 +240,9 @@ async function findRunningServer() {
 async function trySpawnLocalServer() {
   const packaged = packagedStudio();
   if (packaged) {
-    ensurePackagedOpenclaw(packaged);
+    const openclawChanged = ensurePackagedOpenclaw(packaged);
+    migratePackagedDataIfEmpty(packaged);
+    tryStartOpenClawGateway(openclawChanged);
     console.log("⏳ 내장 Studio 런타임 기동 중…", packaged.runtime);
     showSplash("Vision Engine Studio를 기동하고 있습니다…");
     try {
@@ -164,6 +257,7 @@ async function trySpawnLocalServer() {
           VE_REPO_ROOT: packaged.root,
           VE_WEBAPP_ROOT: packaged.webapp,
           VE_DATA_ROOT: path.join(app.getPath("userData"), "vision-engine-data"),
+          VE_DESKTOP: "1",
           VE_RUNTIME_HOST: "127.0.0.1",
           VE_RUNTIME_PORT: "5199",
         },
@@ -370,6 +464,39 @@ ipcMain.handle("ve:save", async (_e, url) => {
   await connect();
   return true;
 });
+ipcMain.handle("ve:chooseDirectory", async (_e, title) => {
+  const result = await dialog.showOpenDialog(win, {
+    title: String(title || "폴더 선택"),
+    properties: ["openDirectory", "createDirectory"],
+  });
+  return result.canceled ? "" : (result.filePaths[0] || "");
+});
+ipcMain.handle("ve:codexLogin", async () => {
+  const webapp = findWebappDir();
+  const cli = webapp && path.join(webapp, "node_modules", "@openai", "codex", "bin", "codex.js");
+  if (!cli || !fs.existsSync(cli)) return { ok: false, error: "설치본에서 Codex CLI를 찾지 못했습니다." };
+  try {
+    if (process.platform === "win32") {
+      const env = { ...process.env, VE_CODEX_NODE: process.execPath, VE_CODEX_CLI: cli };
+      if (app.isPackaged) env.ELECTRON_RUN_AS_NODE = "1";
+      const child = spawn("powershell.exe", [
+        "-NoLogo", "-NoProfile", "-NoExit", "-Command",
+        "& $env:VE_CODEX_NODE $env:VE_CODEX_CLI login; Write-Host ''; Write-Host '로그인 확인 후 이 창을 닫으세요.'",
+      ], { windowsHide: false, detached: true, stdio: "ignore", env });
+      child.unref();
+    } else {
+      const child = spawn(process.execPath, [cli, "login"], { detached: true, stdio: "ignore" });
+      child.unref();
+    }
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error).slice(0, 200) };
+  }
+});
+ipcMain.handle("ve:startOpenClaw", async () => {
+  return tryStartOpenClawGateway();
+});
+ipcMain.handle("ve:openclawOnboard", async () => launchOpenClawOnboard());
 
 // 로컬 개발 서버 콘텐츠 — HTTP 캐시가 손상되면 ERR_FAILED로 빈 창이 뜨므로 캐시를 끈다
 app.commandLine.appendSwitch("disable-http-cache");

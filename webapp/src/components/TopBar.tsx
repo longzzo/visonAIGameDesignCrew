@@ -265,6 +265,9 @@ export function TopBar() {
         </button>
       </nav>
       <div className="topbar-right">
+        <button className="badge" onClick={() => window.dispatchEvent(new CustomEvent("ve:open-readiness"))} title="PC 앱 준비 — 프로젝트 데이터·OpenClaw·Codex 상태 확인">
+          ⚙️<span className="lbl"> PC 준비</span>
+        </button>
         <button
           className={`badge approval-badge ${pendingApprovals > 0 ? "hot" : ""}`}
           onClick={() => setApprovalsOpen(true)}

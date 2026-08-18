@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { appendUsage, summarizeUsage } from "../server/usage-store.mjs";
 import { createJob, latestRecoverableJob, updateJob } from "../server/job-store.mjs";
 import { resolveProvider } from "../server/dev-provider.mjs";
+import { importLegacyData, resolveCodexWorkdir, setCodexWorkdir } from "../server/readiness.mjs";
 
 const tempDirs: string[] = [];
 const tempDir = () => {
@@ -74,5 +75,33 @@ describe("회의 작업 체크포인트", () => {
     const job = createJob("sample", { request: "완료 작업" });
     updateJob("sample", job.id, { status: "completed" });
     expect(latestRecoverableJob("sample")).toBeNull();
+  });
+});
+
+describe("PC 앱 데이터 이전과 Codex 작업 폴더", () => {
+  it("기존 프로젝트를 비파괴 복사하고 이미 있는 파일은 덮어쓰지 않는다", () => {
+    const target = tempDir();
+    const source = tempDir();
+    process.env.VE_DATA_ROOT = target;
+    const sourceProject = path.join(source, "workspace", "projects", "old-game");
+    const targetProject = path.join(target, "workspace", "projects", "old-game");
+    fs.mkdirSync(sourceProject, { recursive: true });
+    fs.mkdirSync(targetProject, { recursive: true });
+    fs.writeFileSync(path.join(sourceProject, "project.json"), JSON.stringify({ name: "옛 프로젝트" }));
+    fs.writeFileSync(path.join(sourceProject, "GDD.md"), "원본");
+    fs.writeFileSync(path.join(targetProject, "GDD.md"), "새 앱에서 수정한 내용");
+
+    const receipt = importLegacyData(source);
+
+    expect(receipt.projects).toBe(1);
+    expect(fs.readFileSync(path.join(targetProject, "GDD.md"), "utf-8")).toBe("새 앱에서 수정한 내용");
+    expect(JSON.parse(fs.readFileSync(path.join(targetProject, "project.json"), "utf-8")).name).toBe("옛 프로젝트");
+  });
+
+  it("사용자가 고른 쓰기 가능한 Codex 폴더를 영속 저장한다", () => {
+    process.env.VE_DATA_ROOT = tempDir();
+    const code = tempDir();
+    expect(setCodexWorkdir(code)).toMatchObject({ dir: path.resolve(code), exists: true, writable: true, configured: true });
+    expect(resolveCodexWorkdir().dir).toBe(path.resolve(code));
   });
 });

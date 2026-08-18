@@ -8,10 +8,12 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { mergeAgentRoster, preserveUnknownConfig } from "./openclaw-merge.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..");
-const HOME = os.homedir();
+const AGENT_REPO = process.env.VE_AGENT_REPO ? path.resolve(process.env.VE_AGENT_REPO) : REPO;
+const HOME = process.env.VE_OPENCLAW_HOME ? path.resolve(process.env.VE_OPENCLAW_HOME) : os.homedir();
 const CFG_DIR = path.join(HOME, ".openclaw");
 const CFG = path.join(CFG_DIR, "openclaw.json");
 const TEMPLATE = path.join(REPO, "config", "openclaw.json");
@@ -22,7 +24,7 @@ const isPlaceholder = (s) => typeof s !== "string" || s.includes("{{") || s.incl
 
 // 1) 템플릿 로드 + 경로 치환 ({{REPO}}/{{HOME}} → 실제 경로, JSON 이스케이프 유지)
 let raw = fs.readFileSync(TEMPLATE, "utf-8");
-raw = raw.replaceAll("{{REPO}}", REPO.replaceAll("\\", "\\\\"));
+raw = raw.replaceAll("{{REPO}}", AGENT_REPO.replaceAll("\\", "\\\\"));
 raw = raw.replaceAll("{{HOME}}", HOME.replaceAll("\\", "\\\\"));
 const next = JSON.parse(raw);
 const manifest = JSON.parse(fs.readFileSync(MANIFEST, "utf-8"));
@@ -49,11 +51,11 @@ for (const [name, p] of Object.entries(next.models?.providers ?? {})) {
     p.apiKey = !isPlaceholder(prevKey) ? prevKey : name === "ollama" ? "ollama-local" : "";
   }
 }
+preserveUnknownConfig(next, prev);
 
 // 사용자 모델 선택은 보존하되, 제공 종료가 확인된 모델만 역할별 안전 기본값으로 교체한다.
 const retired = (model) =>
   typeof model === "string" && modelPolicy.retiredModelPatterns.some((needle) => model.includes(needle));
-const prevAgents = new Map((prev?.agents?.list ?? []).map((agent) => [agent.id, agent]));
 const roles = new Map(manifest.agents.map((agent) => [agent.id, agent.modelRole]));
 const providerReady = (model) => {
   const providerName = String(model ?? "").split("/")[0];
@@ -62,14 +64,14 @@ const providerReady = (model) => {
   const key = provider.apiKey;
   return providerName === "ollama" || (!!key && !isPlaceholder(key));
 };
-for (const agent of next.agents.list) {
-  const previous = prevAgents.get(agent.id)?.model;
-  if (previous && !retired(previous)) agent.model = previous;
-  if (!agent.model || retired(agent.model)) {
-    agent.model = modelPolicy.roles[roles.get(agent.id)] ?? modelPolicy.localFallback;
-  }
-  if (!providerReady(agent.model)) agent.model = modelPolicy.localFallback;
-}
+const mergedRoster = mergeAgentRoster({
+  templateAgents: next.agents.list,
+  previousAgents: prev?.agents?.list,
+  roles,
+  modelPolicy,
+  providerReady,
+});
+next.agents.list = mergedRoster.agents;
 const previousDefault = prev?.agents?.defaults?.model?.primary;
 if (previousDefault && !retired(previousDefault)) next.agents.defaults.model.primary = previousDefault;
 if (retired(next.agents.defaults.model.primary)) next.agents.defaults.model.primary = modelPolicy.roles.planner;
@@ -86,7 +88,10 @@ fs.writeFileSync(CFG, JSON.stringify(next, null, 2), "utf-8");
 
 const ids = next.agents.list.map((a) => a.id).join(", ");
 console.log(`✅ 에이전트 ${next.agents.list.length}명 설정 완료: ${ids}`);
-console.log(`   워크스페이스: ${REPO}${path.sep}agents${path.sep}<id>`);
+if (mergedRoster.customIds.length) {
+  console.log(`🛡️ 사용자·레거시 에이전트 ${mergedRoster.customIds.length}명 보존: ${mergedRoster.customIds.join(", ")}`);
+}
+console.log(`   워크스페이스: ${AGENT_REPO}${path.sep}agents${path.sep}<id>`);
 console.log("");
 console.log("다음 단계:");
 console.log('  1) 게이트웨이 재시작:  schtasks /End /TN "OpenClaw Gateway" && schtasks /Run /TN "OpenClaw Gateway"');
