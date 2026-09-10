@@ -18,8 +18,40 @@ const latest = path.join(output, "latest.yml");
 const errors = [];
 const warnings = [];
 const require = createRequire(import.meta.url);
-const { listPackage } = require("@electron/asar");
+const { extractFile, listPackage } = require("@electron/asar");
 const hash = (algorithm, file, encoding = "hex") => crypto.createHash(algorithm).update(fs.readFileSync(file)).digest(encoding);
+const secretFindings = [];
+
+function walkFiles(dir, out = []) {
+  if (!fs.existsSync(dir)) return out;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const file = path.join(dir, entry.name);
+    if (entry.isDirectory()) walkFiles(file, out);
+    else if (entry.isFile()) out.push(file);
+  }
+  return out;
+}
+
+function secretScan(file, displayName, suppliedContent = null) {
+  const forbiddenName = /(^|[\\/])(?:\.env(?:\.[^\\/]+)?|auth-profiles\.json|credentials\.json|openclaw\.sqlite)$/i;
+  if (forbiddenName.test(displayName)) secretFindings.push(`${displayName}: 배포 금지 파일명`);
+  const textExtensions = new Set([".csv", ".html", ".js", ".json", ".md", ".mjs", ".txt", ".yaml", ".yml"]);
+  if (!textExtensions.has(path.extname(displayName).toLowerCase())) return;
+  const content = suppliedContent ?? (file ? fs.readFileSync(file) : null);
+  if (!content || content.length > 2 * 1024 * 1024) return;
+  const text = content.toString("utf-8");
+  const patterns = [
+    /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
+    /\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b/,
+    /\bghp_[A-Za-z0-9]{20,}\b/,
+    /\bgithub_pat_[A-Za-z0-9_]{20,}\b/,
+    /\bnvapi-[A-Za-z0-9_-]{16,}\b/,
+    /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/,
+    /\bAKIA[0-9A-Z]{16}\b/,
+    /\bAIza[0-9A-Za-z_-]{32,}\b/,
+  ];
+  if (patterns.some((pattern) => pattern.test(text))) secretFindings.push(`${displayName}: 비밀값 패턴`);
+}
 
 for (const file of [
   appExe,
@@ -66,7 +98,20 @@ const appAsar = path.join(unpacked, "resources", "app.asar");
 if (fs.existsSync(appAsar)) {
   const contents = listPackage(appAsar);
   if (!contents.some((entry) => entry.replaceAll("\\", "/").includes("node_modules/electron-updater"))) errors.push("app.asar에 electron-updater가 포함되지 않음");
+  for (const entry of contents) {
+    const normalized = entry.replaceAll("\\", "/").replace(/^\/+/, "");
+    const displayName = `app.asar/${normalized}`;
+    if (normalized.startsWith("node_modules/")) secretScan("", displayName);
+    else if (path.extname(normalized)) secretScan("", displayName, extractFile(appAsar, normalized));
+  }
 }
+
+const resources = path.join(unpacked, "resources");
+for (const directory of ["legal", "vision-engine/agents", "vision-engine/config", "vision-engine/scripts", "vision-engine/templates", "vision-engine/webapp/assets", "vision-engine/webapp/dist", "vision-engine/webapp/dist-server", "vision-engine/webapp/public"]) {
+  const base = path.join(resources, ...directory.split("/"));
+  for (const file of walkFiles(base)) secretScan(file, path.relative(unpacked, file).replaceAll("\\", "/"));
+}
+if (secretFindings.length) errors.push(`설치본 비밀정보 유출 의심: ${secretFindings.slice(0, 8).join(" | ")}`);
 
 let fuseOutput = "";
 if (fs.existsSync(appExe)) {
@@ -108,6 +153,17 @@ if (process.platform === "win32") {
 
 let sha256 = "";
 if (fs.existsSync(installer)) sha256 = hash("sha256", installer);
-const report = { ok: errors.length === 0, version: pkg.version, installer, bytes: fs.existsSync(installer) ? fs.statSync(installer).size : 0, sha256, signature, appSignature, errors, warnings };
+const report = {
+  ok: errors.length === 0,
+  version: pkg.version,
+  installer,
+  bytes: fs.existsSync(installer) ? fs.statSync(installer).size : 0,
+  sha256,
+  signature,
+  appSignature,
+  secretScan: { ok: secretFindings.length === 0, findings: secretFindings.length },
+  errors,
+  warnings,
+};
 console.log(JSON.stringify(report, null, 2));
 if (errors.length) process.exitCode = 1;
