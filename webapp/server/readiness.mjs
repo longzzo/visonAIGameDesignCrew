@@ -174,14 +174,38 @@ function codexCliPath() {
   return candidates.find((file) => fs.existsSync(file)) || "";
 }
 
+function codexNativePath() {
+  const platform = {
+    "win32:x64": ["codex-win32-x64", "x86_64-pc-windows-msvc", "codex.exe"],
+    "win32:arm64": ["codex-win32-arm64", "aarch64-pc-windows-msvc", "codex.exe"],
+    "darwin:x64": ["codex-darwin-x64", "x86_64-apple-darwin", "codex"],
+    "darwin:arm64": ["codex-darwin-arm64", "aarch64-apple-darwin", "codex"],
+    "linux:x64": ["codex-linux-x64", "x86_64-unknown-linux-musl", "codex"],
+    "linux:arm64": ["codex-linux-arm64", "aarch64-unknown-linux-musl", "codex"],
+  }[`${process.platform}:${process.arch}`];
+  if (!platform) return "";
+  const [packageName, triple, executable] = platform;
+  const roots = [
+    process.env.VE_WEBAPP_ROOT || path.join(repoRoot(), "webapp"),
+    path.join(moduleDir, ".."),
+  ];
+  return roots
+    .map((root) => path.join(root, "node_modules", "@openai", packageName, "vendor", triple, "bin", executable))
+    .find((file) => fs.existsSync(file)) || "";
+}
+
 async function codexLoginStatus() {
+  const native = codexNativePath();
   const cli = codexCliPath();
-  if (!cli) return { installed: false, authenticated: false, detail: "Codex CLI를 찾지 못했습니다." };
+  const processIsNode = /^node(?:\.exe)?$/i.test(path.basename(process.execPath));
+  if (!native && (!cli || !processIsNode)) return { installed: false, authenticated: false, detail: "이 PC용 Codex 실행 파일을 찾지 못했습니다." };
   return await new Promise((resolve) => {
     let output = "";
-    const child = spawn(process.execPath, [cli, "login", "status"], {
+    const command = native || process.execPath;
+    const args = [...(native ? [] : [cli]), "login", "status"];
+    const child = spawn(command, args, {
       windowsHide: true,
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: process.env.ELECTRON_RUN_AS_NODE || "1" },
+      env: { ...process.env },
     });
     const timer = setTimeout(() => child.kill(), 4000);
     child.stdout?.on("data", (chunk) => { output += String(chunk); });
@@ -214,6 +238,34 @@ export async function getReadiness({ includePaths = true } = {}) {
   return result;
 }
 
+const READINESS_CACHE_MS = 5_000;
+const readinessCache = new Map();
+
+/** 여러 화면/상태 폴링이 동시에 와도 Codex/Ollama 진단을 한 번만 실행한다. */
+export async function getCachedReadiness({ includePaths = true } = {}) {
+  const key = includePaths ? "local" : "remote";
+  const now = Date.now();
+  const cached = readinessCache.get(key);
+  if (cached?.value && cached.expiresAt > now) return cached.value;
+  if (cached?.inFlight) return cached.inFlight;
+
+  const inFlight = getReadiness({ includePaths })
+    .then((value) => {
+      readinessCache.set(key, { value, expiresAt: Date.now() + READINESS_CACHE_MS, inFlight: null });
+      return value;
+    })
+    .catch((error) => {
+      readinessCache.delete(key);
+      throw error;
+    });
+  readinessCache.set(key, { value: cached?.value, expiresAt: 0, inFlight });
+  return inFlight;
+}
+
+export function invalidateReadinessCache() {
+  readinessCache.clear();
+}
+
 const readBody = async (req) => {
   let body = "";
   for await (const chunk of req) {
@@ -232,14 +284,22 @@ export function readinessApiPlugin() {
           res.setHeader("Content-Type", "application/json; charset=utf-8");
           try {
             if (req.method === "GET") {
-              res.end(JSON.stringify(await getReadiness({ includePaths: isLocalRequest(req) })));
+              res.end(JSON.stringify(await getCachedReadiness({ includePaths: isLocalRequest(req) })));
               return;
             }
             if (req.method !== "POST") { res.statusCode = 405; res.end(JSON.stringify({ ok: false, error: "method not allowed" })); return; }
             if (!isLocalRequest(req)) { res.statusCode = 403; res.end(JSON.stringify({ ok: false, error: "PC 로컬에서만 설정할 수 있습니다." })); return; }
             const body = await readBody(req);
-            if (body.action === "set-codex-workdir") res.end(JSON.stringify({ ok: true, workdir: setCodexWorkdir(body.dir) }));
-            else if (body.action === "import-data") res.end(JSON.stringify({ ok: true, migration: importLegacyData(body.source) }));
+            if (body.action === "set-codex-workdir") {
+              const workdir = setCodexWorkdir(body.dir);
+              invalidateReadinessCache();
+              res.end(JSON.stringify({ ok: true, workdir }));
+            }
+            else if (body.action === "import-data") {
+              const migration = importLegacyData(body.source);
+              invalidateReadinessCache();
+              res.end(JSON.stringify({ ok: true, migration }));
+            }
             else { res.statusCode = 400; res.end(JSON.stringify({ ok: false, error: "지원하지 않는 준비 작업입니다." })); }
           } catch (error) {
             res.statusCode = 500;

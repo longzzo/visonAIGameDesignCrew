@@ -11,6 +11,7 @@ import { gatewayRelayPlugin } from "./server/gateway-relay.mjs";
 import { usageStorePlugin } from "./server/usage-store.mjs";
 import { jobStorePlugin } from "./server/job-store.mjs";
 import { readinessApiPlugin } from "./server/readiness.mjs";
+import { applySecurityHeaders, hostnameAllowed, originMatchesRequest } from "./server/request-security.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = process.env.VE_REPO_ROOT ? path.resolve(process.env.VE_REPO_ROOT) : path.resolve(__dirname, "..");
@@ -33,6 +34,7 @@ function writeOpenClawAgents(config: any, agents: any[]): void {
   config.agents ||= {};
   config.agents.entries = Object.fromEntries(agents.filter((agent) => agent?.id).map((agent) => {
     const { id, ...value } = agent;
+    if (config.agents.ownership === "explicit") delete value.default;
     return [id, value];
   }));
   delete config.agents.list;
@@ -894,23 +896,15 @@ const EXTRA_HOSTS = (process.env.VE_ALLOWED_HOSTS ?? "")
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
 
-function hostnameAllowed(hostname: string): boolean {
-  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (!h) return false;
-  if (h === "localhost" || h.endsWith(".localhost")) return true;
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h)) return true; // IPv4 리터럴 (127.0.0.1 / LAN / tailnet IP)
-  if (h.includes(":")) return true; // IPv6 리터럴
-  if (h.endsWith(".ts.net")) return true; // Tailscale MagicDNS
-  return EXTRA_HOSTS.some((x) => h === x || h.endsWith("." + x));
-}
-
 function securityGuardPlugin(): Plugin {
   return {
     name: "vision-engine-security-guard",
     configureServer(server: ViteDevServer) {
       server.middlewares.use((req: any, res: any, next: any) => {
-        const host = String(req.headers?.host ?? "").replace(/:\d+$/, "");
-        if (!hostnameAllowed(host)) {
+        applySecurityHeaders(res);
+        const requestHost = String(req.headers?.host ?? "");
+        const host = requestHost.replace(/:\d+$/, "");
+        if (!hostnameAllowed(host, EXTRA_HOSTS)) {
           res.statusCode = 403;
           res.setHeader("Content-Type", "text/plain; charset=utf-8");
           res.end("차단됨: 허용되지 않은 Host 헤더 (DNS rebinding 방어). 필요하면 VE_ALLOWED_HOSTS 환경변수에 호스트를 추가하세요.");
@@ -919,13 +913,7 @@ function securityGuardPlugin(): Plugin {
         const method = String(req.method ?? "GET").toUpperCase();
         const origin = String(req.headers?.origin ?? "");
         if (origin && method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
-          let oHost = "";
-          try {
-            oHost = new URL(origin).hostname;
-          } catch {
-            /* 형식 불명 Origin은 아래에서 차단 */
-          }
-          if (!hostnameAllowed(oHost)) {
+          if (!originMatchesRequest(origin, requestHost, EXTRA_HOSTS)) {
             res.statusCode = 403;
             res.setHeader("Content-Type", "application/json; charset=utf-8");
             res.end(JSON.stringify({ ok: false, error: "차단됨: 외부 사이트에서 온 쓰기 요청 (CSRF 방어)" }));
@@ -1460,26 +1448,21 @@ function isLocalReq(req: any): boolean {
   return ownTailnetIps().has(a);
 }
 
-/** 예약작업으로 게이트웨이 재시작 — 설정 변경(키/모델) 반영용 */
+/** 공식 OpenClaw CLI로 게이트웨이 재시작 — 구형 설치만 예약 작업으로 폴백한다. */
 function restartGateway(): void {
-  // schtasks /End만으로는 실제 node 프로세스가 안 죽는 경우가 실측됨(이틀 묵은 PID가 포트 점유)
-  // → 게이트웨이 포트를 물고 있는 프로세스를 직접 종료한 뒤 태스크를 재기동한다.
-  const killPort = spawn(
-    "powershell",
-    [
-      "-NoProfile",
-      "-Command",
-      "Get-NetTCPConnection -LocalPort 18789 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }",
-    ],
-    { shell: false, windowsHide: true }
-  );
-  killPort.on("close", () => {
-    spawn("schtasks", ["/End", "/TN", "OpenClaw Gateway"], { shell: false, windowsHide: true }).on("close", () => {
-      setTimeout(() => {
-        spawn("schtasks", ["/Run", "/TN", "OpenClaw Gateway"], { shell: false, windowsHide: true });
-      }, 1500);
-    });
+  const legacy = () => spawn("schtasks", ["/Run", "/TN", "OpenClaw Gateway"], { shell: false, windowsHide: true });
+  const entry = findOpenclawEntry();
+  if (!entry) {
+    legacy();
+    return;
+  }
+  const child = spawn(process.execPath, [entry, "gateway", "restart"], {
+    shell: false,
+    windowsHide: true,
+    stdio: "ignore",
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: process.env.ELECTRON_RUN_AS_NODE || "1" },
   });
+  child.once("error", legacy);
 }
 
 /* ── 플러그인: Brave 검색 키 등록 (웹앱에서 붙여넣기) ──── */

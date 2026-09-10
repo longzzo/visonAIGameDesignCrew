@@ -16,6 +16,7 @@ fs.writeFileSync(path.join(target, "package.json"), JSON.stringify({
   private: true,
   version: source.version,
   dependencies: source.dependencies,
+  overrides: source.overrides,
 }, null, 2));
 
 const npmCli = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");

@@ -41,6 +41,7 @@ export function writeAgentRoster(config, agents) {
   config.agents ??= {};
   config.agents.entries = Object.fromEntries((agents ?? []).filter((agent) => agent?.id).map((agent) => {
     const { id, ...value } = structuredClone(agent);
+    if (config.agents.ownership === "explicit") delete value.default;
     return [id, value];
   }));
   delete config.agents.list;

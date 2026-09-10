@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "productName": "Vision Engine",
+  "edition": "Desktop",
+  "vendor": "Vision Engine",
+  "supportEmail": "",
+  "privacyUrl": "https://github.com/longzzo/visonAIGameDesignCrew/blob/main/PRIVACY.md",
+  "updateUrl": "https://github.com/longzzo/visonAIGameDesignCrew/releases/latest/download/",
+  "updatesEnabled": false,
+  "telemetry": false,
+  "licenseMode": "commercial"
+}

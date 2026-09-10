@@ -17,6 +17,12 @@ describe("OpenClaw 로스터 병합", () => {
     expect(legacy.agents).toEqual({ entries: { pm: { name: "PM" } } });
   });
 
+  it("explicit ownership에서는 충돌하는 레거시 default 표식을 제거한다", () => {
+    const config: any = { agents: { ownership: "explicit" } };
+    writeAgentRoster(config, [{ id: "pm", name: "PM", default: true }]);
+    expect(config.agents).toEqual({ ownership: "explicit", entries: { pm: { name: "PM" } } });
+  });
+
   it("관리 에이전트는 갱신하고 사용자 에이전트는 원본 그대로 보존한다", () => {
     const custom = { id: "my-specialist", name: "내 전문가", model: "custom/model", workspace: "D:/agents/mine" };
     const result = mergeAgentRoster({

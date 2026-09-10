@@ -98,3 +98,7 @@ console.log("다음 단계:");
 console.log("  1) 게이트웨이 재시작:  openclaw gateway restart");
 console.log("     (예약작업이 없다면 먼저 `openclaw onboard` 를 실행해 게이트웨이를 등록하세요)");
 console.log("  2) 웹앱 실행:  VisionEngine-Start.bat 더블클릭");
+
+// Electron Utility Process는 부모 IPC 채널 때문에 동기 작업이 끝난 뒤에도 이벤트 루프가
+// 남을 수 있다. 모든 파일 기록이 완료된 지점에서 명시 종료해 데스크톱 첫 실행을 막지 않는다.
+process.exit(0);

@@ -33,6 +33,13 @@ type Readiness = {
   data: { projects: number; root?: string; migration?: { source?: string } | null };
   desktop: boolean;
 };
+type UpdateState = {
+  status: string;
+  version?: string;
+  progress?: number;
+  message: string;
+  currentVersion: string;
+};
 
 export function Onboarding({ onClose }: { onClose: () => void }) {
   const [path, setPath] = useState<Path>(null);
@@ -41,6 +48,7 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [ready, setReady] = useState<Readiness | null>(null);
+  const [update, setUpdate] = useState<UpdateState | null>(null);
 
   const refreshReadiness = async () => {
     try {
@@ -53,7 +61,11 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
     }
   };
 
-  useEffect(() => { void refreshReadiness(); }, []);
+  useEffect(() => {
+    void refreshReadiness();
+    const desktop = (window as any).veDesktop;
+    if (desktop?.getUpdateState) void desktop.getUpdateState().then((state: UpdateState) => setUpdate(state)).catch(() => {});
+  }, []);
 
   const postReadiness = async (body: Record<string, string>) => {
     const response = await fetch("/api/readiness", {
@@ -114,6 +126,13 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
     setMsg(result?.ok ? "OpenClaw 온보딩 창을 열었습니다. 완료 후 Gateway 시작을 누르세요." : `⚠️ ${result?.error || "온보딩 창을 열지 못했습니다."}`);
   };
 
+  const configureOpenClawSecrets = async () => {
+    const desktop = (window as any).veDesktop;
+    if (!desktop?.openclawSecrets) { setMsg("⚠️ PC 앱에서 실행하거나 터미널에서 `openclaw secrets configure`를 실행하세요."); return; }
+    const result = await desktop.openclawSecrets();
+    setMsg(result?.ok ? "OpenClaw 비밀키 보안 설정 창을 열었습니다." : `⚠️ ${result?.error || "비밀키 설정 창을 열지 못했습니다."}`);
+  };
+
   const pullRecommendedModel = async () => {
     setMsg("");
     const desktop = (window as any).veDesktop;
@@ -126,6 +145,31 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
     setMsg(result?.ok
       ? `${model} 다운로드 창을 열었습니다. 완료되면 ‘다시 확인’을 누르세요.`
       : `⚠️ ${result?.error || "모델 다운로드 창을 열지 못했습니다."}`);
+  };
+
+  const exportSupportReport = async () => {
+    setBusy(true); setMsg("");
+    try {
+      const desktop = (window as any).veDesktop;
+      if (!desktop?.exportSupportReport) throw new Error("PC 앱에서만 진단 보고서를 저장할 수 있습니다.");
+      const result = await desktop.exportSupportReport();
+      if (result?.canceled) return;
+      if (!result?.ok) throw new Error(result?.error || "진단 보고서를 저장하지 못했습니다.");
+      setMsg(`✅ 민감한 키를 제외한 진단 보고서를 저장했습니다: ${result.file}`);
+    } catch (error: any) { setMsg(`⚠️ ${String(error?.message || error)}`); }
+    finally { setBusy(false); }
+  };
+
+  const checkDesktopUpdate = async () => {
+    setBusy(true); setMsg("");
+    try {
+      const desktop = (window as any).veDesktop;
+      if (!desktop?.checkForUpdates) throw new Error("PC 앱에서만 업데이트를 확인할 수 있습니다.");
+      const result = await desktop.checkForUpdates();
+      setUpdate(result);
+      setMsg(result?.ok ? `✅ ${result.message}` : `⚠️ ${result?.message || "업데이트를 확인하지 못했습니다."}`);
+    } catch (error: any) { setMsg(`⚠️ ${String(error?.message || error)}`); }
+    finally { setBusy(false); }
   };
 
   // 닫는 중 — 투명 방패를 잠깐 유지한다.
@@ -231,6 +275,7 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
                   <div className="onb-ready-actions">
                     <button className="btn tiny" onClick={() => void startOpenClaw()}>Gateway 시작</button>
                     {!ready.gateway.running && <button className="btn tiny" onClick={() => void onboardOpenClaw()}>OpenClaw 온보딩</button>}
+                    <button className="btn tiny" onClick={() => void configureOpenClawSecrets()}>비밀키 보안 설정</button>
                   </div>
                 </div>
                 <div className={`onb-ready ${ready.ollama.running && ready.ollama.recommendedInstalled ? "ok" : "warn"}`}>
@@ -254,11 +299,19 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
                   <b>✨ 업데이트로 추가된 기능</b>
                   <span>로컬 추론·도구 호출·구조화 출력·이미지 입력, OpenClaw 자동 시작 및 최신 설정 호환</span>
                 </div>
+                {update && (
+                  <div className={`onb-ready ${update.status === "error" ? "warn" : "ok"}`}>
+                    <b>{update.status === "disabled" ? "ℹ️" : "✅"} Vision Engine 업데이트</b>
+                    <span>현재 v{update.currentVersion} · {update.message}</span>
+                    <button className="btn tiny" onClick={() => void checkDesktopUpdate()} disabled={busy || update.status === "disabled" || update.status === "downloading"}>업데이트 확인</button>
+                  </div>
+                )}
               </div>
             )}
             {msg && <div className="onb-msg">{msg}</div>}
             <div className="onb-actions">
               <button className="btn" onClick={() => setPath(null)} disabled={busy}>← 뒤로</button>
+              <button className="btn" onClick={() => void exportSupportReport()} disabled={busy || !ready?.desktop}>진단 보고서 저장</button>
               <button className="btn" onClick={() => void refreshReadiness()} disabled={busy}>다시 확인</button>
               <button className="btn primary" onClick={finish}>확인하고 시작 →</button>
             </div>

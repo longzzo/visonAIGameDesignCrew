@@ -27,6 +27,7 @@ const child = spawn(process.execPath, [path.join(webapp, "dist-server", "runtime
     VE_REPO_ROOT: repo,
     VE_WEBAPP_ROOT: webapp,
     VE_DATA_ROOT: data,
+    VE_OPENCLAW_HOME: data,
     VE_RUNTIME_HOST: "127.0.0.1",
     VE_RUNTIME_PORT: String(port),
   },
@@ -67,6 +68,10 @@ try {
 
   const projects = await fetch(`${base}/api/projects`);
   assert.equal(projects.status, 200);
+  const readiness = await (await fetch(`${base}/api/readiness`, { signal: AbortSignal.timeout(10_000) })).json();
+  assert.equal(readiness.ok, true);
+  assert.equal(typeof readiness.codex.authenticated, "boolean");
+  assert.equal(readiness.desktop, false);
   console.log(`✅ 런타임 smoke 통과: port=${port}`);
 } finally {
   child.kill();

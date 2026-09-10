@@ -9,5 +9,9 @@ contextBridge.exposeInMainWorld("veDesktop", {
   codexLogin: () => ipcRenderer.invoke("ve:codexLogin"),
   startOpenClaw: () => ipcRenderer.invoke("ve:startOpenClaw"),
   openclawOnboard: () => ipcRenderer.invoke("ve:openclawOnboard"),
+  openclawSecrets: () => ipcRenderer.invoke("ve:openclawSecrets"),
   ollamaPull: (model) => ipcRenderer.invoke("ve:ollamaPull", model),
+  exportSupportReport: () => ipcRenderer.invoke("ve:exportSupportReport"),
+  getUpdateState: () => ipcRenderer.invoke("ve:getUpdateState"),
+  checkForUpdates: () => ipcRenderer.invoke("ve:checkForUpdates"),
 });

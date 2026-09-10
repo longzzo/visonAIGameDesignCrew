@@ -3,25 +3,25 @@ import { useVE } from "./store";
 import { Onboarding, needsOnboarding } from "./components/Onboarding";
 import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
-import { ChatPanel } from "./components/ChatPanel";
-import { OrchestrationView } from "./components/OrchestrationView";
-import { DataPanel } from "./components/DataPanel";
-import { GddPanel } from "./components/GddPanel";
-import { AgentProfile } from "./components/AgentProfile";
 import { DialogHost } from "./components/DialogHost";
-import { DiffViewer } from "./components/DiffViewer";
-import { DocViewer } from "./components/DocViewer";
-import { ArtStudio } from "./components/ArtStudio";
-import { ApprovalPanel } from "./components/ApprovalPanel";
-import { FailurePanel } from "./components/FailurePanel";
-import { NaverPanel } from "./components/NaverPanel";
-import { DeckPanel } from "./components/DeckPanel";
-import { DeliverPanel } from "./components/DeliverPanel";
-import { FundPanel } from "./components/FundPanel";
-import { LedgerPanel } from "./components/LedgerPanel";
 
-// Three.js 사무실은 초기 JS의 대부분을 차지하므로 해당 화면을 열 때만 내려받는다.
+// 화면별 기능을 필요할 때만 내려받아 첫 실행과 업데이트 후 재시작 시간을 줄인다.
 const OfficeView = lazy(() => import("./components/OfficeView").then((module) => ({ default: module.OfficeView })));
+const ChatPanel = lazy(() => import("./components/ChatPanel").then((module) => ({ default: module.ChatPanel })));
+const OrchestrationView = lazy(() => import("./components/OrchestrationView").then((module) => ({ default: module.OrchestrationView })));
+const DataPanel = lazy(() => import("./components/DataPanel").then((module) => ({ default: module.DataPanel })));
+const GddPanel = lazy(() => import("./components/GddPanel").then((module) => ({ default: module.GddPanel })));
+const AgentProfile = lazy(() => import("./components/AgentProfile").then((module) => ({ default: module.AgentProfile })));
+const DiffViewer = lazy(() => import("./components/DiffViewer").then((module) => ({ default: module.DiffViewer })));
+const DocViewer = lazy(() => import("./components/DocViewer").then((module) => ({ default: module.DocViewer })));
+const ArtStudio = lazy(() => import("./components/ArtStudio").then((module) => ({ default: module.ArtStudio })));
+const ApprovalPanel = lazy(() => import("./components/ApprovalPanel").then((module) => ({ default: module.ApprovalPanel })));
+const FailurePanel = lazy(() => import("./components/FailurePanel").then((module) => ({ default: module.FailurePanel })));
+const NaverPanel = lazy(() => import("./components/NaverPanel").then((module) => ({ default: module.NaverPanel })));
+const DeckPanel = lazy(() => import("./components/DeckPanel").then((module) => ({ default: module.DeckPanel })));
+const DeliverPanel = lazy(() => import("./components/DeliverPanel").then((module) => ({ default: module.DeliverPanel })));
+const FundPanel = lazy(() => import("./components/FundPanel").then((module) => ({ default: module.FundPanel })));
+const LedgerPanel = lazy(() => import("./components/LedgerPanel").then((module) => ({ default: module.LedgerPanel })));
 
 /**
  * 연결 끊김 배너 — **무엇이** 끊겼는지 구분한다.
@@ -167,33 +167,35 @@ export default function App() {
       <div className={`app-body no-side-gdd panel-${mobilePanel} ${view === "office" || view === "studio" ? "office-full" : ""}`}>
         <Sidebar />
         <main className="main-panel">
-          {view === "orch" ? (
-            <OrchestrationView />
-          ) : view === "office" || view === "studio" ? (
-            // "studio" = 사무실 스튜디오의 별칭 — 첫 방문 기본 화면이 3D 스튜디오가 되도록
-            <Suspense fallback={<div className="empty-hint">3D 스튜디오를 불러오는 중…</div>}>
+          <Suspense fallback={<div className="empty-hint">화면을 불러오는 중…</div>}>
+            {view === "orch" ? (
+              <OrchestrationView />
+            ) : view === "office" || view === "studio" ? (
+              // "studio" = 사무실 스튜디오의 별칭 — 첫 방문 기본 화면이 3D 스튜디오가 되도록
               <OfficeView />
-            </Suspense>
-          ) : view === "data" ? (
-            <DataPanel />
-          ) : view === "gdd" ? (
-            <GddPanel full />
-          ) : (
-            <ChatPanel />
-          )}
+            ) : view === "data" ? (
+              <DataPanel />
+            ) : view === "gdd" ? (
+              <GddPanel full />
+            ) : (
+              <ChatPanel />
+            )}
+          </Suspense>
         </main>
       </div>
-      {profileAgent && <AgentProfile />}
-      {meetingDiffOpen && <DiffViewer />}
-      {docViewer && <DocViewer />}
-      {artStudioOpen && <ArtStudio onClose={() => setArtStudioOpen(false)} />}
-      {approvalsOpen && <ApprovalPanel />}
-      {failuresOpen && <FailurePanel />}
-      {naverOpen && <NaverPanel onClose={() => setNaverOpen(false)} />}
-      {deckOpen && <DeckPanel onClose={() => setDeckOpen(false)} />}
-      {ledgerOpen && <LedgerPanel onClose={() => setLedgerOpen(false)} />}
-      {deliverOpen && <DeliverPanel onClose={() => setDeliverOpen(false)} />}
-      {fundOpen && <FundPanel onClose={() => setFundOpen(false)} />}
+      <Suspense fallback={null}>
+        {profileAgent && <AgentProfile />}
+        {meetingDiffOpen && <DiffViewer />}
+        {docViewer && <DocViewer />}
+        {artStudioOpen && <ArtStudio onClose={() => setArtStudioOpen(false)} />}
+        {approvalsOpen && <ApprovalPanel />}
+        {failuresOpen && <FailurePanel />}
+        {naverOpen && <NaverPanel onClose={() => setNaverOpen(false)} />}
+        {deckOpen && <DeckPanel onClose={() => setDeckOpen(false)} />}
+        {ledgerOpen && <LedgerPanel onClose={() => setLedgerOpen(false)} />}
+        {deliverOpen && <DeliverPanel onClose={() => setDeliverOpen(false)} />}
+        {fundOpen && <FundPanel onClose={() => setFundOpen(false)} />}
+      </Suspense>
       <DialogHost />
       {/* 모바일 전용 하단 탭 (900px 이하에서만 표시) */}
       <nav className="mobile-tabs">

@@ -1,4 +1,4 @@
-# Vision Engine 3.6 업그레이드 안내
+# Vision Engine 4.0 업그레이드 안내
 
 기준일: 2026-09-10
 
@@ -10,6 +10,13 @@
 - 준비 화면에서 Ollama/OpenClaw 버전, 에이전트 수, 설치 모델을 한 번에 진단
 - 추천 모델 다운로드 및 Gateway 시작 버튼
 - 구버전 Claude 가상화 경로와 표준 npm 전역 경로를 모두 찾는 CLI 탐색
+- Electron 44.3.0, renderer sandbox·context isolation·IPC 송신자 검증·탐색/권한 차단
+- Host/Origin 검증, CSP와 브라우저 보안 헤더, 프로덕션 의존성 취약점 0건
+- RunAsNode 제거와 Utility Process 기반 내장 서버, 전체 Electron Fuse 강제
+- 진단 로그 회전, 민감값 제외 지원 보고서, 트레이 진단 메뉴
+- GitHub Releases 기반 자동 업데이트 확인·동의 다운로드·재시작 설치 기반
+- EULA·개인정보·보안 정책·594개 패키지 오픈소스 고지와 출시 사전검사
+- 화면별 지연 로딩으로 초기 JS 약 581KB → 약 460KB
 
 ## 새로 사용할 수 있는 기능
 
@@ -28,10 +35,17 @@
 
 ## 다음 개편 우선순위
 
-1. OpenClaw 평문 토큰을 SecretRef로 이전
+1. 앱의 ‘비밀키 보안 설정’에서 OpenClaw 평문 토큰을 SecretRef로 이전
 2. Codex App Server를 내장해 로그인·승인·진행 이벤트·작업 이력을 앱 안에서 표시
 3. MCP 2026-07-28 Tasks 기반 장기 작업 재개 및 취소 UI
 4. 4,900줄 규모 `vite.config.ts`를 API 모듈별로 분리
 5. 로컬/클라우드 모델 평가 세트와 회귀 테스트 추가
+
+## 정식 판매 전에 오너가 제공해야 하는 값
+
+1. 고객 지원 이메일(`config/product.json`의 `supportEmail`)
+2. 신뢰 가능한 Windows 코드서명 인증서와 CI 비밀값
+3. 결제·환불·세금·지원 SLA 정책
+4. 서명된 설치본, `.blockmap`, `latest.yml`을 GitHub Release에 함께 게시하고 이전 버전에서 업데이트 왕복 테스트
 
 참고: [Ollama releases](https://github.com/ollama/ollama/releases), [OpenClaw releases](https://github.com/openclaw/openclaw/releases), [OpenAI Codex SDK](https://developers.openai.com/codex/sdk/)

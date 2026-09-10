@@ -5,6 +5,7 @@ import path from "node:path";
 import sirv from "sirv";
 import { fileURLToPath } from "node:url";
 import { visionApiPlugins } from "../vite.config";
+import { applySecurityHeaders } from "./request-security.mjs";
 
 const runtimeDir = path.dirname(fileURLToPath(import.meta.url));
 const webappRoot = process.env.VE_WEBAPP_ROOT ? path.resolve(process.env.VE_WEBAPP_ROOT) : path.resolve(runtimeDir, "..");
@@ -20,6 +21,11 @@ if (!fs.existsSync(indexFile)) {
 const app = connect();
 const server = http.createServer(app);
 const adapter = { middlewares: app, httpServer: server } as any;
+
+app.use((_req, res, next) => {
+  applySecurityHeaders(res);
+  next();
+});
 
 for (const plugin of visionApiPlugins()) {
   await plugin.configureServer?.(adapter);
