@@ -1,13 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { mergeAgentRoster, preserveUnknownConfig } from "../../scripts/openclaw-merge.mjs";
+import { mergeAgentRoster, preserveUnknownConfig, readAgentRoster, writeAgentRoster } from "../../scripts/openclaw-merge.mjs";
 
 const policy = {
   retiredModelPatterns: ["retired-model"],
-  roles: { planner: "ollama/qwen3:8b" },
-  localFallback: "ollama/qwen3:8b",
+  roles: { planner: "ollama/qwen3.5:4b" },
+  localFallback: "ollama/qwen3.5:4b",
 };
 
 describe("OpenClaw 로스터 병합", () => {
+  it("최신 agents.entries 형식을 읽고 id 손실 없이 다시 기록한다", () => {
+    const modern: any = { agents: { entries: { pm: { name: "PM", model: "ollama/qwen3.5:4b" } } } };
+    expect(readAgentRoster(modern)).toEqual([{ id: "pm", name: "PM", model: "ollama/qwen3.5:4b" }]);
+
+    const legacy: any = { agents: { list: [{ id: "pm", name: "PM" }] } };
+    writeAgentRoster(legacy, readAgentRoster(legacy));
+    expect(legacy.agents).toEqual({ entries: { pm: { name: "PM" } } });
+  });
+
   it("관리 에이전트는 갱신하고 사용자 에이전트는 원본 그대로 보존한다", () => {
     const custom = { id: "my-specialist", name: "내 전문가", model: "custom/model", workspace: "D:/agents/mine" };
     const result = mergeAgentRoster({
@@ -33,7 +42,7 @@ describe("OpenClaw 로스터 병합", () => {
       modelPolicy: policy,
       providerReady: (model: string) => model.startsWith("ollama/"),
     });
-    expect(result.agents[0].model).toBe("ollama/qwen3:8b");
+    expect(result.agents[0].model).toBe("ollama/qwen3.5:4b");
   });
 });
 

@@ -28,6 +28,25 @@ export function mergeAgentRoster({ templateAgents, previousAgents, roles, modelP
   return { agents: [...managed, ...custom], customIds: custom.map((agent) => agent.id) };
 }
 
+/** OpenClaw 2026.9+의 agents.entries와 구버전 agents.list를 같은 배열로 읽는다. */
+export function readAgentRoster(config) {
+  if (Array.isArray(config?.agents?.list)) return config.agents.list;
+  const entries = config?.agents?.entries;
+  if (!entries || typeof entries !== "object" || Array.isArray(entries)) return [];
+  return Object.entries(entries).map(([id, agent]) => ({ id, ...(agent && typeof agent === "object" ? agent : {}) }));
+}
+
+/** 최신 OpenClaw 형식으로 기록한다. id는 entries의 키이므로 값에서는 제거한다. */
+export function writeAgentRoster(config, agents) {
+  config.agents ??= {};
+  config.agents.entries = Object.fromEntries((agents ?? []).filter((agent) => agent?.id).map((agent) => {
+    const { id, ...value } = structuredClone(agent);
+    return [id, value];
+  }));
+  delete config.agents.list;
+  return config;
+}
+
 /** 템플릿에 없는 사용자 확장 설정(채널·플러그인·추가 제공자 등)을 재귀적으로 보존한다. */
 export function preserveUnknownConfig(template, previous) {
   if (!template || typeof template !== "object" || Array.isArray(template)) return template;

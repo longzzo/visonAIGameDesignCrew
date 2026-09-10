@@ -27,8 +27,8 @@ export function needsOnboarding(): boolean {
 type Path = null | "connect" | "custom" | "pc";
 type Provider = "ollama" | "nvidia" | "github";
 type Readiness = {
-  gateway: { running: boolean; configured: boolean; agents: number };
-  ollama: { running: boolean };
+  gateway: { running: boolean; configured: boolean; agents: number; installed?: boolean; version?: string };
+  ollama: { running: boolean; version?: string; models?: string[]; runningModels?: string[]; recommendedModel?: string; recommendedInstalled?: boolean };
   codex: { installed: boolean; authenticated: boolean; detail: string; workdir: { dir: string; exists: boolean; writable: boolean; configured: boolean } };
   data: { projects: number; root?: string; migration?: { source?: string } | null };
   desktop: boolean;
@@ -114,6 +114,20 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
     setMsg(result?.ok ? "OpenClaw 온보딩 창을 열었습니다. 완료 후 Gateway 시작을 누르세요." : `⚠️ ${result?.error || "온보딩 창을 열지 못했습니다."}`);
   };
 
+  const pullRecommendedModel = async () => {
+    setMsg("");
+    const desktop = (window as any).veDesktop;
+    if (!desktop?.ollamaPull) {
+      setMsg("⚠️ PC 앱에서 실행하거나 터미널에서 `ollama pull qwen3.5:4b`를 실행하세요.");
+      return;
+    }
+    const model = ready?.ollama.recommendedModel || "qwen3.5:4b";
+    const result = await desktop.ollamaPull(model);
+    setMsg(result?.ok
+      ? `${model} 다운로드 창을 열었습니다. 완료되면 ‘다시 확인’을 누르세요.`
+      : `⚠️ ${result?.error || "모델 다운로드 창을 열지 못했습니다."}`);
+  };
+
   // 닫는 중 — 투명 방패를 잠깐 유지한다.
   //
   // 오너 실측 2026-07-26 (C-3): "건너뛰기"를 눌렀는데 **뒤에 있던 "📥 기존 기획 팀 리뷰"가 실행돼**
@@ -136,7 +150,7 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
         // 로컬은 키 불필요 — 설치·모델 존재만 안내
         const info = await getModelsInfo();
         if (!info.providers.ollama) {
-          setMsg("⚠️ Ollama가 감지되지 않았습니다. ollama.com에서 설치하고 `ollama pull qwen3:8b` 후 다시 시도하세요.");
+          setMsg("⚠️ Ollama가 감지되지 않았습니다. ollama.com에서 설치하고 `ollama pull qwen3.5:4b` 후 다시 시도하세요.");
           setBusy(false);
           return;
         }
@@ -213,11 +227,18 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
                 </div>
                 <div className={`onb-ready ${ready.gateway.running ? "ok" : "warn"}`}>
                   <b>{ready.gateway.running ? "✅" : "⚠️"} OpenClaw Gateway</b>
-                  <span>{ready.gateway.running ? `실행 중 · 에이전트 ${ready.gateway.agents}명` : ready.gateway.configured ? "설정됨 · 현재 중지" : "초기 설정 필요"}</span>
+                  <span>{ready.gateway.running ? `실행 중 · 에이전트 ${ready.gateway.agents}명` : ready.gateway.configured ? "설정됨 · 현재 중지" : "초기 설정 필요"}{ready.gateway.version ? ` · v${ready.gateway.version}` : ""}</span>
                   <div className="onb-ready-actions">
                     <button className="btn tiny" onClick={() => void startOpenClaw()}>Gateway 시작</button>
                     {!ready.gateway.running && <button className="btn tiny" onClick={() => void onboardOpenClaw()}>OpenClaw 온보딩</button>}
                   </div>
+                </div>
+                <div className={`onb-ready ${ready.ollama.running && ready.ollama.recommendedInstalled ? "ok" : "warn"}`}>
+                  <b>{ready.ollama.running && ready.ollama.recommendedInstalled ? "✅" : "⚠️"} 로컬 AI · Ollama</b>
+                  <span>{ready.ollama.running
+                    ? `v${ready.ollama.version || "확인 중"} · 모델 ${ready.ollama.models?.length ?? 0}개${ready.ollama.recommendedInstalled ? ` · ${ready.ollama.recommendedModel || "qwen3.5:4b"} 준비됨` : " · 추천 모델 필요"}`
+                    : "Ollama가 실행되지 않았습니다."}</span>
+                  {!ready.ollama.recommendedInstalled && <button className="btn tiny" onClick={() => void pullRecommendedModel()}>추천 모델 받기</button>}
                 </div>
                 <div className={`onb-ready ${ready.codex.authenticated ? "ok" : "warn"}`}>
                   <b>{ready.codex.authenticated ? "✅" : "⚠️"} Codex 로그인</b>
@@ -228,6 +249,10 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
                   <b>{ready.codex.workdir.exists && ready.codex.workdir.writable ? "✅" : "⚠️"} Codex 작업 폴더</b>
                   <span title={ready.codex.workdir.dir}>{ready.codex.workdir.dir || "선택되지 않음"}</span>
                   <button className="btn tiny" onClick={() => void chooseCodexWorkdir()} disabled={busy}>코딩 폴더 선택</button>
+                </div>
+                <div className="onb-ready ok">
+                  <b>✨ 업데이트로 추가된 기능</b>
+                  <span>로컬 추론·도구 호출·구조화 출력·이미지 입력, OpenClaw 자동 시작 및 최신 설정 호환</span>
                 </div>
               </div>
             )}
@@ -301,8 +326,8 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
             )}
             {provider === "ollama" && (
               <p className="onb-p dim">
-                Ollama가 설치돼 있고 모델(예: <code>qwen3:8b</code>)이 받아져 있으면 바로 시작됩니다.
-                아직이면 <b>ollama.com</b>에서 설치 후 <code>ollama pull qwen3:8b</code>.
+                RTX 4060 8GB 기준 추천 모델은 <code>qwen3.5:4b</code>입니다. 로컬 추론·도구 호출·구조화 출력과 이미지 입력을 지원합니다.
+                아직 없으면 <button className="btn tiny" onClick={() => void pullRecommendedModel()}>추천 모델 받기</button>
               </p>
             )}
             {msg && <div className="onb-msg">{msg}</div>}

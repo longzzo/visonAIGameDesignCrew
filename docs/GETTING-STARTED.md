@@ -35,7 +35,7 @@ cd vision-engine
 1. [ollama.com](https://ollama.com)에서 설치
 2. 모델 받기 (기본 무료 모델):
    ```bat
-   ollama pull qwen3:8b
+   ollama pull qwen3.5:4b
    ```
 3. (선택) 모델을 D드라이브에 두려면 — 시스템 환경변수 `OLLAMA_MODELS=D:\Ollama\models` 설정 후 Ollama 재시작
 

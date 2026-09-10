@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { appendUsage, summarizeUsage } from "../server/usage-store.mjs";
 import { createJob, latestRecoverableJob, updateJob } from "../server/job-store.mjs";
 import { resolveProvider } from "../server/dev-provider.mjs";
-import { importLegacyData, resolveCodexWorkdir, setCodexWorkdir } from "../server/readiness.mjs";
+import { importLegacyData, openClawAgentCount, resolveCodexWorkdir, setCodexWorkdir } from "../server/readiness.mjs";
 
 const tempDirs: string[] = [];
 const tempDir = () => {
@@ -28,10 +28,10 @@ describe("개발 모델 제공자 어댑터", () => {
   });
 
   it("Ollama의 OpenAI 호환 v1 경로와 로컬 키를 자동 보완한다", () => {
-    const provider = resolveProvider("ollama/qwen3:8b", {
+    const provider = resolveProvider("ollama/qwen3.5:4b", {
       models: { providers: { ollama: { baseUrl: "http://127.0.0.1:11434", api: "ollama", models: [] } } },
     });
-    expect(provider).toMatchObject({ baseUrl: "http://127.0.0.1:11434/v1", key: "ollama-local", modelId: "qwen3:8b" });
+    expect(provider).toMatchObject({ baseUrl: "http://127.0.0.1:11434/v1", key: "ollama-local", modelId: "qwen3.5:4b" });
   });
 });
 
@@ -51,7 +51,7 @@ describe("사용량 영속 집계", () => {
 
   it("호출 기록을 원자적으로 누적한다", () => {
     const file = path.join(tempDir(), "usage.json");
-    appendUsage({ model: "ollama/qwen3:8b", input: 7, output: 11, calls: 1 }, file);
+    appendUsage({ model: "ollama/qwen3.5:4b", input: 7, output: 11, calls: 1 }, file);
     const totals = appendUsage({ model: "nvidia/openai/gpt-oss-120b", input: 3, output: 5, calls: 1 }, file) as any;
     expect(totals.all).toMatchObject({ input: 10, output: 16, calls: 2 });
     expect(JSON.parse(fs.readFileSync(file, "utf-8")).entries).toHaveLength(2);
@@ -79,6 +79,11 @@ describe("회의 작업 체크포인트", () => {
 });
 
 describe("PC 앱 데이터 이전과 Codex 작업 폴더", () => {
+  it("구형 list와 최신 entries 에이전트 설정을 모두 집계한다", () => {
+    expect(openClawAgentCount({ agents: { list: [{ id: "pm" }, { id: "qa" }] } })).toBe(2);
+    expect(openClawAgentCount({ agents: { entries: { pm: {}, qa: {}, dev: {} } } })).toBe(3);
+  });
+
   it("기존 프로젝트를 비파괴 복사하고 이미 있는 파일은 덮어쓰지 않는다", () => {
     const target = tempDir();
     const source = tempDir();

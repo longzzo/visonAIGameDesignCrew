@@ -33,7 +33,7 @@ vision-engine/
 
 | 구성 | 값 |
 |---|---|
-| LLM | Ollama `qwen3:8b` (D:\Ollama\models, 8GB VRAM 전용) — 오프라인 백업 단일본 |
+| LLM | Ollama `qwen3.5:4b` (8GB VRAM 권장) — 도구 호출·추론·이미지 입력이 가능한 오프라인 기본 작업자 |
 | 게이트웨이 | OpenClaw 2026.6.11 — Windows 예약작업 "OpenClaw Gateway"로 자동 실행, `ws://127.0.0.1:18789` (토큰 인증, 루프백 전용) |
 | 기본 WebChat | http://127.0.0.1:18789 (openclaw dashboard) |
 | 커스텀 웹앱 | React + Vite + zustand, `webapp/` 참고 |
@@ -41,7 +41,7 @@ vision-engine/
 ## 📱 모바일 디스패치 (Tailscale)
 
 폰에서 이 PC의 에이전트를 굴리는 방법. **이 PC가 켜져 있고 게이트웨이가 돌고 있어야** 하며,
-실제 연산은 PC의 GPU(qwen3:8b)에서 일어난다 — 폰은 리모컨이다.
+실제 연산은 PC의 GPU(qwen3.5:4b)에서 일어난다 — 폰은 리모컨이다.
 
 ```powershell
 openclaw daemon status          # stopped면 openclaw daemon start

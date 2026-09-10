@@ -93,9 +93,34 @@ function migratePackagedDataIfEmpty(studio) {
   return source;
 }
 
-/** 등록돼 있다면 OpenClaw 예약 작업을 기동한다. 미설치 PC에서는 조용히 건너뛴다. */
+function findOpenClawEntry() {
+  const candidates = [
+    process.env.APPDATA && path.join(process.env.APPDATA, "npm", "node_modules", "openclaw", "dist", "index.js"),
+    path.join(os.homedir(), "AppData", "Roaming", "npm", "node_modules", "openclaw", "dist", "index.js"),
+    path.join(os.homedir(), "AppData", "Local", "Packages", "Claude_pzs8sxrjxfjjc", "LocalCache", "Roaming", "npm", "node_modules", "openclaw", "dist", "index.js"),
+  ].filter(Boolean);
+  return candidates.find((file) => fs.existsSync(file)) || "";
+}
+
+/** 최신 CLI로 서비스 시작을 요청하고, CLI를 못 찾을 때만 구형 예약 작업 방식을 사용한다. */
 function tryStartOpenClawGateway(restart = false) {
   if (process.platform !== "win32" || process.env.VE_SKIP_OPENCLAW_GATEWAY === "1") return { ok: false, error: "격리 실행에서는 Gateway를 시작하지 않습니다." };
+  const entry = findOpenClawEntry();
+  if (entry) {
+    try {
+      const child = spawn(process.execPath, [entry, "gateway", restart ? "restart" : "start"], {
+        windowsHide: true,
+        detached: true,
+        stdio: "ignore",
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      });
+      child.unref();
+      console.log(`✅ OpenClaw Gateway ${restart ? "재시작" : "시작"} 요청 완료`);
+      return { ok: true };
+    } catch (error) {
+      console.warn("⚠️ OpenClaw CLI 실행 실패, 예약 작업으로 재시도:", String(error?.message || error));
+    }
+  }
   if (restart) spawnSync("schtasks.exe", ["/End", "/TN", "OpenClaw Gateway"], { windowsHide: true, encoding: "utf-8" });
   const result = spawnSync("schtasks.exe", ["/Run", "/TN", "OpenClaw Gateway"], { windowsHide: true, encoding: "utf-8" });
   if (result.status === 0) {
@@ -107,12 +132,47 @@ function tryStartOpenClawGateway(restart = false) {
 
 function findOpenClawCli() {
   if (process.platform !== "win32") return "openclaw";
+  const candidates = [
+    process.env.APPDATA && path.join(process.env.APPDATA, "npm", "openclaw.cmd"),
+    process.env.APPDATA && path.join(process.env.APPDATA, "npm", "openclaw.ps1"),
+    path.join(os.homedir(), "AppData", "Roaming", "npm", "openclaw.cmd"),
+    path.join(os.homedir(), "AppData", "Local", "Packages", "Claude_pzs8sxrjxfjjc", "LocalCache", "Roaming", "npm", "openclaw.cmd"),
+  ].filter(Boolean);
+  const direct = candidates.find((file) => fs.existsSync(file));
+  if (direct) return direct;
   for (const command of ["openclaw.cmd", "openclaw.exe", "openclaw"]) {
     const result = spawnSync("where.exe", [command], { windowsHide: true, encoding: "utf-8" });
     const found = String(result.stdout || "").split(/\r?\n/).map((line) => line.trim()).find(Boolean);
     if (result.status === 0 && found) return found;
   }
   return "";
+}
+
+function findOllamaCli() {
+  const candidates = [
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Programs", "Ollama", "ollama.exe"),
+    path.join(os.homedir(), "AppData", "Local", "Programs", "Ollama", "ollama.exe"),
+  ].filter(Boolean);
+  const direct = candidates.find((file) => fs.existsSync(file));
+  if (direct) return direct;
+  const found = spawnSync("where.exe", ["ollama.exe"], { windowsHide: true, encoding: "utf-8" });
+  return found.status === 0 ? String(found.stdout || "").split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "" : "";
+}
+
+function launchOllamaPull(model = "qwen3.5:4b") {
+  if (!/^[a-zA-Z0-9_.:/-]+$/.test(model)) return { ok: false, error: "올바르지 않은 모델 이름입니다." };
+  const cli = findOllamaCli();
+  if (!cli) return { ok: false, error: "Ollama를 찾지 못했습니다. ollama.com에서 먼저 설치하세요." };
+  try {
+    const child = spawn("powershell.exe", [
+      "-NoLogo", "-NoProfile", "-NoExit", "-Command",
+      "& $env:VE_OLLAMA_CLI pull $env:VE_OLLAMA_MODEL; Write-Host ''; Write-Host '모델 설치가 끝났습니다. Vision Engine에서 다시 확인을 누르세요.'",
+    ], { windowsHide: false, detached: true, stdio: "ignore", env: { ...process.env, VE_OLLAMA_CLI: cli, VE_OLLAMA_MODEL: model } });
+    child.unref();
+    return { ok: true, model };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error).slice(0, 200) };
+  }
 }
 
 function launchOpenClawOnboard() {
@@ -497,6 +557,7 @@ ipcMain.handle("ve:startOpenClaw", async () => {
   return tryStartOpenClawGateway();
 });
 ipcMain.handle("ve:openclawOnboard", async () => launchOpenClawOnboard());
+ipcMain.handle("ve:ollamaPull", async (_event, model) => launchOllamaPull(String(model || "qwen3.5:4b")));
 
 // 로컬 개발 서버 콘텐츠 — HTTP 캐시가 손상되면 ERR_FAILED로 빈 창이 뜨므로 캐시를 끈다
 app.commandLine.appendSwitch("disable-http-cache");

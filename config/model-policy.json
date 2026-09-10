@@ -9,5 +9,5 @@
     "developer": "nvidia/openai/gpt-oss-120b",
     "reviewer": "nvidia/openai/gpt-oss-120b"
   },
-  "localFallback": "ollama/qwen3:8b"
+  "localFallback": "ollama/qwen3.5:4b"
 }

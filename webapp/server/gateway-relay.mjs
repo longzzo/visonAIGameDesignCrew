@@ -16,6 +16,13 @@ function readConfig() {
   }
 }
 
+function readAgentRoster(config) {
+  if (Array.isArray(config?.agents?.list)) return config.agents.list;
+  const entries = config?.agents?.entries;
+  if (!entries || typeof entries !== "object" || Array.isArray(entries)) return [];
+  return Object.entries(entries).map(([id, agent]) => ({ id, ...(agent && typeof agent === "object" ? agent : {}) }));
+}
+
 function safePayload(payload = {}) {
   const out = {};
   for (const key of ["sessionKey", "state", "role", "direction", "deltaText", "message"]) {
@@ -82,7 +89,7 @@ export function gatewayRelayPlugin() {
         params: {
           minProtocol: 4,
           maxProtocol: 4,
-          client: { id: "cli", version: "3.5.0", platform: process.platform, mode: "cli" },
+          client: { id: "cli", version: "3.6.0", platform: process.platform, mode: "cli" },
           role: "operator",
           scopes: ["operator.read"],
           auth: { token },
@@ -156,7 +163,7 @@ export function gatewayRelayPlugin() {
         }
         if (sub === "/agents") {
           const cfg = readConfig();
-          const agents = (cfg?.agents?.list ?? []).map((agent) => ({ id: agent.id, name: agent.name, model: agent.model }));
+          const agents = readAgentRoster(cfg).map((agent) => ({ id: agent.id, name: agent.name, model: agent.model }));
           res.setHeader("Content-Type", "application/json; charset=utf-8");
           res.end(JSON.stringify({ ok: true, agents }));
           return;

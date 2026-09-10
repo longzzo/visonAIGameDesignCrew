@@ -1173,7 +1173,7 @@ export const useVE = create<VEState>()((set, get) => {
     mobilePanel: "work",
     conn: "idle",
     connDetail: "",
-    modelName: ((import.meta as any).env?.VITE_DEFAULT_MODEL as string) || "ollama/qwen3:8b",
+    modelName: ((import.meta as any).env?.VITE_DEFAULT_MODEL as string) || "ollama/qwen3.5:4b",
     agentStatus: {},
 
     projects: [],

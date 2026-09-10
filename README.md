@@ -74,7 +74,7 @@
 | 항목 | 필수 | 비고 |
 |---|:---:|---|
 | Windows 10/11, [Node.js](https://nodejs.org) 20+ | ✅ | |
-| [Ollama](https://ollama.com) + `qwen3:8b` | ✅ | 무료 로컬 모델 (VRAM 8GB 권장) |
+| [Ollama](https://ollama.com) + `qwen3.5:4b` | ✅ | 무료 로컬 모델 (VRAM 8GB 권장, 도구 호출·추론·이미지 입력) |
 | [Git](https://git-scm.com) | ✅ | |
 | NVIDIA NIM 키 ([build.nvidia.com](https://build.nvidia.com)) | 선택 | 회의 품질·속도 향상 (무료 크레딧) |
 | Stable Diffusion (Forge), Tailscale, Obsidian | 선택 | 아트 생성 / 원격 접속 / 노트 학습 |
@@ -84,7 +84,7 @@
 ```bat
 git clone https://github.com/longzzo/visonAIGameDesignCrew.git vision-engine
 cd vision-engine
-ollama pull qwen3:8b
+ollama pull qwen3.5:4b
 VisionEngine-Start.bat
 ```
 

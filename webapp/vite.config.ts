@@ -21,6 +21,23 @@ const WORKSPACE = path.join(DATA_ROOT, "workspace");
 const PROJECTS_DIR = path.join(WORKSPACE, "projects");
 const LEGACY_GDD = path.join(WORKSPACE, "GDD.md");
 
+/** OpenClaw 2026.9+ agents.entries와 구버전 agents.list를 함께 지원한다. */
+function readOpenClawAgents(config: any): any[] {
+  if (Array.isArray(config?.agents?.list)) return config.agents.list;
+  const entries = config?.agents?.entries;
+  if (!entries || typeof entries !== "object" || Array.isArray(entries)) return [];
+  return Object.entries(entries).map(([id, agent]: [string, any]) => ({ id, ...(agent ?? {}) }));
+}
+
+function writeOpenClawAgents(config: any, agents: any[]): void {
+  config.agents ||= {};
+  config.agents.entries = Object.fromEntries(agents.filter((agent) => agent?.id).map((agent) => {
+    const { id, ...value } = agent;
+    return [id, value];
+  }));
+  delete config.agents.list;
+}
+
 /* ── 프로젝트 저장소 헬퍼 ─────────────────────────────── */
 
 function gddTemplate(name: string): string {
@@ -584,7 +601,7 @@ function notionApiPlugin(): Plugin {
 
 /* ── 플러그인: 직원 채용/퇴사 (동적 에이전트) ────────────
  * POST { id, name, emoji, role, zone, persona? } → agents/<id>/AGENTS.md 생성
- *   + openclaw.json agents.list에 추가 + config/custom-agents.json 기록 + 게이트웨이 재시작.
+ *   + openclaw.json agents.entries에 추가 + config/custom-agents.json 기록 + 게이트웨이 재시작.
  * POST { fire: id } → openclaw.json·custom-agents.json에서 제거 (페르소나 폴더는 보존).
  * GET → 채용된 직원 목록 (클라이언트 로스터 복원용).
  */
@@ -652,8 +669,7 @@ function hireApiPlugin(): Plugin {
             }
             const j = JSON.parse((await readBody(req)) || "{}");
             const cfg = JSON.parse(fs.readFileSync(OPENCLAW_CFG, "utf-8"));
-            cfg.agents = cfg.agents || {};
-            cfg.agents.list = cfg.agents.list || [];
+            const agentRoster = readOpenClawAgents(cfg);
 
             // ── 퇴사 ──
             if (typeof j.fire === "string" && j.fire) {
@@ -664,7 +680,7 @@ function hireApiPlugin(): Plugin {
                 res.end(JSON.stringify({ ok: false, error: "채용된 직원만 퇴사 처리할 수 있습니다" }));
                 return;
               }
-              cfg.agents.list = cfg.agents.list.filter((a: any) => a.id !== id);
+              writeOpenClawAgents(cfg, agentRoster.filter((a: any) => a.id !== id));
               fs.writeFileSync(OPENCLAW_CFG, JSON.stringify(cfg, null, 2), "utf-8");
               writeCustomAgents(customs.filter((c) => c.id !== id));
               restartGateway();
@@ -692,7 +708,7 @@ function hireApiPlugin(): Plugin {
               res.end(JSON.stringify({ ok: false, error: "이름·역할·부서를 확인해 주세요" }));
               return;
             }
-            if (cfg.agents.list.some((a: any) => a.id === id)) {
+            if (agentRoster.some((a: any) => a.id === id)) {
               res.statusCode = 400;
               res.end(JSON.stringify({ ok: false, error: `이미 존재하는 id입니다: ${id}` }));
               return;
@@ -708,8 +724,8 @@ function hireApiPlugin(): Plugin {
               fs.writeFileSync(personaFile, hirePersonaTemplate(name, role, persona), "utf-8");
             }
             const model =
-              cfg?.agents?.defaults?.model?.primary ?? cfg?.agents?.list?.[0]?.model ?? "ollama/qwen3:8b";
-            cfg.agents.list.push({
+              cfg?.agents?.defaults?.model?.primary ?? agentRoster[0]?.model ?? "ollama/qwen3.5:4b";
+            agentRoster.push({
               id,
               name,
               workspace,
@@ -717,6 +733,7 @@ function hireApiPlugin(): Plugin {
               model,
               tools: { deny: [...HIRE_TOOL_DENY] },
             });
+            writeOpenClawAgents(cfg, agentRoster);
             fs.writeFileSync(OPENCLAW_CFG, JSON.stringify(cfg, null, 2), "utf-8");
             const hire = { id, name, emoji, role, zone, color, section, rank, reportsTo };
             writeCustomAgents([...customs, hire]);
@@ -4337,7 +4354,7 @@ const PROVIDER_TEMPLATES: Record<string, any> = {
 
 /** 사용자에게 보여줄 모델 라벨 */
 const MODEL_LABELS: Record<string, { label: string; note?: string }> = {
-  "ollama/qwen3:8b": { label: "로컬 Qwen3 8B", note: "무료·무제한·오프라인 (품질 낮음)" },
+  "ollama/qwen3.5:4b": { label: "로컬 Qwen3.5 4B", note: "무료·오프라인 · 도구 호출·추론·이미지 입력 지원" },
   // GitHub Models 무료 티어는 요청당 4,000토큰 제한이라 에이전트 프롬프트가 안 들어간다.
   // GitHub 설정에서 Models 유료 결제(또는 Copilot 유료 플랜)를 켜면 제한이 풀려 사용 가능.
   "github/openai/gpt-5-mini": { label: "GPT-5 mini · GitHub Models", note: "⚠️ GitHub 유료 결제 필요 (무료 티어는 4K 제한)" },
@@ -4407,13 +4424,14 @@ function modelsApiPlugin(): Plugin {
           res.setHeader("Content-Type", "application/json; charset=utf-8");
           try {
             const cfg = JSON.parse(fs.readFileSync(OPENCLAW_CFG, "utf-8"));
+            const agentRoster = readOpenClawAgents(cfg);
 
             if (req.method === "GET") {
               const current =
-                cfg?.agents?.defaults?.model?.primary ?? cfg?.agents?.list?.[0]?.model ?? "ollama/qwen3:8b";
+                cfg?.agents?.defaults?.model?.primary ?? agentRoster[0]?.model ?? "ollama/qwen3.5:4b";
               // 에이전트별 현재 모델 (역할별 배정 UI용)
               const agents: Record<string, string> = {};
-              for (const a of cfg?.agents?.list ?? []) agents[a.id] = a.model ?? current;
+              for (const a of agentRoster) agents[a.id] = a.model ?? current;
               const providers = {
                 ollama: true,
                 github: hasProviderKey(cfg, "github"),
@@ -4471,7 +4489,7 @@ function modelsApiPlugin(): Plugin {
               }
 
               // ② 역할별 모델 배정 (배치 — 게이트웨이 재시작 1회)
-              //    body: { agentModels: { pm: "github/openai/gpt-5", scenario: "ollama/qwen3:8b", ... } }
+              //    body: { agentModels: { pm: "github/openai/gpt-5", scenario: "ollama/qwen3.5:4b", ... } }
               if (j.agentModels && typeof j.agentModels === "object") {
                 const entries = Object.entries(j.agentModels as Record<string, string>);
                 if (entries.length === 0) {
@@ -4488,7 +4506,7 @@ function modelsApiPlugin(): Plugin {
                   if (provider !== "ollama" && !hasProviderKey(cfg, provider)) return `${provider} API 키를 먼저 등록하세요`;
                   return null;
                 };
-                const agentIds = new Set((cfg?.agents?.list ?? []).map((a: any) => a.id));
+                const agentIds = new Set(agentRoster.map((a: any) => a.id));
                 for (const [agentId, model] of entries) {
                   if (!agentIds.has(agentId)) {
                     res.statusCode = 400;
@@ -4502,10 +4520,11 @@ function modelsApiPlugin(): Plugin {
                     return;
                   }
                 }
-                for (const a of cfg.agents.list ?? []) {
+                for (const a of agentRoster) {
                   const next = (j.agentModels as Record<string, string>)[a.id];
                   if (next) a.model = next;
                 }
+                writeOpenClawAgents(cfg, agentRoster);
                 fs.writeFileSync(OPENCLAW_CFG, JSON.stringify(cfg, null, 2), "utf-8");
                 restartGateway();
                 res.end(JSON.stringify({ ok: true }));
@@ -4532,7 +4551,8 @@ function modelsApiPlugin(): Plugin {
                 cfg.agents = cfg.agents || {};
                 cfg.agents.defaults = cfg.agents.defaults || {};
                 cfg.agents.defaults.model = { ...(cfg.agents.defaults.model || {}), primary: model };
-                for (const a of cfg.agents.list ?? []) a.model = model;
+                for (const a of agentRoster) a.model = model;
+                writeOpenClawAgents(cfg, agentRoster);
                 fs.writeFileSync(OPENCLAW_CFG, JSON.stringify(cfg, null, 2), "utf-8");
                 restartGateway();
                 res.end(JSON.stringify({ ok: true, model }));

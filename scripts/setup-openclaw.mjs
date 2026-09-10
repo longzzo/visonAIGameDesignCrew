@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { mergeAgentRoster, preserveUnknownConfig } from "./openclaw-merge.mjs";
+import { mergeAgentRoster, preserveUnknownConfig, readAgentRoster, writeAgentRoster } from "./openclaw-merge.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..");
@@ -65,13 +65,13 @@ const providerReady = (model) => {
   return providerName === "ollama" || (!!key && !isPlaceholder(key));
 };
 const mergedRoster = mergeAgentRoster({
-  templateAgents: next.agents.list,
-  previousAgents: prev?.agents?.list,
+  templateAgents: readAgentRoster(next),
+  previousAgents: readAgentRoster(prev),
   roles,
   modelPolicy,
   providerReady,
 });
-next.agents.list = mergedRoster.agents;
+writeAgentRoster(next, mergedRoster.agents);
 const previousDefault = prev?.agents?.defaults?.model?.primary;
 if (previousDefault && !retired(previousDefault)) next.agents.defaults.model.primary = previousDefault;
 if (retired(next.agents.defaults.model.primary)) next.agents.defaults.model.primary = modelPolicy.roles.planner;
@@ -86,14 +86,15 @@ if (fs.existsSync(CFG)) {
 }
 fs.writeFileSync(CFG, JSON.stringify(next, null, 2), "utf-8");
 
-const ids = next.agents.list.map((a) => a.id).join(", ");
-console.log(`✅ 에이전트 ${next.agents.list.length}명 설정 완료: ${ids}`);
+const installedAgents = readAgentRoster(next);
+const ids = installedAgents.map((a) => a.id).join(", ");
+console.log(`✅ 에이전트 ${installedAgents.length}명 설정 완료: ${ids}`);
 if (mergedRoster.customIds.length) {
   console.log(`🛡️ 사용자·레거시 에이전트 ${mergedRoster.customIds.length}명 보존: ${mergedRoster.customIds.join(", ")}`);
 }
 console.log(`   워크스페이스: ${AGENT_REPO}${path.sep}agents${path.sep}<id>`);
 console.log("");
 console.log("다음 단계:");
-console.log('  1) 게이트웨이 재시작:  schtasks /End /TN "OpenClaw Gateway" && schtasks /Run /TN "OpenClaw Gateway"');
+console.log("  1) 게이트웨이 재시작:  openclaw gateway restart");
 console.log("     (예약작업이 없다면 먼저 `openclaw onboard` 를 실행해 게이트웨이를 등록하세요)");
 console.log("  2) 웹앱 실행:  VisionEngine-Start.bat 더블클릭");

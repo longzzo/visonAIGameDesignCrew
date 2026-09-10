@@ -19,7 +19,7 @@ function main() {
   }
 
   const lines = [
-    `VITE_DEFAULT_MODEL=ollama/qwen3:8b`,
+    `VITE_DEFAULT_MODEL=ollama/qwen3.5:4b`,
     "",
   ];
   fs.writeFileSync(ENV_PATH, lines.join("\n"), "utf-8");
