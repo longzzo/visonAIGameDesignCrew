@@ -11,6 +11,7 @@ import { gatewayRelayPlugin } from "./server/gateway-relay.mjs";
 import { usageStorePlugin } from "./server/usage-store.mjs";
 import { jobStorePlugin } from "./server/job-store.mjs";
 import { readinessApiPlugin } from "./server/readiness.mjs";
+import { backupApiPlugin } from "./server/backup-store.mjs";
 import { applySecurityHeaders, hostnameAllowed, originMatchesRequest } from "./server/request-security.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1452,15 +1453,16 @@ function isLocalReq(req: any): boolean {
 function restartGateway(): void {
   const legacy = () => spawn("schtasks", ["/Run", "/TN", "OpenClaw Gateway"], { shell: false, windowsHide: true });
   const entry = findOpenclawEntry();
-  if (!entry) {
+  const nodeRuntime = findNodeRuntime();
+  if (!entry || !nodeRuntime) {
     legacy();
     return;
   }
-  const child = spawn(process.execPath, [entry, "gateway", "restart"], {
+  const child = spawn(nodeRuntime, [entry, "gateway", "restart"], {
     shell: false,
     windowsHide: true,
     stdio: "ignore",
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: process.env.ELECTRON_RUN_AS_NODE || "1" },
+    env: { ...process.env },
   });
   child.once("error", legacy);
 }
@@ -3061,8 +3063,10 @@ function runDesignSearch(
     const child = spawn(py, args, { windowsHide: true });
     let out = "";
     let err = "";
-    child.stdout.on("data", (d: Buffer) => (out += d.toString()));
-    child.stderr.on("data", (d: Buffer) => (err += d.toString()));
+    child.stdout.setEncoding("utf-8");
+    child.stderr.setEncoding("utf-8");
+    child.stdout.on("data", (text: string) => (out += text));
+    child.stderr.on("data", (text: string) => (err += text));
     const timer = setTimeout(() => {
       try {
         child.kill();
@@ -4312,37 +4316,11 @@ const PROVIDER_TEMPLATES: Record<string, any> = {
   nvidia: {
     baseUrl: "https://integrate.api.nvidia.com/v1",
     api: "openai-completions",
-    // 2026-07 카탈로그 실측 기준 — 응답 빠르고 한국어 정상인 모델만 (qwen3.5-397b는 대기열 2분+로 제외)
+    // NVIDIA /models + 한국어 호출 실측(2026-09-11). OpenClaw 내장 카탈로그만 믿지 않는다.
     models: [
       {
-        id: "moonshotai/kimi-k2.6",
-        name: "Kimi K2.6 (NVIDIA)",
-        input: ["text"],
-        contextWindow: 131072,
-        maxTokens: 8192,
-        compat: {
-          maxTokensField: "max_tokens",
-          supportsStore: false,
-          supportsDeveloperRole: false,
-          supportsReasoningEffort: false,
-        },
-      },
-      {
-        id: "deepseek-ai/deepseek-v4-flash",
-        name: "DeepSeek V4 Flash (NVIDIA)",
-        input: ["text"],
-        contextWindow: 131072,
-        maxTokens: 8192,
-        compat: {
-          maxTokensField: "max_tokens",
-          supportsStore: false,
-          supportsDeveloperRole: false,
-          supportsReasoningEffort: false,
-        },
-      },
-      {
-        id: "openai/gpt-oss-120b",
-        name: "GPT-OSS 120B (NVIDIA)",
+        id: "nvidia/nemotron-3-super-120b-a12b",
+        name: "Nemotron 3 Super 120B (NVIDIA)",
         input: ["text"],
         contextWindow: 131072,
         maxTokens: 8192,
@@ -4364,17 +4342,25 @@ const MODEL_LABELS: Record<string, { label: string; note?: string }> = {
   // GitHub 설정에서 Models 유료 결제(또는 Copilot 유료 플랜)를 켜면 제한이 풀려 사용 가능.
   "github/openai/gpt-5-mini": { label: "GPT-5 mini · GitHub Models", note: "⚠️ GitHub 유료 결제 필요 (무료 티어는 4K 제한)" },
   "github/openai/gpt-5": { label: "GPT-5 · GitHub Models", note: "⚠️ GitHub 유료 결제 필요 (무료 티어는 4K 제한)" },
-  // 한국어 누수 실측(2026-07-16, 모델당 4회 + 게이트웨이 경유 대조) 결과를 note에 반영한다.
-  // 오너 스튜디오는 한국어가 결과물이라 "한국어를 안 깨뜨리는가"가 모델 선택의 1순위다.
-  "nvidia/openai/gpt-oss-120b": { label: "GPT-OSS 120B · NVIDIA", note: "✅ 한국어 누수 0 · 최속(5s) — PM·팀원 추천" },
-  "nvidia/z-ai/glm-5.2": { label: "GLM 5.2 · NVIDIA", note: "✅ 한국어 누수 0 · 13s — 대안" },
-  "nvidia/minimaxai/minimax-m3": { label: "MiniMax M3 · NVIDIA", note: "신규 — 미검증" },
-  "nvidia/deepseek-ai/deepseek-v4-pro": { label: "DeepSeek V4 Pro · NVIDIA", note: "신규 — 미검증" },
-  "nvidia/meta/llama-4-maverick-17b-128e-instruct": { label: "Llama 4 Maverick · NVIDIA", note: "⚠️ 실측 시 180s 타임아웃" },
-  "nvidia/qwen/qwen3.5-122b-a10b": { label: "Qwen3.5 122B · NVIDIA", note: "⚠️ 게이트웨이 경유 시 한국어 깨짐(的冰·łoś) — 비권장" },
-  "nvidia/moonshotai/kimi-k2.6": { label: "Kimi K2.6 · NVIDIA", note: "⚠️ channels 오류 — 사용 불가" },
-  "nvidia/deepseek-ai/deepseek-v4-flash": { label: "DeepSeek V4 Flash · NVIDIA", note: "⚠️ channels 오류 — 사용 불가" },
+  "nvidia/nvidia/nemotron-3-super-120b-a12b": {
+    label: "Nemotron 3 Super 120B · NVIDIA",
+    note: "현재 API·한국어 응답 실측 통과(2026-09-11) · 선택형 클라우드",
+  },
 };
+
+const RETIRED_MODEL_PATTERNS: string[] = (() => {
+  try {
+    const policy = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "config", "model-policy.json"), "utf-8"));
+    return Array.isArray(policy?.retiredModelPatterns)
+      ? policy.retiredModelPatterns.map(String).filter(Boolean)
+      : [];
+  } catch {
+    return [];
+  }
+})();
+
+const isStaticallyRetiredModel = (model: unknown): boolean =>
+  typeof model === "string" && RETIRED_MODEL_PATTERNS.some((pattern) => model.includes(pattern));
 
 function hasProviderKey(cfg: any, provider: string): boolean {
   const key = cfg?.models?.providers?.[provider]?.apiKey;
@@ -4445,15 +4431,21 @@ function modelsApiPlugin(): Plugin {
               const options: { id: string; label: string; note?: string }[] = [];
               for (const m of cfg?.models?.providers?.ollama?.models ?? []) {
                 const id = `ollama/${m.id}`;
+                if (isStaticallyRetiredModel(id)) continue;
                 options.push({ id, ...(MODEL_LABELS[id] ?? { label: m.name ?? m.id }) });
               }
               // 제공자가 내린 모델은 목록에서 뺀다 — 고를 수 있으면 반드시 누군가 배정된다(2026-07-29 사고).
-              const retired: string[] = [];
+              const retired = [...new Set([
+                ...Object.values(agents).filter(isStaticallyRetiredModel),
+                ...Object.entries(cfg?.models?.providers ?? {}).flatMap(([provider, value]: [string, any]) =>
+                  (value?.models ?? []).map((model: any) => `${provider}/${model.id}`).filter(isStaticallyRetiredModel)),
+              ])];
               for (const provider of ["github", "nvidia"] as const) {
                 if (!providers[provider]) continue;
                 const live = await liveModelIds(provider, cfg);
                 for (const m of cfg?.models?.providers?.[provider]?.models ?? []) {
                   const id = `${provider}/${m.id}`;
+                  if (isStaticallyRetiredModel(id)) continue;
                   if (live && !live.has(String(m.id))) {
                     retired.push(id);
                     continue;
@@ -4462,8 +4454,9 @@ function modelsApiPlugin(): Plugin {
                 }
               }
               // 지금 배정된 모델이 내려갔다면 반드시 알린다 — 이게 없으면 증상이 "게이트웨이 끊김"으로만 보인다.
-              const deadAssigned = [...new Set(Object.values(agents).filter((m) => retired.includes(m)))];
-              res.end(JSON.stringify({ current, agents, providers, options, retired, deadAssigned }));
+              const retiredSet = new Set(retired);
+              const deadAssigned = [...new Set(Object.values(agents).filter((model) => retiredSet.has(model)))];
+              res.end(JSON.stringify({ current, agents, providers, options, retired: [...retiredSet], deadAssigned }));
               return;
             }
 
@@ -4503,6 +4496,7 @@ function modelsApiPlugin(): Plugin {
                   return;
                 }
                 const validModel = (model: string): string | null => {
+                  if (isStaticallyRetiredModel(model)) return `제공이 종료된 모델입니다: ${model}`;
                   const slash = model.indexOf("/");
                   const provider = slash > 0 ? model.slice(0, slash) : "";
                   const modelId = slash > 0 ? model.slice(slash + 1) : "";
@@ -4539,6 +4533,11 @@ function modelsApiPlugin(): Plugin {
               // ③ 전 에이전트 모델 전환
               if (typeof j.model === "string" && j.model) {
                 const model = j.model.trim();
+                if (isStaticallyRetiredModel(model)) {
+                  res.statusCode = 400;
+                  res.end(JSON.stringify({ ok: false, error: `제공이 종료된 모델입니다: ${model}` }));
+                  return;
+                }
                 const slash = model.indexOf("/");
                 const provider = slash > 0 ? model.slice(0, slash) : "";
                 const modelId = slash > 0 ? model.slice(slash + 1) : "";
@@ -4599,6 +4598,27 @@ function findOpenclawEntry(): string | null {
   return null;
 }
 
+/** Electron의 RunAsNode Fuse가 꺼진 설치본에서도 공식 CLI를 실행할 실제 Node를 찾는다. */
+function findNodeRuntime(): string | null {
+  if (/^node(?:\.exe)?$/i.test(path.basename(process.execPath))) return process.execPath;
+  const candidates = [
+    process.env.VE_NODE_EXECUTABLE ?? "",
+    process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "nodejs", "node.exe") : "",
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Programs", "nodejs", "node.exe") : "",
+  ].filter(Boolean);
+  for (const candidate of candidates) if (fs.existsSync(candidate)) return candidate;
+  if (process.platform === "win32") {
+    try {
+      const found = execFileSync("where.exe", ["node.exe"], { encoding: "utf-8", windowsHide: true, timeout: 5_000 })
+        .split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+      if (found && fs.existsSync(found)) return found;
+    } catch {
+      /* 설치 진단에서 Node/OpenClaw 준비 필요로 안내한다. */
+    }
+  }
+  return null;
+}
+
 /**
  * 게이트웨이 WS의 operator.write 스코프는 디바이스 페어링이 필요하므로,
  * 디바이스 신원을 자동 처리하는 공식 CLI(openclaw agent --json)를
@@ -4632,7 +4652,7 @@ function agentBridgePlugin(): Plugin {
             agentId = String(j.agentId ?? "");
             message = String(j.message ?? "");
             sessionKey = String(j.sessionKey ?? "");
-            // 이 호출만 다른 모델로 (예: 발표 생성은 gpt-oss-120b). provider/model 형식만 허용.
+            // 이 호출만 다른 모델로 실행한다. provider/model 형식만 허용.
             const m = String(j.model ?? "").trim();
             if (m && /^[a-z0-9][a-z0-9/._-]{1,80}$/i.test(m)) modelOverride = m;
           } catch {
@@ -4656,15 +4676,16 @@ function agentBridgePlugin(): Plugin {
             return;
           }
           const entry = findOpenclawEntry();
-          if (!entry) {
+          const nodeRuntime = findNodeRuntime();
+          if (!entry || !nodeRuntime) {
             res.statusCode = 500;
-            res.end(JSON.stringify({ ok: false, error: "openclaw CLI를 찾지 못했습니다 (npm i -g openclaw)" }));
+            res.end(JSON.stringify({ ok: false, error: "OpenClaw CLI 또는 Node.js를 찾지 못했습니다. PC 준비 상태를 확인하세요." }));
             return;
           }
           const args = [entry, "agent", "--agent", agentId, "--message", message, "--json", "--timeout", "420"];
           if (sessionKey) args.push("--session-key", sessionKey);
           if (modelOverride) args.push("--model", modelOverride);
-          const child = spawn(process.execPath, args, { shell: false, windowsHide: true });
+          const child = spawn(nodeRuntime, args, { shell: false, windowsHide: true });
           let out = "";
           let err = "";
           const killer = setTimeout(() => child.kill(), 430_000);
@@ -4673,8 +4694,12 @@ function agentBridgePlugin(): Plugin {
           res.on("close", () => {
             if (!res.writableEnded) child.kill();
           });
-          child.stdout.on("data", (d) => (out += d.toString("utf-8")));
-          child.stderr.on("data", (d) => (err += d.toString("utf-8")));
+          // Buffer 단위 변환은 한글 멀티바이트 문자가 청크 경계에서 U+FFFD로 깨질 수 있다.
+          child.stdout.setEncoding("utf-8");
+          child.stderr.setEncoding("utf-8");
+          child.stdout.on("data", (text: string) => (out += text));
+          child.stderr.on("data", (text: string) => (err += text));
+          child.once("error", (error) => { err += String(error?.message || error); });
           child.on("close", () => {
             clearTimeout(killer);
             const jsonStart = out.indexOf("{");
@@ -4883,6 +4908,7 @@ export function visionApiPlugins(): Plugin[] {
     usageStorePlugin(), // 세션이 끝나도 남는 일·주·전체 토큰 사용량
     jobStorePlugin(), // 비정상 종료된 회의의 요청·종료 상태 체크포인트
     readinessApiPlugin(), // 설치형 PC 앱의 OpenClaw·Codex·데이터 준비 상태
+    backupApiPlugin(), // 서버 PC 로컬 전용 전체 프로젝트 백업·비파괴 복원
     projectsApiPlugin(),
     gddApiPlugin(),
     chatsApiPlugin(),

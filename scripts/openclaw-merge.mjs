@@ -3,7 +3,8 @@
  *
  * manifest에 있는 에이전트는 최신 템플릿을 기준으로 갱신하되 사용자가 고른 모델은
  * 보존한다. manifest 밖의 사용자/레거시 에이전트는 절대 삭제하지 않고 원본 그대로
- * 뒤에 붙인다. 설치·업데이트가 개인 로스터를 훼손하지 않게 하는 순수 함수다.
+ * 뒤에 붙인다. 단, 서비스가 끝난 모델만 로컬 안전 모델로 바꾼다. 설치·업데이트가
+ * 개인 로스터를 훼손하거나 이미 종료된 모델에 계속 묶어 두지 않게 하는 순수 함수다.
  */
 export function mergeAgentRoster({ templateAgents, previousAgents, roles, modelPolicy, providerReady }) {
   const previous = new Map((previousAgents ?? []).map((agent) => [agent.id, agent]));
@@ -24,7 +25,13 @@ export function mergeAgentRoster({ templateAgents, previousAgents, roles, modelP
 
   const custom = (previousAgents ?? [])
     .filter((agent) => agent?.id && !managedIds.has(agent.id))
-    .map((agent) => structuredClone(agent));
+    .map((source) => {
+      const agent = structuredClone(source);
+      if (retired(agent.model)) {
+        agent.model = modelPolicy.localFallback;
+      }
+      return agent;
+    });
   return { agents: [...managed, ...custom], customIds: custom.map((agent) => agent.id) };
 }
 

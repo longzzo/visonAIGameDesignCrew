@@ -68,6 +68,32 @@ try {
 
   const projects = await fetch(`${base}/api/projects`);
   assert.equal(projects.status, 200);
+  const createdResponse = await fetch(`${base}/api/projects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "백업 smoke 프로젝트" }),
+  });
+  assert.equal(createdResponse.status, 200);
+  const created = await createdResponse.json();
+  assert.equal(created.ok, true);
+
+  const backupStatus = await (await fetch(`${base}/api/backup/status`)).json();
+  assert.equal(backupStatus.ok, true);
+  assert.equal(backupStatus.projects, 1);
+  const backupResponse = await fetch(`${base}/api/backup/export`);
+  assert.equal(backupResponse.status, 200);
+  assert.match(backupResponse.headers.get("content-type") ?? "", /vision-engine\.backup/);
+  const restoredResponse = await fetch(`${base}/api/backup/import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/vnd.vision-engine.backup" },
+    body: await backupResponse.arrayBuffer(),
+  });
+  assert.equal(restoredResponse.status, 200);
+  const restored = await restoredResponse.json();
+  assert.equal(restored.ok, true);
+  assert.equal(restored.imported.length, 1);
+  assert.equal(restored.imported[0].copied, true);
+
   const readiness = await (await fetch(`${base}/api/readiness`, { signal: AbortSignal.timeout(10_000) })).json();
   assert.equal(readiness.ok, true);
   assert.equal(typeof readiness.codex.authenticated, "boolean");

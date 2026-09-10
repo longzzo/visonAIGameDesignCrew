@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { registerModelKey, getModelsInfo } from "../lib/models";
+import { downloadBackup, getBackupStatus, restoreBackup, type BackupStatus } from "../lib/backup";
+import { uiConfirm } from "../lib/dialog";
 
 /**
  * 첫 실행 온보딩 — 두 갈래로 나눈다:
@@ -49,6 +51,13 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
   const [msg, setMsg] = useState("");
   const [ready, setReady] = useState<Readiness | null>(null);
   const [update, setUpdate] = useState<UpdateState | null>(null);
+  const [backup, setBackup] = useState<BackupStatus | null>(null);
+  const backupInput = useRef<HTMLInputElement>(null);
+
+  const refreshBackupStatus = async () => {
+    try { setBackup(await getBackupStatus()); }
+    catch { setBackup(null); }
+  };
 
   const refreshReadiness = async () => {
     try {
@@ -63,6 +72,7 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     void refreshReadiness();
+    void refreshBackupStatus();
     const desktop = (window as any).veDesktop;
     if (desktop?.getUpdateState) void desktop.getUpdateState().then((state: UpdateState) => setUpdate(state)).catch(() => {});
   }, []);
@@ -170,6 +180,37 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
       setMsg(result?.ok ? `✅ ${result.message}` : `⚠️ ${result?.message || "업데이트를 확인하지 못했습니다."}`);
     } catch (error: any) { setMsg(`⚠️ ${String(error?.message || error)}`); }
     finally { setBusy(false); }
+  };
+
+  const exportProjects = async () => {
+    setBusy(true); setMsg("");
+    try {
+      await downloadBackup();
+      setMsg("✅ 전체 프로젝트 백업 다운로드를 시작했습니다. 안전한 별도 드라이브나 클라우드에 보관하세요.");
+    } catch (error: any) { setMsg(`⚠️ ${String(error?.message || error)}`); }
+    finally { setBusy(false); }
+  };
+
+  const importProjects = async (file: File) => {
+    const proceed = await uiConfirm("프로젝트 백업을 복원할까요?", {
+      message: "현재 프로젝트는 덮어쓰지 않습니다. 같은 프로젝트가 있으면 이름에 ‘복원본’을 붙인 새 사본으로 가져옵니다.",
+      confirmLabel: "♻️ 비파괴 복원",
+    });
+    if (!proceed) {
+      if (backupInput.current) backupInput.current.value = "";
+      return;
+    }
+    setBusy(true); setMsg("");
+    try {
+      const result = await restoreBackup(file);
+      const copies = result.imported.filter((item) => item.copied).length;
+      setMsg(`✅ 프로젝트 ${result.imported.length}개·파일 ${result.files.toLocaleString()}개를 복원했습니다.${copies ? ` 기존 프로젝트 ${copies}개는 복원본 사본으로 만들었습니다.` : ""}`);
+      await Promise.all([refreshReadiness(), refreshBackupStatus()]);
+    } catch (error: any) { setMsg(`⚠️ ${String(error?.message || error)}`); }
+    finally {
+      setBusy(false);
+      if (backupInput.current) backupInput.current.value = "";
+    }
   };
 
   // 닫는 중 — 투명 방패를 잠깐 유지한다.
@@ -298,6 +339,28 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
                 <div className="onb-ready ok">
                   <b>✨ 업데이트로 추가된 기능</b>
                   <span>로컬 추론·도구 호출·구조화 출력·이미지 입력, OpenClaw 자동 시작 및 최신 설정 호환</span>
+                </div>
+                <div className={`onb-ready ${backup?.projects ? "ok" : "warn"}`}>
+                  <b>💾 프로젝트 백업·복원</b>
+                  <span>
+                    {backup
+                      ? `${backup.projects}개 프로젝트 · ${backup.files.toLocaleString()}개 파일 · ${(backup.bytes / 1024 / 1024).toFixed(1)}MB`
+                      : "서버 PC에서 백업 상태를 확인할 수 있습니다."}
+                  </span>
+                  <div className="onb-ready-actions">
+                    <button className="btn tiny" onClick={() => void exportProjects()} disabled={busy || !backup?.projects}>전체 백업</button>
+                    <button className="btn tiny" onClick={() => backupInput.current?.click()} disabled={busy}>백업 복원</button>
+                    <input
+                      ref={backupInput}
+                      type="file"
+                      accept=".vebackup,application/vnd.vision-engine.backup"
+                      hidden
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) void importProjects(file);
+                      }}
+                    />
+                  </div>
                 </div>
                 {update && (
                   <div className={`onb-ready ${update.status === "error" ? "warn" : "ok"}`}>

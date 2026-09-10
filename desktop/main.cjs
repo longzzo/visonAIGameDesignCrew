@@ -11,6 +11,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const http = require("node:http");
 const https = require("node:https");
+const net = require("node:net");
 const { fileURLToPath } = require("node:url");
 
 // 패키지 E2E/기업 배포 검증은 실제 사용자 데이터와 완전히 분리된 경로에서 실행한다.
@@ -192,31 +193,130 @@ function findOpenClawEntry() {
   return candidates.find((file) => fs.existsSync(file)) || "";
 }
 
-/** 최신 CLI로 서비스 시작을 요청하고, CLI를 못 찾을 때만 구형 예약 작업 방식을 사용한다. */
-function tryStartOpenClawGateway(restart = false) {
-  if (process.platform !== "win32" || process.env.VE_SKIP_OPENCLAW_GATEWAY === "1") return { ok: false, error: "격리 실행에서는 Gateway를 시작하지 않습니다." };
+const waitForLocalPort = (port, timeoutMs = 8_000) => new Promise((resolve) => {
+  const startedAt = Date.now();
+  const probe = () => {
+    const socket = net.connect({ host: "127.0.0.1", port });
+    let finished = false;
+    const done = (open) => {
+      if (finished) return;
+      finished = true;
+      socket.destroy();
+      if (open) resolve(true);
+      else if (Date.now() - startedAt >= timeoutMs) resolve(false);
+      else setTimeout(probe, 250);
+    };
+    socket.setTimeout(700, () => done(false));
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+  };
+  probe();
+});
+
+let gatewayChild = null;
+let gatewayStartPromise = null;
+let gatewayRestartTimer = null;
+let gatewayRestartAttempts = 0;
+
+function pipeGatewayDiagnostics(child) {
+  child.stdout?.on("data", (chunk) => {
+    const message = safeRuntimeOutput(chunk);
+    if (message) console.log(`[openclaw] ${message}`);
+  });
+  child.stderr?.on("data", (chunk) => {
+    const message = safeRuntimeOutput(chunk);
+    if (message) console.warn(`[openclaw] ${message}`);
+  });
+}
+
+function scheduleGatewayRestart(exitCode) {
+  if (quitting || gatewayRestartTimer) return;
+  gatewayRestartAttempts += 1;
+  const delay = Math.min(30_000, 1_500 * (2 ** Math.min(gatewayRestartAttempts - 1, 5)));
+  console.warn(`⚠️ OpenClaw Gateway 자동 복구 예약: ${delay}ms 후 재시작 (code=${exitCode})`);
+  gatewayRestartTimer = setTimeout(() => {
+    gatewayRestartTimer = null;
+    if (!quitting) void tryStartOpenClawGateway(false);
+  }, delay);
+}
+
+function spawnManagedOpenClawGateway(entry) {
+  const child = utilityProcess.fork(entry, ["gateway", "--port", "18789", "--force", "run"], {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env },
+    serviceName: "Vision Engine OpenClaw Gateway",
+  });
+  gatewayChild = child;
+  pipeGatewayDiagnostics(child);
+  child.once("error", (type, location) => console.warn("⚠️ OpenClaw Gateway UtilityProcess 오류:", type, location));
+  child.once("exit", (code) => {
+    if (gatewayChild !== child) return;
+    gatewayChild = null;
+    console.warn(`⚠️ OpenClaw Gateway 종료: code=${code}, quitting=${quitting}`);
+    if (!quitting) scheduleGatewayRestart(code);
+  });
+  return child;
+}
+
+/** 서비스가 있으면 재사용하고, 없으면 앱이 Gateway를 직접 상주시켜 자동 복구한다. */
+async function startOpenClawGateway(restart = false) {
+  if (process.platform !== "win32" || process.env.VE_SKIP_OPENCLAW_GATEWAY === "1") {
+    return { ok: false, error: "격리 실행에서는 Gateway를 시작하지 않습니다." };
+  }
   const entry = findOpenClawEntry();
-  if (entry) {
-    try {
-      const child = utilityProcess.fork(entry, ["gateway", restart ? "restart" : "start"], {
-        stdio: "ignore",
-        env: { ...process.env },
-        serviceName: "Vision Engine OpenClaw Gateway",
-      });
-      child.once("error", (type, location) => console.warn("⚠️ OpenClaw CLI UtilityProcess 오류:", type, location));
-      console.log(`✅ OpenClaw Gateway ${restart ? "재시작" : "시작"} 요청 완료`);
-      return { ok: true };
-    } catch (error) {
-      console.warn("⚠️ OpenClaw CLI 실행 실패, 예약 작업으로 재시도:", String(error?.message || error));
+  if (!entry) return { ok: false, error: "OpenClaw 설치를 찾지 못했습니다. PC 준비에서 OpenClaw를 먼저 설치하세요." };
+
+  if (!restart && await waitForLocalPort(18789, 700)) {
+    gatewayRestartAttempts = 0;
+    return { ok: true, mode: gatewayChild ? "managed" : "service" };
+  }
+
+  if (gatewayChild) {
+    const child = gatewayChild;
+    gatewayChild = null;
+    try { child.kill(); } catch { /* 이미 종료됨 */ }
+  }
+
+  // 기존 OpenClaw 서비스가 설치된 PC에서는 서비스 수명주기를 존중한다.
+  try {
+    const service = await runUtilityModule(entry, ["gateway", restart ? "restart" : "start"], {
+      env: { ...process.env },
+      serviceName: "Vision Engine OpenClaw Service Control",
+      timeoutMs: 15_000,
+    });
+    if (service.code === 0 && await waitForLocalPort(18789, 6_000)) {
+      gatewayRestartAttempts = 0;
+      console.log(`✅ OpenClaw Gateway 서비스 ${restart ? "재시작" : "시작"} 확인`);
+      return { ok: true, mode: "service" };
     }
+    const detail = safeRuntimeOutput(service.stderr || service.stdout);
+    if (detail) console.warn("⚠️ OpenClaw 서비스 시작 불가, 앱 관리 모드로 전환:", detail);
+  } catch (error) {
+    console.warn("⚠️ OpenClaw 서비스 제어 실패, 앱 관리 모드로 전환:", String(error?.message || error).slice(0, 300));
   }
-  if (restart) spawnSync("schtasks.exe", ["/End", "/TN", "OpenClaw Gateway"], { windowsHide: true, encoding: "utf-8" });
-  const result = spawnSync("schtasks.exe", ["/Run", "/TN", "OpenClaw Gateway"], { windowsHide: true, encoding: "utf-8" });
-  if (result.status === 0) {
-    console.log("✅ OpenClaw Gateway 시작 요청 완료");
-    return { ok: true };
+
+  try {
+    spawnManagedOpenClawGateway(entry);
+    if (await waitForLocalPort(18789, 15_000)) {
+      gatewayRestartAttempts = 0;
+      console.log("✅ OpenClaw Gateway 앱 관리 모드 기동 확인");
+      return { ok: true, mode: "managed" };
+    }
+    const child = gatewayChild;
+    gatewayChild = null;
+    try { child?.kill(); } catch { /* noop */ }
+    if (!quitting) scheduleGatewayRestart("readiness-timeout");
+    return { ok: false, error: "OpenClaw Gateway가 제한 시간 안에 준비되지 않았습니다. 진단 로그를 확인하세요." };
+  } catch (error) {
+    if (!quitting) scheduleGatewayRestart("spawn-error");
+    return { ok: false, error: `OpenClaw Gateway 실행 실패: ${String(error?.message || error).slice(0, 200)}` };
   }
-  return { ok: false, error: "OpenClaw 예약 작업이 없습니다. OpenClaw 설치 후 ‘온보딩’을 먼저 실행하세요." };
+}
+
+function tryStartOpenClawGateway(restart = false) {
+  if (gatewayStartPromise) return gatewayStartPromise;
+  gatewayStartPromise = startOpenClawGateway(restart).finally(() => { gatewayStartPromise = null; });
+  return gatewayStartPromise;
 }
 
 function findOpenClawCli() {
@@ -331,6 +431,10 @@ function findWebappDir() {
 
 let serverChild = null; // 우리가 띄운 경우에만 종료 시 정리
 let spawnedTarget = null; // 우리가 띄운 서버가 실제로 응답한 주소 (tailnet 모드면 127.0.0.1이 아니다)
+let runtimeRestartTimer = null;
+let runtimeRestartAttempts = 0;
+let runtimeRestarting = false;
+let runtimeSpawnedAt = 0;
 let win = null;
 let currentTarget = LOCAL_URL;
 
@@ -599,6 +703,58 @@ function localCandidates() {
   return [...new Set(out)];
 }
 
+function safeRuntimeOutput(value) {
+  return String(value || "")
+    .replace(/\b(?:sk-(?:proj-)?|ghp_|github_pat_|nvapi-|xox[baprs]-)[A-Za-z0-9_-]{12,}\b/g, "[REDACTED]")
+    .replace(/(authorization\s*[:=]\s*bearer\s+)[^\s]+/gi, "$1[REDACTED]")
+    .trim()
+    .slice(-4_000);
+}
+
+function pipeRuntimeDiagnostics(child) {
+  child.stdout?.on("data", (chunk) => {
+    const message = safeRuntimeOutput(chunk);
+    if (message) console.log(`[studio] ${message}`);
+  });
+  child.stderr?.on("data", (chunk) => {
+    const message = safeRuntimeOutput(chunk);
+    if (message) console.warn(`[studio] ${message}`);
+  });
+}
+
+function scheduleRuntimeRestart(exitCode) {
+  if (quitting || runtimeRestartTimer) return;
+  if (Date.now() - runtimeSpawnedAt > 60_000) runtimeRestartAttempts = 0;
+  runtimeRestartAttempts += 1;
+  const delay = Math.min(30_000, 1_500 * (2 ** Math.min(runtimeRestartAttempts - 1, 5)));
+  console.warn(`⚠️ Studio 런타임 자동 복구 예약: ${delay}ms 후 재시작 (code=${exitCode})`);
+  runtimeRestartTimer = setTimeout(async () => {
+    runtimeRestartTimer = null;
+    if (quitting) return;
+    if (runtimeRestarting) {
+      scheduleRuntimeRestart("restart-in-progress");
+      return;
+    }
+    runtimeRestarting = true;
+    try {
+      const running = await findRunningServer();
+      if (running) {
+        spawnedTarget = running;
+        runtimeRestartAttempts = 0;
+        return;
+      }
+      console.log("♻️ Studio 런타임을 자동으로 복구합니다.");
+      const recovered = await trySpawnLocalServer();
+      if (!recovered) scheduleRuntimeRestart("readiness-timeout");
+    } catch (error) {
+      console.warn("⚠️ Studio 런타임 자동 복구 실패:", String(error?.message || error).slice(0, 300));
+      scheduleRuntimeRestart("restart-error");
+    } finally {
+      runtimeRestarting = false;
+    }
+  }, delay);
+}
+
 /** 후보 중 실제로 응답하는 첫 주소 (없으면 null) */
 async function findRunningServer() {
   for (const url of localCandidates()) {
@@ -616,7 +772,7 @@ async function trySpawnLocalServer() {
   if (packaged) {
     const openclawChanged = await ensurePackagedOpenclaw(packaged);
     migratePackagedDataIfEmpty(packaged);
-    tryStartOpenClawGateway(openclawChanged);
+    await tryStartOpenClawGateway(openclawChanged);
     console.log("⏳ 내장 Studio 런타임 기동 중…", packaged.runtime);
     showSplash("Vision Engine Studio를 기동하고 있습니다…");
     try {
@@ -634,8 +790,14 @@ async function trySpawnLocalServer() {
           VE_RUNTIME_PORT: String(RUNTIME_PORT),
         },
       });
+      runtimeSpawnedAt = Date.now();
+      pipeRuntimeDiagnostics(serverChild);
       serverChild.on("error", (type, location) => console.warn("⚠️ 내장 런타임 기동 실패:", type, location));
-      serverChild.on("exit", (code) => console.warn(`⚠️ 내장 런타임 종료: code=${code}, quitting=${quitting}`));
+      serverChild.on("exit", (code) => {
+        console.warn(`⚠️ 내장 런타임 종료: code=${code}, quitting=${quitting}`);
+        serverChild = null;
+        if (!quitting) scheduleRuntimeRestart(code);
+      });
     } catch (e) {
       console.warn("⚠️ 내장 런타임 spawn 예외:", String(e?.message ?? e));
       return false;
@@ -667,6 +829,7 @@ async function trySpawnLocalServer() {
     const found = await findRunningServer();
     if (found) {
       spawnedTarget = found;
+      runtimeRestartAttempts = 0;
       return true;
     }
   }
@@ -993,9 +1156,22 @@ if (!gotLock) {
 }
 
 app.on("will-quit", () => globalShortcut.unregisterAll());
-app.on("before-quit", () => { quitting = true; });
+app.on("before-quit", () => {
+  quitting = true;
+  if (runtimeRestartTimer) clearTimeout(runtimeRestartTimer);
+  runtimeRestartTimer = null;
+  if (gatewayRestartTimer) clearTimeout(gatewayRestartTimer);
+  gatewayRestartTimer = null;
+});
 // 트레이 상주 — 모든 창을 닫아도 종료하지 않는다 (트레이 메뉴 종료로만)
 app.on("quit", () => {
+  if (gatewayChild?.pid) {
+    try {
+      spawn("taskkill", ["/PID", String(gatewayChild.pid), "/T", "/F"], { windowsHide: true });
+    } catch {
+      /* noop */
+    }
+  }
   if (serverChild?.pid) {
     try {
       spawn("taskkill", ["/PID", String(serverChild.pid), "/T", "/F"], { windowsHide: true });

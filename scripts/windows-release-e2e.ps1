@@ -8,6 +8,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Net.Http
 
 if ($env:OS -ne "Windows_NT") {
   throw "Windows 설치 E2E는 Windows에서만 실행할 수 있습니다."
@@ -121,6 +122,33 @@ try {
     if ($actualMagic -ne $expected.Magic) { throw "설치본 발표자료 시그니처 오류: $($expected.Name)" }
   }
 
+  Write-Host "[E2E] 전체 프로젝트 백업·비파괴 복원 검증"
+  $backupStatus = Invoke-RestMethod -Uri "$baseUrl/api/backup/status" -TimeoutSec 30
+  if ($backupStatus.ok -ne $true -or $backupStatus.projects -ne 1 -or $backupStatus.files -lt 4) {
+    throw "백업 상태가 올바르지 않습니다."
+  }
+  $backupFile = Join-Path $runRoot "release-e2e.vebackup"
+  Invoke-WebRequest -Uri "$baseUrl/api/backup/export" -OutFile $backupFile -UseBasicParsing -TimeoutSec 120
+  if (-not (Test-Path -LiteralPath $backupFile) -or (Get-Item -LiteralPath $backupFile).Length -le 100) {
+    throw "설치본에서 백업 파일을 만들지 못했습니다."
+  }
+  $backupClient = [Net.Http.HttpClient]::new()
+  try {
+    $backupContent = [Net.Http.ByteArrayContent]::new([IO.File]::ReadAllBytes($backupFile))
+    $backupContent.Headers.ContentType = [Net.Http.Headers.MediaTypeHeaderValue]::new("application/vnd.vision-engine.backup")
+    $backupResponse = $backupClient.PostAsync("$baseUrl/api/backup/import", $backupContent).GetAwaiter().GetResult()
+    $backupBody = $backupResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult() | ConvertFrom-Json
+    if (-not $backupResponse.IsSuccessStatusCode -or $backupBody.ok -ne $true -or @($backupBody.imported).Count -ne 1) {
+      throw "설치본 백업 복원 실패: $($backupBody.error)"
+    }
+    $restoredId = [string]$backupBody.imported[0].id
+    if ($restoredId -eq "e2e-deck" -or -not (Test-Path -LiteralPath (Join-Path $testDataRoot "workspace\projects\$restoredId\project.json"))) {
+      throw "기존 프로젝트를 덮어쓰지 않는 복원본이 만들어지지 않았습니다."
+    }
+  } finally {
+    $backupClient.Dispose()
+  }
+
   $head = Invoke-WebRequest -Uri "$baseUrl/" -Method Head -UseBasicParsing -TimeoutSec 15
   foreach ($header in @("Content-Security-Policy", "X-Content-Type-Options", "X-Frame-Options", "Permissions-Policy")) {
     if (-not $head.Headers[$header]) { throw "보안 응답 헤더가 없습니다: $header" }
@@ -141,6 +169,30 @@ try {
     if ([int]$originResponse.StatusCode -ne 403) { throw "외부 Origin 쓰기 요청이 차단되지 않았습니다: $([int]$originResponse.StatusCode)" }
   } finally {
     $client.Dispose()
+  }
+
+  Write-Host "[E2E] 내장 Studio 런타임 비정상 종료·자동 복구 검증"
+  $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop | Select-Object -First 1
+  $runtimeProcessId = [int]$listener.OwningProcess
+  if ($runtimeProcessId -le 0 -or $runtimeProcessId -eq $appProcess.Id) {
+    throw "내장 Studio 런타임 프로세스를 식별하지 못했습니다."
+  }
+  Stop-Process -Id $runtimeProcessId -Force -ErrorAction Stop
+  $downObserved = $false
+  $downDeadline = (Get-Date).AddSeconds(15)
+  while ((Get-Date) -lt $downDeadline) {
+    try {
+      Invoke-RestMethod -Uri "$baseUrl/api/readiness" -TimeoutSec 1 | Out-Null
+      Start-Sleep -Milliseconds 300
+    } catch {
+      $downObserved = $true
+      break
+    }
+  }
+  if (-not $downObserved) { throw "Studio 런타임 종료 상태를 관측하지 못했습니다." }
+  $readinessAfterRecovery = Wait-Readiness ((Get-Date).AddSeconds(120))
+  if ($readinessAfterRecovery.ok -ne $true -or $appProcess.HasExited) {
+    throw "Studio 런타임 자동 복구에 실패했습니다."
   }
 
   Write-Host "[E2E] 단일 인스턴스 검증"
@@ -165,6 +217,8 @@ try {
     hostileOriginBlocked = $true
     singleInstance = $true
     deckFormats = @("html", "pdf", "pptx")
+    backupRoundTrip = $true
+    runtimeAutoRecovery = $true
   }
 
   if (-not $ReportPath) {
@@ -198,4 +252,4 @@ $report["elapsedSeconds"] = [math]::Round(((Get-Date) - $startedAt).TotalSeconds
 New-Item -ItemType Directory -Path (Split-Path -Parent $resolvedReport) -Force | Out-Null
 $report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $resolvedReport -Encoding utf8
 $report | ConvertTo-Json -Depth 5
-Write-Host "[E2E] 설치·실행·보안·단일 인스턴스·제거 검증 통과"
+Write-Host "[E2E] 설치·실행·백업·보안·단일 인스턴스·제거 검증 통과"

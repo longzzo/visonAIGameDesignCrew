@@ -1752,13 +1752,11 @@ export function parseConceptGate(text: string): {
  * 출력은 코드펜스 없이 순수 마크다운(프론트매터부터). 도구 호출 금지.
  */
 /**
- * 발표 생성 전용 모델 — 오너 지시(2026-07-21): 발표 생성만 gpt-oss-120b로.
- * qwen3-next-80b(팀원 기본)보다 빠르고, 긴 구조적 출력에 강하다. 이 호출만 오버라이드.
+ * 발표·기초 점검 전용 모델. 클라우드 카탈로그 변경으로 기능이 갑자기 멈추지 않도록
+ * 설치 시 함께 준비하는 로컬 기본 모델을 사용한다.
  */
-export const DECK_MODEL = "nvidia/openai/gpt-oss-120b";
-// 기초 점검도 같은 고속 모델로 — GDD 전문(최대 24k자)을 16항목과 대조하는 장문 작업이라
-// 팀원 기본 모델(qwen3-next-80b)로는 수 분이 걸린다(실측: 5분 넘게 미완). 발표 생성에서
-// 5배 빨랐던 오버라이드를 그대로 쓴다.
+export const DECK_MODEL = "ollama/qwen3.5:4b";
+// 기초 점검도 동일한 로컬 모델을 사용해 API 키·외부 서비스 상태와 무관하게 실행한다.
 export const FUND_MODEL = DECK_MODEL;
 
 export function deckPrompt(projectName: string, gddText: string): string {

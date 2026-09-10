@@ -1,13 +1,17 @@
 {
   "version": 1,
   "retiredModelPatterns": [
-    "qwen/qwen3-next-80b-a3b-instruct"
+    "qwen/qwen3-next-80b-a3b-instruct",
+    "openai/gpt-oss-120b",
+    "z-ai/glm-5.2",
+    "moonshotai/kimi-k2.6",
+    "deepseek-ai/deepseek-v4-flash"
   ],
   "roles": {
-    "head": "nvidia/openai/gpt-oss-120b",
-    "planner": "nvidia/openai/gpt-oss-120b",
-    "developer": "nvidia/openai/gpt-oss-120b",
-    "reviewer": "nvidia/openai/gpt-oss-120b"
+    "head": "ollama/qwen3.5:4b",
+    "planner": "ollama/qwen3.5:4b",
+    "developer": "ollama/qwen3.5:4b",
+    "reviewer": "ollama/qwen3.5:4b"
   },
   "localFallback": "ollama/qwen3.5:4b"
 }

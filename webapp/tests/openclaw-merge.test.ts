@@ -50,6 +50,28 @@ describe("OpenClaw 로스터 병합", () => {
     });
     expect(result.agents[0].model).toBe("ollama/qwen3.5:4b");
   });
+
+  it("사용자 에이전트의 설정은 보존하고 종료 모델만 로컬 모델로 이전한다", () => {
+    const result = mergeAgentRoster({
+      templateAgents: [{ id: "pm", model: "ollama/default" }],
+      previousAgents: [
+        { id: "pm", model: "ollama/default" },
+        { id: "archivist", name: "기록관", model: "cloud/retired-model", workspace: "D:/agents/archive", customFlag: true },
+      ],
+      roles: new Map([["pm", "planner"]]),
+      modelPolicy: policy,
+      providerReady: () => true,
+    });
+
+    expect(result.agents[1]).toEqual({
+      id: "archivist",
+      name: "기록관",
+      model: "ollama/qwen3.5:4b",
+      workspace: "D:/agents/archive",
+      customFlag: true,
+    });
+    expect(result.customIds).toEqual(["archivist"]);
+  });
 });
 
 describe("OpenClaw 사용자 확장 설정 보존", () => {

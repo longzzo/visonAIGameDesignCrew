@@ -3,7 +3,7 @@
     "defaults": {
       "workspace": "{{HOME}}\\.openclaw\\workspace",
       "model": {
-        "primary": "nvidia/openai/gpt-oss-120b"
+        "primary": "ollama/qwen3.5:4b"
       }
     },
     "list": [
@@ -16,7 +16,7 @@
           "name": "PM 디렉터",
           "emoji": "🎯"
         },
-        "model": "nvidia/moonshotai/kimi-k2.6",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "sessions_list",
@@ -51,7 +51,7 @@
           "name": "시나리오 라이터",
           "emoji": "📖"
         },
-        "model": "nvidia/openai/gpt-oss-120b",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "sessions_list",
@@ -86,7 +86,7 @@
           "name": "게임플레이 디자이너",
           "emoji": "🕹️"
         },
-        "model": "nvidia/openai/gpt-oss-120b",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "sessions_list",
@@ -121,7 +121,7 @@
           "name": "시스템 디자이너",
           "emoji": "⚙️"
         },
-        "model": "nvidia/openai/gpt-oss-120b",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "sessions_list",
@@ -156,7 +156,7 @@
           "name": "UI/UX 디자이너",
           "emoji": "🧭"
         },
-        "model": "nvidia/openai/gpt-oss-120b",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "sessions_list",
@@ -191,7 +191,7 @@
           "name": "밸런스 디자이너",
           "emoji": "⚖️"
         },
-        "model": "nvidia/openai/gpt-oss-120b",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "sessions_list",
@@ -226,7 +226,7 @@
           "name": "BM 전략가",
           "emoji": "💰"
         },
-        "model": "nvidia/openai/gpt-oss-120b",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "exec",
@@ -261,7 +261,7 @@
           "name": "아트 디렉터",
           "emoji": "🎨"
         },
-        "model": "nvidia/openai/gpt-oss-120b",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "sessions_list",
@@ -296,7 +296,7 @@
           "name": "선임 개발자",
           "emoji": "🛠️"
         },
-        "model": "nvidia/openai/gpt-oss-120b",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "sessions_list",
@@ -331,7 +331,7 @@
           "name": "스케줄러",
           "emoji": "📅"
         },
-        "model": "nvidia/openai/gpt-oss-120b",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "sessions_list",
@@ -366,7 +366,7 @@
           "name": "마케팅 담당관",
           "emoji": "📢"
         },
-        "model": "nvidia/openai/gpt-oss-120b",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "sessions_list",
@@ -401,7 +401,7 @@
           "name": "사운드 디자이너",
           "emoji": "🔊"
         },
-        "model": "nvidia/openai/gpt-oss-120b",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "sessions_list",
@@ -436,7 +436,7 @@
           "name": "QA 디렉터",
           "emoji": "🧪"
         },
-        "model": "nvidia/openai/gpt-oss-120b",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "sessions_list",
@@ -471,7 +471,7 @@
           "name": "기초 점검관",
           "emoji": "🩺"
         },
-        "model": "nvidia/openai/gpt-oss-120b",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "sessions_list",
@@ -506,7 +506,7 @@
           "name": "Unity 아키텍트",
           "emoji": "🏛️"
         },
-        "model": "nvidia/openai/gpt-oss-120b",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "sessions_list",
@@ -541,7 +541,7 @@
           "name": "게임플레이 스크립터",
           "emoji": "🎯"
         },
-        "model": "nvidia/openai/gpt-oss-120b",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "sessions_list",
@@ -576,7 +576,7 @@
           "name": "멀티플레이 엔지니어",
           "emoji": "🔗"
         },
-        "model": "nvidia/openai/gpt-oss-120b",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "sessions_list",
@@ -611,7 +611,7 @@
           "name": "테크니컬 아티스트",
           "emoji": "✨"
         },
-        "model": "nvidia/openai/gpt-oss-120b",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "sessions_list",
@@ -646,7 +646,7 @@
           "name": "에디터 툴 개발자",
           "emoji": "🛠️"
         },
-        "model": "nvidia/openai/gpt-oss-120b",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "sessions_list",
@@ -681,7 +681,7 @@
           "name": "코드 리뷰어",
           "emoji": "👁️"
         },
-        "model": "nvidia/openai/gpt-oss-120b",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "sessions_list",
@@ -716,7 +716,7 @@
           "name": "테스트 엔지니어",
           "emoji": "🧪"
         },
-        "model": "nvidia/openai/gpt-oss-120b",
+        "model": "ollama/qwen3.5:4b",
         "tools": {
           "deny": [
             "sessions_list",
@@ -804,38 +804,8 @@
         "api": "openai-completions",
         "models": [
           {
-            "id": "moonshotai/kimi-k2.6",
-            "name": "Kimi K2.6 (NVIDIA)",
-            "input": [
-              "text"
-            ],
-            "contextWindow": 131072,
-            "maxTokens": 8192,
-            "compat": {
-              "maxTokensField": "max_tokens",
-              "supportsStore": false,
-              "supportsDeveloperRole": false,
-              "supportsReasoningEffort": false
-            }
-          },
-          {
-            "id": "deepseek-ai/deepseek-v4-flash",
-            "name": "DeepSeek V4 Flash (NVIDIA)",
-            "input": [
-              "text"
-            ],
-            "contextWindow": 131072,
-            "maxTokens": 8192,
-            "compat": {
-              "maxTokensField": "max_tokens",
-              "supportsStore": false,
-              "supportsDeveloperRole": false,
-              "supportsReasoningEffort": false
-            }
-          },
-          {
-            "id": "openai/gpt-oss-120b",
-            "name": "GPT-OSS 120B (NVIDIA)",
+            "id": "nvidia/nemotron-3-super-120b-a12b",
+            "name": "Nemotron 3 Super 120B (NVIDIA)",
             "input": [
               "text"
             ],

@@ -47,9 +47,13 @@ GitHub 저장소 Actions Secrets에 다음 값을 저장한다.
 4. 임시 경로 무인 설치
 5. 격리 userData와 포트로 앱 실행
 6. 설치본에서 HTML·PDF·PPTX 발표자료 실제 렌더링
-7. 준비 API·보안 헤더·Host/Origin 차단·단일 인스턴스 검증
-8. 무인 제거 및 실행 파일 삭제 확인
-9. EXE·blockmap·`latest.yml`·SBOM·SHA-256·E2E 보고서 보관
+7. 전체 프로젝트 백업 생성과 동일 프로젝트 비파괴 복원
+8. 준비 API·보안 헤더·Host/Origin 차단·단일 인스턴스 검증
+9. 내장 Studio 런타임 강제 종료 후 데스크톱 감독 프로세스의 자동복구 검증
+10. 무인 제거 및 실행 파일 삭제 확인
+11. EXE·blockmap·`latest.yml`·SBOM·SHA-256·E2E 보고서 보관
+
+OpenClaw 또는 외부 모델 카탈로그가 바뀐 릴리스는 클린 VM 검사와 별도로, 실제 공급자 `/models` 목록과 앱의 `/api/agent` 경유 한국어 응답을 확인한다. OpenClaw 내장 카탈로그만으로 제공 여부를 판단하지 않는다.
 
 정식 게시 시 `desktop/package.json` 버전과 동일한 `vX.Y.Z` 태그를 푸시한다. 모든 게이트와 코드 서명이 통과한 경우에만 GitHub Release가 만들어진다.
 

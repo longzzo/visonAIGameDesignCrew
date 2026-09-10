@@ -130,6 +130,9 @@ export default function App() {
         <div className="app-banner err">
           🚫 <b>배정된 AI 모델을 제공자가 더 이상 서비스하지 않습니다</b> — <code>{deadModels.join(", ")}</code>.{" "}
           이 모델을 쓰는 에이전트는 <b>모든 호출이 실패</b>합니다(410). 좌측 <b>AI 모델</b>에서 다른 모델로 바꾸세요.
+          <button className="btn tiny" onClick={() => void switchToLocalModel().catch(() => undefined)}>
+            🔁 로컬 모델로 모두 전환
+          </button>
         </div>
       )}
       {costGuardTrip && (
