@@ -15,6 +15,7 @@
     "build:studio": "npm run build && npm run build:runtime",
     "runtime": "node dist-server/runtime.mjs",
     "test": "vitest run --config vitest.config.ts",
+    "test:deck": "node scripts/smoke-deck.mjs",
     "test:runtime": "node scripts/smoke-runtime.mjs",
     "licenses": "node ../scripts/generate-third-party-notices.mjs",
     "release:check": "node ../scripts/release-check.mjs --strict",
@@ -22,6 +23,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@marp-team/marp-cli": "^4.5.1",
     "@marp-team/marp-core": "^4.4.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@napi-rs/canvas": "^1.0.9",
@@ -42,7 +44,6 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
-    "@marp-team/marp-cli": "^4.5.1",
     "@types/connect": "^3.4.38",
     "@types/node": "^22.20.2",
     "@types/react": "^18.3.3",
@@ -57,6 +58,7 @@
   },
   "overrides": {
     "@xmldom/xmldom": "0.9.12",
+    "extract-zip": "npm:@electron-internal/extract-zip@1.0.5",
     "fast-uri": "3.1.6",
     "fflate": "0.6.11",
     "hono": "4.13.7",

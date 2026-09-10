@@ -28,4 +28,4 @@ const result = spawnSync(command, args, {
   windowsHide: true,
 });
 if (result.status !== 0) throw new Error(`데스크톱 런타임 의존성 설치 실패 (${result.status}): ${result.error?.message || "npm 오류"}`);
-console.log("✅ 데스크톱용 프로덕션 의존성 준비 완료 (개발·Marp CLI 제외)");
+console.log("✅ 데스크톱용 프로덕션 의존성 준비 완료 (빌드 도구 제외·Marp 내보내기 포함)");

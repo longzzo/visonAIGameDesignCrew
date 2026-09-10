@@ -23,8 +23,9 @@ for (const project of projects) {
   const lockFile = path.join(project, "package-lock.json");
   if (!fs.existsSync(lockFile)) continue;
   const lock = JSON.parse(fs.readFileSync(lockFile, "utf-8"));
-  for (const relative of Object.keys(lock.packages || {})) {
+  for (const [relative, lockEntry] of Object.entries(lock.packages || {})) {
     if (!relative.includes("node_modules/")) continue;
+    if (lockEntry?.dev === true) continue;
     const packageFile = path.join(project, relative, "package.json");
     if (!fs.existsSync(packageFile)) continue;
     try {
@@ -49,7 +50,7 @@ const lines = [
   ...rows.map((pkg) => `| ${pkg.name.replaceAll("|", "\\|")} | ${pkg.version} | ${pkg.license.replaceAll("|", "\\|")} | ${pkg.repository ? `[link](${String(pkg.repository).replace(/^git\+/, "").replace(/\.git$/, "")})` : ""} |`),
   "",
   "Additional bundled reference assets retain the license files stored beside those assets in `docs/reference` and `webapp/assets`.",
-  "",
+  "Electron and Chromium notices are distributed as `LICENSE.electron.txt` and `LICENSES.chromium.html` beside the packaged executable.",
 ];
 fs.writeFileSync(path.join(root, "THIRD-PARTY-NOTICES.md"), `${lines.join("\n")}\n`, "utf-8");
 console.log(`✅ 제3자 패키지 ${rows.length}개 고지 생성${unknown.length ? ` · 라이선스 미확인 ${unknown.length}개` : ""}`);

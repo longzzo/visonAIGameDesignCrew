@@ -1,0 +1,164 @@
+name: Windows release
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/windows-release.yml"
+      - "agents/**"
+      - "config/**"
+      - "desktop/**"
+      - "scripts/**"
+      - "templates/**"
+      - "webapp/**"
+      - "PRIVACY.md"
+      - "SECURITY.md"
+      - "THIRD-PARTY-NOTICES.md"
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+
+permissions:
+  contents: read
+
+jobs:
+  package-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CSC_LINK: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.WINDOWS_CSC_LINK || '' }}
+      CSC_KEY_PASSWORD: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.WINDOWS_CSC_KEY_PASSWORD || '' }}
+
+    steps:
+      - name: 소스 체크아웃
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Node.js 준비
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            webapp/package-lock.json
+            desktop/package-lock.json
+
+      - name: 잠금 파일 기반 의존성 설치
+        shell: pwsh
+        run: |
+          npm ci --prefix webapp
+          npm ci --prefix desktop
+
+      - name: 태그와 앱 버전 일치 확인
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $package = Get-Content -LiteralPath desktop/package.json -Raw | ConvertFrom-Json
+          $expected = "v$($package.version)"
+          if ($env:GITHUB_REF_NAME -ne $expected) {
+            throw "릴리스 태그($env:GITHUB_REF_NAME)와 앱 버전($expected)이 다릅니다."
+          }
+
+      - name: 타입·단위·웹·런타임 검증
+        run: npm run check --prefix webapp
+
+      - name: PDF·PPTX 발표자료 렌더링 검증
+        run: npm run test:deck --prefix webapp
+
+      - name: 일반 빌드 출시 게이트 보고
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: node scripts/release-check.mjs
+
+      - name: 정식 릴리스 게이트 강제
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: node scripts/release-check.mjs --strict
+
+      - name: Windows 설치본 생성
+        run: npm run dist --prefix desktop
+
+      - name: 패키지 구조 검증
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: npm run verify:package --prefix desktop
+
+      - name: 서명 포함 패키지 검증
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npm run verify:package --prefix desktop -- --strict-signing
+
+      - name: 클린 설치·실행·보안·제거 E2E
+        shell: pwsh
+        run: |
+          $package = Get-Content -LiteralPath desktop/package.json -Raw | ConvertFrom-Json
+          ./scripts/windows-release-e2e.ps1 `
+            -InstallerPath "desktop/dist-installer/VisionEngine-Setup-$($package.version).exe" `
+            -ReportPath "desktop/dist-installer/windows-e2e-report.json"
+
+      - name: SBOM과 SHA-256 생성
+        shell: pwsh
+        run: |
+          npm sbom --prefix webapp --omit=dev --sbom-format cyclonedx | Out-File -LiteralPath desktop/dist-installer/webapp-sbom.cdx.json -Encoding utf8
+          npm sbom --prefix desktop --omit=dev --sbom-format cyclonedx | Out-File -LiteralPath desktop/dist-installer/desktop-sbom.cdx.json -Encoding utf8
+          $package = Get-Content -LiteralPath desktop/package.json -Raw | ConvertFrom-Json
+          $files = @(
+            Get-Item -LiteralPath "desktop/dist-installer/VisionEngine-Setup-$($package.version).exe"
+            Get-Item -LiteralPath "desktop/dist-installer/VisionEngine-Setup-$($package.version).exe.blockmap"
+            Get-Item -LiteralPath "desktop/dist-installer/latest.yml"
+            Get-Item -LiteralPath "desktop/dist-installer/webapp-sbom.cdx.json"
+            Get-Item -LiteralPath "desktop/dist-installer/desktop-sbom.cdx.json"
+            Get-Item -LiteralPath "desktop/dist-installer/windows-e2e-report.json"
+          ) | Sort-Object Name
+          $lines = foreach ($file in $files) {
+            $digest = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$digest  $($file.Name)"
+          }
+          [IO.File]::WriteAllLines(
+            (Join-Path $PWD "desktop/dist-installer/SHA256SUMS.txt"),
+            $lines,
+            [Text.UTF8Encoding]::new($false)
+          )
+
+      - name: 검증된 설치 자산 보관
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: vision-engine-windows-${{ github.ref_name }}
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            desktop/dist-installer/VisionEngine-Setup-*.exe
+            desktop/dist-installer/VisionEngine-Setup-*.exe.blockmap
+            desktop/dist-installer/latest.yml
+            desktop/dist-installer/SHA256SUMS.txt
+            desktop/dist-installer/*-sbom.cdx.json
+            desktop/dist-installer/windows-e2e-report.json
+            THIRD-PARTY-NOTICES.md
+
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package-and-test
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 검증된 설치 자산 받기
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: vision-engine-windows-${{ github.ref_name }}
+          path: release-assets
+
+      - name: GitHub Release 게시
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = @(Get-ChildItem -LiteralPath release-assets -Recurse -File | Where-Object {
+            $_.Name -match '^VisionEngine-Setup-.+\.exe(\.blockmap)?$' -or
+            $_.Name -in @('latest.yml', 'SHA256SUMS.txt', 'webapp-sbom.cdx.json', 'desktop-sbom.cdx.json', 'windows-e2e-report.json', 'THIRD-PARTY-NOTICES.md')
+          } | Sort-Object Name | Select-Object -ExpandProperty FullName)
+          if ($assets.Count -ne 8) { throw "릴리스 자산 수가 올바르지 않습니다: $($assets.Count)/8" }
+          gh release create $env:GITHUB_REF_NAME @assets --verify-tag --generate-notes --latest
+          if ($LASTEXITCODE -ne 0) { throw "GitHub Release 게시에 실패했습니다." }

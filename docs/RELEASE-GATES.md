@@ -21,10 +21,15 @@
 
 `node scripts/release-check.mjs --strict`가 자동 검증 가능한 출시 차단 항목을 검사합니다. 빈 제품 메타데이터나 서명 자격증명이 있으면 정식 배포를 실패시킵니다.
 
+GitHub Actions의 `Windows release` 수동 실행은 새 Windows runner에서 설치·실행·보안 헤더·단일 인스턴스·제거를 자동 검증합니다. `vX.Y.Z` 태그 실행은 여기에 유효한 Authenticode 서명과 GitHub Release 게시까지 추가합니다. 설정 방법은 [상용 릴리스 운영서](COMMERCIAL-RELEASE.md)를 따릅니다.
+
 ## 4.0.0 로컬 검증 기록 (2026-09-10)
 
 - Electron `44.3.0`, 제품/파일 버전 `4.0.0`
 - 테스트 포트 `5299`, 별도 userData, OpenClaw 설정·데이터 이전 비활성 조건에서 내장 서버 연결 성공
 - 두 번째 실행 프로세스 즉시 종료, 기존 프로세스 수 유지
+- NSIS 임시 경로 설치 → 격리 userData/포트 실행 → 무인 제거 E2E 통과
+- 실제 설치본에서 HTML·PDF·PPTX 발표자료 렌더 및 파일 시그니처 검증 통과
+- 설치본 SHA-256: `9d140b96a6f142157355f5fc83b269ce2ecf536910d052b26063bf687aa02e67`
 - Fuse: RunAsNode OFF, Cookie Encryption ON, Node Options OFF, Node CLI Inspect OFF, Embedded ASAR Integrity ON, Only Load App From ASAR ON, file:// Extra Privileges OFF, Wasm Trap Handlers ON
 - 아직 상용 코드서명 전이므로 이 빌드는 개발 후보이며 고객 배포 금지

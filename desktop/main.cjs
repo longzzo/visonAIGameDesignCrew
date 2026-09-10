@@ -13,6 +13,18 @@ const http = require("node:http");
 const https = require("node:https");
 const { fileURLToPath } = require("node:url");
 
+// 패키지 E2E/기업 배포 검증은 실제 사용자 데이터와 완전히 분리된 경로에서 실행한다.
+// 일반 실행에서는 이 환경변수가 없으므로 기존 Electron userData 경로를 그대로 쓴다.
+if (process.env.VE_USER_DATA_DIR) {
+  const requestedUserData = path.resolve(process.env.VE_USER_DATA_DIR);
+  const volumeRoot = path.parse(requestedUserData).root;
+  if (!path.isAbsolute(process.env.VE_USER_DATA_DIR) || requestedUserData === volumeRoot) {
+    throw new Error("VE_USER_DATA_DIR은 드라이브 루트가 아닌 절대 경로여야 합니다.");
+  }
+  fs.mkdirSync(requestedUserData, { recursive: true });
+  app.setPath("userData", requestedUserData);
+}
+
 let tray = null;
 let quitting = false;
 let diagnosticLogFile = "";
@@ -392,6 +404,10 @@ async function promptForUpdate(info) {
 function configureAutoUpdater() {
   const product = loadProductConfig();
   const updateUrl = String(product.updateUrl || "").trim();
+  if (process.env.VE_DISABLE_UPDATES === "1") {
+    setUpdateState({ status: "disabled", message: "관리자 정책으로 자동 업데이트가 꺼져 있습니다." });
+    return;
+  }
   if (!app.isPackaged) {
     setUpdateState({ status: "disabled", message: "개발 모드에서는 자동 업데이트를 사용하지 않습니다." });
     return;
@@ -820,11 +836,17 @@ function showWindow() {
 
 function refreshTrayMenu() {
   if (!tray || tray.isDestroyed()) return;
+  const product = loadProductConfig();
   const updateLabel = updateState.status === "downloading"
     ? `업데이트 다운로드 중… ${updateState.progress}%`
     : updateState.status === "ready"
       ? `업데이트 ${updateState.version || ""} 설치 준비됨`
       : "업데이트 확인…";
+  const supportItems = [];
+  if (/^https:\/\//i.test(String(product.privacyUrl || ""))) supportItems.push({ label: "개인정보 처리방침", click: () => openSafeExternal(product.privacyUrl) });
+  if (/^https:\/\//i.test(String(product.termsUrl || ""))) supportItems.push({ label: "소프트웨어 이용약관", click: () => openSafeExternal(product.termsUrl) });
+  if (/^https:\/\//i.test(String(product.supportPolicyUrl || ""))) supportItems.push({ label: "고객 지원 안내", click: () => openSafeExternal(product.supportPolicyUrl) });
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(product.supportEmail || ""))) supportItems.push({ label: "고객 지원 문의…", click: () => openSafeExternal(`mailto:${product.supportEmail}`) });
   const menu = Menu.buildFromTemplate([
     { label: "🏢 Vision Engine 열기", click: showWindow },
     { type: "separator" },
@@ -833,6 +855,7 @@ function refreshTrayMenu() {
     { label: "진단 보고서 저장…", click: () => { void exportSupportReport(); } },
     { label: "진단 로그 폴더 열기", click: openDiagnosticFolder },
     { label: "사용자 데이터 폴더 열기", click: () => { void shell.openPath(desktopDataRoot()); } },
+    ...(supportItems.length ? [{ type: "separator" }, ...supportItems] : []),
     { type: "separator" },
     { label: "종료", click: () => { quitting = true; app.quit(); } },
   ]);

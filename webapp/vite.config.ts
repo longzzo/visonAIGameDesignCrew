@@ -2926,8 +2926,6 @@ function normalizeDeckHtmlBlocks(md: string): string {
   return out.join("\n");
 }
 
-const MARP_ENTRY = path.join(WEBAPP_ROOT, "node_modules", "@marp-team", "marp-cli", "marp-cli.js");
-
 async function renderMarpHtml(markdown: string, themeCss: string, outPath: string): Promise<void> {
   const { Marp } = await import("@marp-team/marp-core");
   const marp = new Marp({ html: true });
@@ -2937,33 +2935,62 @@ async function renderMarpHtml(markdown: string, themeCss: string, outPath: strin
   fs.writeFileSync(outPath, html, "utf-8");
 }
 
-function runMarp(args: string[], cwd: string, timeoutMs = 120_000): Promise<{ code: number; out: string }> {
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, [MARP_ENTRY, "--no-stdin", ...args], {
-      cwd,
-      windowsHide: true,
-    });
-    let out = "";
-    const cap = (d: Buffer) => (out += d.toString());
-    child.stdout.on("data", cap);
-    child.stderr.on("data", cap);
-    const timer = setTimeout(() => {
-      try {
-        child.kill();
-      } catch {
-        /* noop */
+let marpQueue: Promise<unknown> = Promise.resolve();
+
+function resolveMarpBrowsers(): string[] {
+  const candidates = [
+    process.env.VE_MARP_BROWSER_PATH,
+    process.platform === "win32" && process.env.PROGRAMFILES ? path.join(process.env.PROGRAMFILES, "Google", "Chrome", "Application", "chrome.exe") : "",
+    process.platform === "win32" && process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Google", "Chrome", "Application", "chrome.exe") : "",
+    process.platform === "win32" && process.env.PROGRAMFILES ? path.join(process.env.PROGRAMFILES, "Microsoft", "Edge", "Application", "msedge.exe") : "",
+    process.platform === "win32" && process.env["PROGRAMFILES(X86)"] ? path.join(process.env["PROGRAMFILES(X86)"], "Microsoft", "Edge", "Application", "msedge.exe") : "",
+    process.platform === "darwin" ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : "",
+    process.platform === "darwin" ? "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" : "",
+    process.platform === "linux" ? "/usr/bin/google-chrome" : "",
+    process.platform === "linux" ? "/usr/bin/microsoft-edge" : "",
+    process.platform === "linux" ? "/usr/bin/chromium" : "",
+  ].filter(Boolean) as string[];
+  return [...new Set(candidates.filter((candidate) => fs.existsSync(candidate)))];
+}
+
+/**
+ * Electron의 RunAsNode Fuse를 끈 설치본에서도 동작하도록 현재 Utility Process 안에서
+ * Marp의 공식 API를 호출한다. 변환은 브라우저 프로세스를 쓰므로 동시 요청은 직렬화한다.
+ */
+function runMarp(args: string[], cwd: string, timeoutMs = 180_000): Promise<{ code: number; out: string }> {
+  const convert = async (): Promise<{ code: number; out: string }> => {
+    try {
+      const { marpCli } = await import("@marp-team/marp-cli");
+      const browsers = resolveMarpBrowsers();
+      let lastError = "지원 브라우저를 찾지 못했습니다.";
+      for (const browser of browsers.length ? browsers : [""]) {
+        try {
+          const code = await marpCli([
+            "--no-stdin",
+            "--browser-timeout", "120",
+            ...(browser ? ["--browser-path", browser] : []),
+            ...args,
+          ], { baseUrl: cwd });
+          if (code === 0) return { code: 0, out: "" };
+          lastError = `Marp CLI 종료 코드 ${code}`;
+        } catch (error: any) {
+          lastError = String(error?.message ?? error).slice(0, 500);
+        }
       }
-      resolve({ code: 124, out: out + "\n[timeout]" });
-    }, timeoutMs);
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ code: code ?? 1, out });
-    });
-    child.on("error", (e) => {
-      clearTimeout(timer);
-      resolve({ code: 1, out: String((e as any)?.message ?? e) });
-    });
-  });
+      return { code: 1, out: lastError };
+    } catch (error: any) {
+      return { code: 1, out: String(error?.message ?? error).slice(0, 500) };
+    }
+  };
+  const queued = marpQueue.then(convert, convert);
+  marpQueue = queued.then(() => undefined, () => undefined);
+  return Promise.race([
+    queued,
+    new Promise<{ code: number; out: string }>((resolve) => {
+      const timer = setTimeout(() => resolve({ code: 124, out: "Marp 변환 제한 시간 초과" }), timeoutMs);
+      queued.finally(() => clearTimeout(timer));
+    }),
+  ]);
 }
 
 const DECK_MIME: Record<string, string> = {
@@ -3583,8 +3610,7 @@ function deckApiPlugin(): Plugin {
             const errors: string[] = [];
             const baseArgs = [
               ...(theme.css ? ["--theme", themePath] : []),
-              "--allow-local-files",
-              "deck.md",
+              mdPath,
             ];
             // 포맷별로 각각 굽는다(marp는 1회 1포맷). PDF·PPTX는 헤드리스 크롬이라 느리다.
             for (const fmt of formats) {
@@ -3599,12 +3625,8 @@ function deckApiPlugin(): Plugin {
                 }
                 continue;
               }
-              if (!fs.existsSync(MARP_ENTRY)) {
-                errors.push(`${fmt}: 보안상 Chromium 기반 Marp CLI는 독립 실행 패키지에서 제외됩니다. 개발 환경에서만 생성할 수 있습니다.`);
-                continue;
-              }
               const fmtFlag = fmt === "pdf" ? ["--pdf"] : fmt === "pptx" ? ["--pptx"] : [];
-              const r = await runMarp([...fmtFlag, ...baseArgs, "-o", outName], deckDir, 150_000);
+              const r = await runMarp([...fmtFlag, ...baseArgs, "-o", outPath], deckDir, 180_000);
               if (r.code === 0 && fs.existsSync(outPath)) {
                 results.push({ fmt, name: outName, bytes: fs.statSync(outPath).size });
               } else {
