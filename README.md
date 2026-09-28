@@ -60,6 +60,7 @@
 - **비밀값 자동 보호**: Gateway 토큰과 GitHub Models·NVIDIA·Brave 키를 평문 설정 대신 OpenClaw 보호 저장소에 등록하고, 기존 값은 **⚙️ PC 준비 → 평문 키 보호**로 명시적으로 이전. 상태센터는 설정을 바꾸지 않는 읽기 전용 감사를 먼저 실행하며 비밀 원문·경로를 UI에 노출하지 않음
 - **실시간 시스템 상태센터**: OpenClaw·Ollama·권장 모델·비밀정보 감사·백업·업데이트 다운로드 상태를 한 화면에서 자동 갱신
 - **상용 릴리스 증거**: `npm run release:evidence --prefix desktop` 한 번으로 CycloneDX SBOM·8개 자산 SHA-256·E2E·서명·제품 메타데이터 게이트를 `dist-installer`에 생성
+- **공개 게시 검증**: 태그 릴리스 뒤 고객용 약관·개인정보·환불·지원 페이지와 `latest.yml`·설치 EXE·blockmap이 로그인 없이 열리는지 CI에서 재검사
 
 ### 🖥 어디서나
 - **원클릭 데스크톱 앱**(설치 시 바탕화면 바로가기 자동 생성)

@@ -135,7 +135,7 @@ cd ..
 
 ### 💻 데스크톱 앱 & 다른 PC에서 쓰기
 
-**Windows 설치형 앱으로 쓰기**: `desktop/dist-installer/VisionEngine-Setup-4.2.7.exe`를 설치하고 바탕화면의 **Vision Engine**을 실행합니다. 별도 로딩 창이 먼저 뜬 뒤 Studio가 열립니다. 웹앱 서버와 Codex CLI는 설치본에 포함돼 있어 Node.js나 저장소 없이도 창이 열리고, OpenClaw가 늦어져도 앱 본체는 먼저 사용할 수 있습니다. AI 실행에는 OpenClaw와 Ollama가 별도로 필요합니다.
+**Windows 설치형 앱으로 쓰기**: `desktop/dist-installer/VisionEngine-Setup-4.2.8.exe`를 설치하고 바탕화면의 **Vision Engine**을 실행합니다. 별도 로딩 창이 먼저 뜬 뒤 Studio가 열립니다. 웹앱 서버와 Codex CLI는 설치본에 포함돼 있어 Node.js나 저장소 없이도 창이 열리고, OpenClaw가 늦어져도 앱 본체는 먼저 사용할 수 있습니다. AI 실행에는 OpenClaw와 Ollama가 별도로 필요합니다.
 
 첫 실행에서는 **🖥️ PC 앱 준비 확인**을 누릅니다.
 
@@ -149,7 +149,7 @@ cd ..
 
 **다른 PC에 설치해서 쓰기** (서버는 노트북에 그대로 두고):
 1. 서버 PC에서 `VisionEngine-Start.bat` 실행 (Tailscale 주소로 서버가 열립니다 — 창에 주소 표시)
-2. 다른 PC에 `desktop/dist-installer/VisionEngine-Setup-4.2.7.exe`를 복사해 설치 (바탕화면 바로가기 생성)
+2. 다른 PC에 `desktop/dist-installer/VisionEngine-Setup-4.2.8.exe`를 복사해 설치 (바탕화면 바로가기 생성)
 3. 첫 실행 시 서버 주소 입력: `http://100.x.x.x:5199` (서버 PC의 Tailscale 주소) → 🔌 연결 테스트 → 저장
 4. 두 PC 모두 [Tailscale](https://tailscale.com)에 같은 계정으로 로그인돼 있어야 합니다
 

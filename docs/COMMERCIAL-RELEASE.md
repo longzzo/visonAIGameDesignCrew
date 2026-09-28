@@ -37,6 +37,8 @@ GitHub 저장소 Actions Secrets에 다음 값을 저장한다.
 
 `latest.yml`만 교체하고 설치 파일 또는 blockmap을 누락하면 업데이트가 실패한다. 릴리스 워크플로는 세 파일을 한 릴리스에 함께 게시한다.
 
+태그 릴리스 게시 뒤에는 `verify-public-endpoints.mjs`가 공식 웹사이트·개인정보·이용약관·환불·지원 페이지를 로그인 없이 열 수 있는지 확인하고, 공개 `latest.yml` 버전과 설치 EXE·blockmap 존재 여부 및 설치 파일 크기를 대조한다. 비공개 저장소의 `blob` URL이나 인증이 필요한 페이지는 고객용 정책 URL로 인정하지 않는다.
+
 ## 4. 클린 Windows 검증과 게시
 
 태그 없이 GitHub Actions의 `Windows release`를 수동 실행하면 unsigned 설치 후보를 클린 Windows runner에서 다음 순서로 검증한다. NSIS의 사용자 단위 설치 등록은 같은 PC의 기존 앱과 충돌할 수 있으므로 `windows-release-e2e.ps1`은 Vision Engine이 이미 설치된 PC에서는 실행을 거부한다. 로컬 검증이 필요하면 전용 Windows VM을 사용한다.
@@ -60,6 +62,8 @@ npm run release:evidence --prefix desktop
 ```
 
 이 명령은 설치 EXE·blockmap·`latest.yml`을 상호 검증하고, 웹앱/데스크톱 CycloneDX SBOM, `SHA256SUMS.txt`, `release-evidence-<version>.json`, 제3자 고지 사본을 생성한다. 증거 JSON은 기술 검증 통과와 고객 배포 가능을 별도 필드로 기록한다. `-- --strict`를 추가하면 Authenticode 서명·공개 업데이트 채널·판매자 메타데이터가 하나라도 빠진 릴리스는 실패한다.
+
+아직 해당 버전의 클린 Windows E2E를 실행할 수 없는 개발 PC에서는 `node scripts/generate-release-evidence.mjs --allow-missing-e2e`로 임시 SBOM·체크섬을 만들 수 있다. 이 옵션은 E2E를 통과로 간주하지 않으며 증거 JSON에 `windowsE2E.missing=true`와 출시 차단을 명시한다. 정식 태그 워크플로에서는 사용할 수 없다.
 
 OpenClaw 또는 외부 모델 카탈로그가 바뀐 릴리스는 클린 VM 검사와 별도로, 실제 공급자 `/models` 목록과 앱의 `/api/agent` 경유 한국어 응답을 확인한다. OpenClaw 내장 카탈로그만으로 제공 여부를 판단하지 않는다.
 

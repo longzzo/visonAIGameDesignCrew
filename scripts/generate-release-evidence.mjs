@@ -107,7 +107,7 @@ export function validateUpdateManifest(text, { version, installerName, installer
   if (declaredSize !== fs.statSync(installerFile).size) throw new Error("latest.yml 설치 파일 크기 불일치");
 }
 
-export function generateReleaseEvidence({ e2eReport = "", strict = false } = {}) {
+export function generateReleaseEvidence({ e2eReport = "", strict = false, allowMissingE2e = false } = {}) {
   const desktopDir = path.join(root, "desktop");
   const outputDir = path.join(desktopDir, "dist-installer");
   const desktopPackage = readJson(path.join(desktopDir, "package.json"));
@@ -119,14 +119,23 @@ export function generateReleaseEvidence({ e2eReport = "", strict = false } = {})
   const latest = path.join(outputDir, "latest.yml");
   const versionedE2e = path.join(outputDir, `windows-e2e-report-${version}.json`);
   const genericE2e = path.join(outputDir, "windows-e2e-report.json");
-  const e2eFile = path.resolve(root, e2eReport || (fs.existsSync(versionedE2e) ? versionedE2e : genericE2e));
-  for (const file of [installer, blockmap, latest, e2eFile]) {
+  let e2eFile = path.resolve(root, e2eReport || (fs.existsSync(versionedE2e) ? versionedE2e : genericE2e));
+  for (const file of [installer, blockmap, latest]) {
     if (!fs.existsSync(file)) throw new Error(`릴리스 증거 입력 파일 없음: ${path.relative(root, file)}`);
   }
 
   validateUpdateManifest(fs.readFileSync(latest, "utf-8"), { version, installerName, installerFile: installer });
-  const e2e = readJson(e2eFile);
-  if (path.basename(String(e2e.installer || "")) !== installerName) throw new Error("E2E 보고서 설치 파일명이 현재 버전과 다릅니다.");
+  let e2e = { ok: false, missing: true };
+  if (fs.existsSync(e2eFile)) {
+    const candidate = readJson(e2eFile);
+    if (path.basename(String(candidate.installer || "")) === installerName) e2e = candidate;
+    else if (!allowMissingE2e || e2eReport) throw new Error("E2E 보고서 설치 파일명이 현재 버전과 다릅니다.");
+    else e2eFile = "";
+  } else if (!allowMissingE2e) {
+    throw new Error(`릴리스 증거 입력 파일 없음: ${path.relative(root, e2eFile)}`);
+  } else {
+    e2eFile = "";
+  }
 
   const verification = runJson(process.execPath, [path.join(desktopDir, "scripts", "verify-package.mjs")], root, "패키지 검증");
   const webappSbom = createSbom(path.join(root, "webapp"));
@@ -139,7 +148,7 @@ export function generateReleaseEvidence({ e2eReport = "", strict = false } = {})
   const thirdPartySource = path.join(root, "THIRD-PARTY-NOTICES.md");
   const thirdParty = path.join(outputDir, "THIRD-PARTY-NOTICES.md");
   fs.copyFileSync(thirdPartySource, thirdParty);
-  const inputs = [installer, blockmap, latest, webappSbomFile, desktopSbomFile, e2eFile, thirdParty];
+  const inputs = [installer, blockmap, latest, webappSbomFile, desktopSbomFile, ...(e2eFile ? [e2eFile] : []), thirdParty];
   const artifacts = inputs.map((file) => ({
     name: path.basename(file),
     bytes: fs.statSync(file).size,
@@ -168,6 +177,7 @@ export function generateReleaseEvidence({ e2eReport = "", strict = false } = {})
     },
     windowsE2E: {
       ok: e2e.ok,
+      missing: e2e.missing === true,
       securityHeaders: e2e.securityHeaders,
       hostileHostBlocked: e2e.hostileHostBlocked,
       hostileOriginBlocked: e2e.hostileOriginBlocked,
@@ -197,7 +207,11 @@ export function generateReleaseEvidence({ e2eReport = "", strict = false } = {})
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(moduleFile)) {
   try {
-    generateReleaseEvidence({ e2eReport: argumentValue("--e2e-report"), strict: process.argv.includes("--strict") });
+    generateReleaseEvidence({
+      e2eReport: argumentValue("--e2e-report"),
+      strict: process.argv.includes("--strict"),
+      allowMissingE2e: process.argv.includes("--allow-missing-e2e"),
+    });
   } catch (error) {
     console.error(`릴리스 증거 생성 실패: ${String(error?.message || error).slice(0, 2_000)}`);
     process.exitCode = 1;

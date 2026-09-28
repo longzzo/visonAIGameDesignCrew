@@ -62,6 +62,14 @@ describe("상용 릴리스 증거", () => {
     });
     expect(malformed.invalidMetadata).toEqual(expect.arrayContaining(["supportEmail", "sellerCountry"]));
     expect(malformed.customerDistributionReady).toBe(false);
+
+    const missingE2e = commercialGateSummary({
+      product: completeProduct,
+      verification: { ok: true, signature: "Valid", appSignature: "Valid" },
+      e2e: { ok: false, missing: true },
+    });
+    expect(missingE2e.windowsE2E).toBe(false);
+    expect(missingE2e.blockers).toContain("Windows 전체 E2E 미통과");
   });
 
   it("latest.yml의 버전·파일명·크기·SHA-512를 실제 설치 파일과 대조한다", () => {

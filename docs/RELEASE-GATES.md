@@ -20,6 +20,7 @@
 - [ ] 실제 지원 이메일 확정
 - [ ] Windows 코드 서명 인증서 연결 및 서명 검증
 - [ ] GitHub Release에 설치 EXE·blockmap·`latest.yml` 업로드 후 업데이트 왕복 검증
+- [ ] 로그인 없는 공개 약관·개인정보·환불·지원 URL과 최신 EXE·blockmap 게시 후 엔드포인트 검증
 - [ ] 실제 사용자 확인 후 Gateway·공급자 평문 이전 및 `openclaw secrets audit` 0건
 - [ ] 결제 상품·환불 정책·세금 처리·고객 지원 SLA 확정
 - [ ] 클린 Windows VM 설치/업데이트/제거 E2E 통과
@@ -27,6 +28,25 @@
 `node scripts/release-check.mjs --strict`가 자동 검증 가능한 출시 차단 항목을 검사합니다. 빈 제품 메타데이터나 서명 자격증명이 있으면 정식 배포를 실패시킵니다.
 
 GitHub Actions의 `Windows release` 수동 실행은 새 Windows runner에서 설치·실행·보안 헤더·단일 인스턴스·제거를 자동 검증합니다. `vX.Y.Z` 태그 실행은 여기에 유효한 Authenticode 서명과 GitHub Release 게시까지 추가합니다. 설정 방법은 [상용 릴리스 운영서](COMMERCIAL-RELEASE.md)를 따릅니다.
+
+## 4.2.8 로컬 검증 기록 (2026-09-29)
+
+- 공식 웹사이트·개인정보·이용약관·환불·지원 페이지의 비로그인 HTTPS 접근을 검사하는 공개 엔드포인트 검증기 추가
+- 공개 `latest.yml`의 버전·파일명·SHA-512·크기와 설치 EXE·blockmap의 실제 접근·설치 파일 크기를 게시 후 대조
+- GitHub 태그 릴리스 게시 뒤 독립 Linux runner에서 공개 정책·업데이트 자산을 재검증하는 CI 게이트 추가
+- 기존 개인정보 URL이 실제 비로그인 요청에서 HTTP 404임을 확인하고 설치본 고객 메뉴에서 제거
+- 공개 엔드포인트 정상·404·구버전 manifest·비 HTTPS 회귀 테스트 4개 추가
+- 전체 55개 테스트·TypeScript·프로덕션 빌드·독립 런타임 smoke 통과, 웹앱·데스크톱 프로덕션/전체 빌드 npm 감사 취약점 0건
+- 최종 패키지 SecretRef 저장 → 읽기 전용 감사 → Studio 런타임 해석 → 가짜 WebSocket Gateway 인증 smoke 통과
+- 실제 Electron renderer → preload IPC → 읽기 전용 감사 → 4.2.8 업데이트 상태센터 UI smoke 통과
+- NSIS 패키지 `268,348,776`바이트, 런타임 파일 14,961개·필수 패키지 10개, 패키지 비밀정보 검사 0건
+- 설치 파일 SHA-256: `2d9b10c068893a869dc3a6a68157665160f188c51eb5d79da96fe5802f444430`
+- 실제 PC 기본 경로에 4.2.8 설치 후 설치 실행 파일과 `win-unpacked` 실행 파일 SHA-256 일치, 지정 바로가기 대상·설명 유효
+- 실제 바로가기 실행에서 프로젝트 5개 보존, OpenClaw `2026.9.6`·Ollama `0.34.4` 연결, `/api/agent` → `qwen3.5:4b` 32K 요청이 폴백 없이 `OK` 응답(22.71초)
+- CycloneDX SBOM 웹앱 321개·데스크톱 5개 구성요소 및 4.2.8 자산 체크섬 7개 생성·독립 대조 통과
+- `release-evidence-4.2.8.json`은 클린 E2E 미실행을 `windowsE2E.missing=true`로 기록하고 고객 배포 가능 `false`를 유지
+- 4.2.8 클린 설치·제거 E2E는 기존 설치 보호 게이트에 따라 로컬 PC에서 실행하지 않았으며 새 Windows CI/VM 검증 필요
+- 설치 파일과 앱 본체는 아직 상용 코드서명 전이므로 고객 배포 금지
 
 ## 4.2.7 로컬 검증 기록 (2026-09-29)
 
