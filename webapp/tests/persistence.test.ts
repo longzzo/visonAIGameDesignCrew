@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { appendUsage, summarizeUsage } from "../server/usage-store.mjs";
 import { createJob, latestRecoverableJob, updateJob } from "../server/job-store.mjs";
 import { resolveProvider } from "../server/dev-provider.mjs";
-import { importLegacyData, openClawAgentCount, resolveCodexWorkdir, setCodexWorkdir } from "../server/readiness.mjs";
+import { importLegacyData, openClawAgentCount, resolveAiRuntime, resolveCodexWorkdir, setAiRuntime, setCodexWorkdir } from "../server/readiness.mjs";
+import { subscriptionEnvironment } from "../server/subscription-agents.mjs";
 
 const tempDirs: string[] = [];
 const tempDir = () => {
@@ -25,6 +26,21 @@ describe("개발 모델 제공자 어댑터", () => {
       models: { providers: { github: { baseUrl: "https://models.example/v1/", apiKey: "test", models: [] } } },
     });
     expect(provider).toMatchObject({ id: "github", modelId: "openai/gpt-5", baseUrl: "https://models.example/v1" });
+  });
+
+  it("구독 모드는 API 과금 변수는 제거하고 공식 CLI OAuth 상태는 보존한다", () => {
+    expect(subscriptionEnvironment("claude", {
+      PATH: "bin",
+      ANTHROPIC_API_KEY: "paid-key",
+      CLAUDE_CODE_USE_BEDROCK: "1",
+      AWS_ACCESS_KEY_ID: "cloud-key",
+      CLAUDE_CODE_OAUTH_TOKEN: "subscription-oauth",
+    })).toEqual({ PATH: "bin", CLAUDE_CODE_OAUTH_TOKEN: "subscription-oauth" });
+    expect(subscriptionEnvironment("codex", {
+      PATH: "bin",
+      OPENAI_API_KEY: "paid-key",
+      OPENAI_BASE_URL: "https://proxy.example",
+    })).toEqual({ PATH: "bin" });
   });
 
   it("Ollama의 OpenAI 호환 v1 경로와 로컬 키를 자동 보완한다", () => {
@@ -108,5 +124,13 @@ describe("PC 앱 데이터 이전과 Codex 작업 폴더", () => {
     const code = tempDir();
     expect(setCodexWorkdir(code)).toMatchObject({ dir: path.resolve(code), exists: true, writable: true, configured: true });
     expect(resolveCodexWorkdir().dir).toBe(path.resolve(code));
+  });
+
+  it("새 설치는 구독 AI를 기본값으로 쓰고 사용자가 OpenClaw로 전환할 수 있다", () => {
+    process.env.VE_DATA_ROOT = tempDir();
+    expect(resolveAiRuntime()).toBe("subscription");
+    expect(setAiRuntime("openclaw")).toBe("openclaw");
+    expect(resolveAiRuntime()).toBe("openclaw");
+    expect(setAiRuntime("subscription")).toBe("subscription");
   });
 });

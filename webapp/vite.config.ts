@@ -10,7 +10,7 @@ import zlib from "node:zlib";
 import { gatewayRelayPlugin } from "./server/gateway-relay.mjs";
 import { usageStorePlugin } from "./server/usage-store.mjs";
 import { jobStorePlugin } from "./server/job-store.mjs";
-import { readinessApiPlugin } from "./server/readiness.mjs";
+import { readinessApiPlugin, resolveAiRuntime } from "./server/readiness.mjs";
 import { backupApiPlugin } from "./server/backup-store.mjs";
 import { applySecurityHeaders, hostnameAllowed, originMatchesRequest } from "./server/request-security.mjs";
 import { isSecretRef, protectOpenClawValues } from "../scripts/migrate-openclaw-secrets.mjs";
@@ -4720,6 +4720,32 @@ function agentBridgePlugin(): Plugin {
             res.end(JSON.stringify({ ok: false, error: "메시지가 너무 깁니다 (120,000자 제한)" }));
             return;
           }
+          if (resolveAiRuntime() === "subscription") {
+            const controller = new AbortController();
+            res.on("close", () => {
+              if (!res.writableEnded) controller.abort();
+            });
+            void (async () => {
+              try {
+                const adapter = await import("./server/dev-provider.mjs");
+                const result = await adapter.runSubscriptionAgent({ agentId, task: message, signal: controller.signal });
+                res.end(JSON.stringify({
+                  ok: true,
+                  run: {
+                    status: "ok",
+                    result: {
+                      payloads: [{ text: result.final }],
+                      meta: { agentMeta: { engine: "official-cli-subscription", usage: null } },
+                    },
+                  },
+                }));
+              } catch (error: any) {
+                res.statusCode = 502;
+                res.end(JSON.stringify({ ok: false, error: String(error?.message || error).slice(0, 600) }));
+              }
+            })();
+            return;
+          }
           const entry = findOpenclawEntry();
           const nodeRuntime = findNodeRuntime();
           if (!entry || !nodeRuntime) {
@@ -4919,17 +4945,20 @@ function devTaskApiPlugin(): Plugin {
           const task = String(j.task || "").trim();
           if (!agentId || !task) return void send({ kind: "error", text: "agentId·task 필요" });
           const dp = await load();
-          const out = j.engine === "codex" ? await dp.runCodexTask({
-            agentId,
-            task,
-            onStep: (step: unknown) => send(step),
-          }) : await dp.runDevTask({
-            agentId,
-            task,
-            model: j.model,
-            maxSteps: Math.min(Number(j.maxSteps) || 8, 12),
-            onStep: (step: unknown) => send(step),
-          });
+          const onStep = (step: unknown) => send(step);
+          const out = j.engine === "subscription"
+            ? await dp.runSubscriptionTask({ agentId, task, onStep })
+            : j.engine === "claude"
+              ? await dp.runClaudeTask({ agentId, task, onStep })
+              : j.engine === "codex"
+                ? await dp.runCodexTask({ agentId, task, onStep })
+                : await dp.runDevTask({
+                    agentId,
+                    task,
+                    model: j.model,
+                    maxSteps: Math.min(Number(j.maxSteps) || 8, 12),
+                    onStep,
+                  });
           send({ kind: "done", final: out.final });
         })
       );

@@ -1,6 +1,8 @@
 export function readinessApiPlugin(): any;
 export function resolveCodexWorkdir(): { dir: string; exists: boolean; writable: boolean; configured: boolean };
 export function setCodexWorkdir(dir: string): { dir: string; exists: boolean; writable: boolean; configured: boolean };
+export function resolveAiRuntime(): "subscription" | "openclaw";
+export function setAiRuntime(mode: "subscription" | "openclaw"): "subscription" | "openclaw";
 export function importLegacyData(sourceRoot: string): any;
 export function getReadiness(options?: { includePaths?: boolean }): Promise<any>;
 export const RECOMMENDED_LOCAL_MODEL: string;

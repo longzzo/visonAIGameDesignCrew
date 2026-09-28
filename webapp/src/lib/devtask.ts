@@ -35,13 +35,13 @@ async function consumeSSE(res: Response, onStep: (s: DevStep) => void): Promise<
 }
 
 /** 개발 회의 — 리드 구현 → 코드 리뷰 → 테스트 검증을 순차 스트리밍 */
-export type DevEngine = "codex" | "provider";
+export type DevEngine = "subscription" | "claude" | "codex" | "provider";
 
 export async function runDevMeeting(
   leadId: string,
   task: string,
   onStep: (s: DevStep) => void,
-  engine: DevEngine = "provider"
+  engine: DevEngine = "subscription"
 ): Promise<void> {
   const res = await fetch("/api/dev-meeting", {
     method: "POST",
@@ -57,7 +57,7 @@ export async function runDevTask(
   task: string,
   onStep: (s: DevStep) => void,
   model?: string,
-  engine: DevEngine = "provider"
+  engine: DevEngine = "subscription"
 ): Promise<void> {
   const res = await fetch("/api/dev-task", {
     method: "POST",

@@ -7,6 +7,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as hub from "./mcp-hub.mjs";
 import { resolveCodexWorkdir } from "./readiness.mjs";
+import {
+  getSubscriptionStatus,
+  runClaudeSubscription,
+  subscriptionEnvironment,
+  withSubscriptionSlot,
+} from "./subscription-agents.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = process.env.VE_REPO_ROOT ? path.resolve(process.env.VE_REPO_ROOT) : path.resolve(__dirname, "..", "..");
@@ -201,50 +207,127 @@ export async function runDevTask({ agentId, task, model, maxSteps = 8, onStep })
   return { ok: true, transcript, final: "(최대 단계 도달 — 작업이 길어 중단됨)" };
 }
 
-/** 공식 Codex SDK 기반 코딩 실행 — 작업 폴더 쓰기만 허용하고 권한 확대·네트워크는 막는다. */
-export async function runCodexTask({ agentId, task, onStep }) {
-  const { Codex } = await import("@openai/codex-sdk");
+/** 공식 Codex SDK 구독 실행 — API 키 환경은 제거하고 ChatGPT 로그인만 허용한다. */
+export async function runCodexTask({ agentId, task, onStep, readOnly = false, signal }) {
+  return await withSubscriptionSlot(async () => {
+    if (signal?.aborted) throw new Error("Codex 구독 작업이 중단되었습니다.");
+    const status = await getSubscriptionStatus({ maxAgeMs: 2_000 });
+    if (!status.codex.subscription) throw new Error(status.codex.detail);
+    const { Codex } = await import("@openai/codex-sdk");
+    const selected = resolveCodexWorkdir();
+    if (!selected.exists || (!readOnly && !selected.writable)) {
+      throw new Error(`Codex 작업 폴더를 사용할 수 없습니다: ${selected.dir}. 시스템 상태센터에서 프로젝트 폴더를 선택하세요.`);
+    }
+    const workingDirectory = selected.dir;
+    const push = (step) => {
+      try { onStep?.(step); } catch { /* noop */ }
+    };
+    push({ kind: "task", text: task });
+    push({ kind: "phase", text: `🤖 Codex 구독 ${readOnly ? "검토" : "구현"} — ${workingDirectory}` });
+    const codex = new Codex({
+      env: subscriptionEnvironment("codex"),
+      // 사용자 설정에 커스텀 API 제공자가 있어도 구독 모드에서는 공식 OpenAI 경로로 고정한다.
+      config: { model_provider: "openai" },
+    });
+    const thread = codex.startThread({
+      workingDirectory,
+      skipGitRepoCheck: true,
+      sandboxMode: readOnly ? "read-only" : "workspace-write",
+      approvalPolicy: "never",
+      networkAccessEnabled: false,
+    });
+    const safety = readOnly
+      ? "읽기 전용 검토다. 파일을 변경하지 말고, 확인한 근거와 판정을 한국어로 보고해라."
+      : "사용자가 요청한 범위만 최소 변경하고, 가능한 검증 명령을 실행한 뒤 결과를 한국어로 보고해라.";
+    const { events } = await thread.runStreamed(
+      `${personaOf(agentId)}\n\n${safety}\n\n작업 지시:\n${task}`,
+      { signal }
+    );
+    let final = "";
+    for await (const event of events) {
+      if (event.type === "error") throw new Error(event.message);
+      if (event.type === "turn.failed") throw new Error(event.error?.message || "Codex 실행 실패");
+      if (event.type !== "item.completed") continue;
+      const item = event.item;
+      if (item.type === "agent_message") {
+        final = item.text || final;
+        push({ kind: "say", text: item.text, agent: agentId });
+      } else if (item.type === "command_execution") {
+        push({
+          kind: "toolResult",
+          server: "codex",
+          name: "shell",
+          isError: item.status === "failed",
+          text: `${item.command}\n${item.aggregated_output || ""}`.slice(0, 2000),
+        });
+      } else if (item.type === "file_change") {
+        push({ kind: "tool", server: "codex", name: "apply_patch", args: item.changes });
+      }
+    }
+    return { ok: true, transcript: [], final: final || "Codex 작업이 끝났지만 최종 설명이 없습니다.", empty: !final };
+  });
+}
+
+/** Claude Code 구독 실행 — 기본적으로 계획·리뷰 전용이며 쓰기 도구를 주지 않는다. */
+export async function runClaudeTask({ agentId, task, onStep, allowReadTools = true, signal }) {
   const selected = resolveCodexWorkdir();
-  if (!selected.exists || !selected.writable) {
-    throw new Error(`Codex 작업 폴더를 사용할 수 없습니다: ${selected.dir}. 첫 실행 준비에서 쓰기 가능한 프로젝트 폴더를 선택하세요.`);
-  }
-  const workingDirectory = selected.dir;
+  if (!selected.exists) throw new Error(`검토할 프로젝트 폴더를 찾지 못했습니다: ${selected.dir}`);
   const push = (step) => {
-    try { onStep?.(step); } catch { /* noop */ }
+    try { onStep?.({ ...step, agent: step.agent || agentId }); } catch { /* noop */ }
   };
   push({ kind: "task", text: task });
-  push({ kind: "phase", text: `🤖 Codex 구현 — ${workingDirectory}` });
-  const codex = new Codex();
-  const thread = codex.startThread({
-    workingDirectory,
-    skipGitRepoCheck: true,
-    sandboxMode: "workspace-write",
-    approvalPolicy: "never",
-    networkAccessEnabled: false,
-  });
-  const { events } = await thread.runStreamed(`${personaOf(agentId)}\n\n작업 지시:\n${task}`);
-  let final = "";
-  for await (const event of events) {
-    if (event.type === "error") throw new Error(event.message);
-    if (event.type === "turn.failed") throw new Error(event.error?.message || "Codex 실행 실패");
-    if (event.type !== "item.completed") continue;
-    const item = event.item;
-    if (item.type === "agent_message") {
-      final = item.text || final;
-      push({ kind: "say", text: item.text, agent: agentId });
-    } else if (item.type === "command_execution") {
-      push({
-        kind: "toolResult",
-        server: "codex",
-        name: "shell",
-        isError: item.status === "failed",
-        text: `${item.command}\n${item.aggregated_output || ""}`.slice(0, 2000),
-      });
-    } else if (item.type === "file_change") {
-      push({ kind: "tool", server: "codex", name: "apply_patch", args: item.changes });
+  push({ kind: "phase", text: `🧭 Claude 구독 총괄·검토 — ${selected.dir}` });
+  return await withSubscriptionSlot(() => runClaudeSubscription({
+    cwd: selected.dir,
+    allowReadTools,
+    onStep: push,
+    signal,
+    prompt: `${personaOf(agentId)}\n\n너는 Vision Engine의 총괄 또는 검토자다. 파일을 변경하지 말고 사실을 확인해 한국어로 답해라.\n\n작업 지시:\n${task}`,
+  }));
+}
+
+/** 일반 기획 에이전트 호출: Claude 구독 우선, 미로그인/한도 시 Codex 구독 읽기 전용 폴백. */
+export async function runSubscriptionAgent({ agentId, task, signal }) {
+  const status = await getSubscriptionStatus({ maxAgeMs: 2_000 });
+  const failures = [];
+  if (status.claude.subscription) {
+    try {
+      return await runClaudeTask({ agentId, task, allowReadTools: false, signal });
+    } catch (error) {
+      failures.push(`Claude: ${String(error?.message || error)}`);
     }
   }
-  return { ok: true, transcript: [], final: final || "Codex 작업이 끝났지만 최종 설명이 없습니다.", empty: !final };
+  if (status.codex.subscription) {
+    try {
+      return await runCodexTask({ agentId, task, readOnly: true, signal });
+    } catch (error) {
+      failures.push(`Codex: ${String(error?.message || error)}`);
+    }
+  }
+  const detail = failures.length
+    ? failures.join(" / ")
+    : `Claude(${status.claude.detail}) / Codex(${status.codex.detail})`;
+  throw new Error(`구독 AI를 실행할 수 없습니다. 시스템 상태센터에서 로그인하세요. ${detail}`);
+}
+
+/** Claude가 계획하고 Codex가 구현하는 기본 구독 작업. */
+export async function runSubscriptionTask({ agentId, task, onStep }) {
+  const status = await getSubscriptionStatus({ maxAgeMs: 2_000 });
+  let plan = { final: "Claude가 로그인되지 않아 Codex가 요청을 직접 분석하고 구현합니다." };
+  if (status.claude.subscription) {
+    plan = await runClaudeTask({
+      agentId: "td",
+      task: `다음 요청의 구현 계획을 세워라. 관련 파일을 읽어 범위·위험·검증 방법을 구체화하되 수정은 하지 마라.\n\n${task}`,
+      onStep,
+    });
+  } else {
+    onStep?.({ kind: "phase", text: "ℹ️ Claude 구독 미로그인 — Codex 구독이 직접 분석·구현합니다.", agent: "td" });
+  }
+  return await runCodexTask({
+    agentId,
+    task: `원 요청:\n${task}\n\n총괄 계획:\n${plan.final}\n\n계획을 맹목적으로 따르지 말고 실제 코드를 확인한 뒤 구현·검증해라.`,
+    onStep,
+  });
 }
 
 /**
@@ -252,36 +335,68 @@ export async function runCodexTask({ agentId, task, onStep }) {
  * 각 단계가 MCP 도구로 실제 kit 파일을 읽고(리뷰·테스트)/쓰며(구현) 교차 검증한다.
  * onStep에 { agent } 태그를 붙여 누가 말하는지 구분한다.
  */
-export async function runDevMeeting({ leadId, task, engine = "provider", onStep }) {
+export async function runDevMeeting({ leadId, task, engine = "subscription", onStep }) {
   const emit = (agent) => (s) => onStep?.({ ...s, agent });
   const say = (kind, text, agent) => onStep?.({ kind, text, agent });
 
-  // 1) 구현
+  const reviewWithSubscription = async ({ agentId, reviewTask, step }) => {
+    const status = await getSubscriptionStatus({ maxAgeMs: 2_000 });
+    if (engine === "claude" || (engine === "subscription" && status.claude.subscription)) {
+      return runClaudeTask({ agentId, task: reviewTask, onStep: step });
+    }
+    if (engine === "codex" || engine === "subscription") {
+      return runCodexTask({ agentId, task: reviewTask, onStep: step, readOnly: true });
+    }
+    return runDevTask({ agentId, task: reviewTask, maxSteps: 8, onStep: step });
+  };
+
+  // 1) Claude 총괄 계획 → Codex 구현. 단일 엔진 선택 시 해당 엔진만 사용한다.
+  let plan = null;
+  if (engine === "subscription") {
+    say("phase", "🧭 총괄 계획 — Claude 구독", "td");
+    const status = await getSubscriptionStatus({ maxAgeMs: 2_000 });
+    plan = status.claude.subscription
+      ? await runClaudeTask({
+          agentId: "td",
+          task: `다음 요청의 구현 계획을 작성해라. 관련 파일을 읽고 위험·검증 방법을 포함하되 파일은 수정하지 마라.\n\n${task}`,
+          onStep: emit("td"),
+        })
+      : await runCodexTask({
+          agentId: "td",
+          task: `다음 요청의 구현 계획을 작성해라. 파일을 수정하지 마라.\n\n${task}`,
+          onStep: emit("td"),
+          readOnly: true,
+        });
+  }
+
   say("phase", `🔨 구현 — ${leadId}`, leadId);
-  const impl = engine === "codex"
-    ? await runCodexTask({ agentId: leadId, task, onStep: emit(leadId) })
-    : await runDevTask({ agentId: leadId, task, maxSteps: 10, onStep: emit(leadId) });
+  const implementationTask = plan
+    ? `원 요청:\n${task}\n\n총괄 계획:\n${plan.final}\n\n실제 코드를 확인해 필요한 변경과 검증을 완료해라.`
+    : task;
+  const impl = engine === "provider"
+    ? await runDevTask({ agentId: leadId, task: implementationTask, maxSteps: 10, onStep: emit(leadId) })
+    : engine === "claude"
+      ? await runClaudeTask({ agentId: leadId, task: implementationTask, onStep: emit(leadId) })
+      : await runCodexTask({ agentId: leadId, task: implementationTask, onStep: emit(leadId) });
 
   // 2) 코드 리뷰
   say("phase", "👁️ 코드 리뷰 — review", "review");
-  const rev = await runDevTask({
+  const rev = await reviewWithSubscription({
     agentId: "review",
-    task:
+    reviewTask:
       `방금 팀원이 아래 작업을 수행했다:\n${impl.final}\n\n` +
       `도구로 관련 파일을 직접 읽어 코드 리뷰를 해라. 심각도(🔴 반드시수정 / 🟡 개선 / 🟢 좋음)로 분류하고, 구체적 위치와 수정 방향을 제시해라.`,
-    maxSteps: 8,
-    onStep: emit("review"),
+    step: emit("review"),
   });
 
   // 3) 테스트·검증
   say("phase", "🧪 검증 — testeng", "testeng");
-  const test = await runDevTask({
+  const test = await reviewWithSubscription({
     agentId: "testeng",
-    task:
+    reviewTask:
       `구현 요약:\n${impl.final}\n\n리뷰 요약:\n${rev.final}\n\n` +
       `도구로 결과 파일을 직접 읽어 검증하고, 엣지 케이스를 점검해라. 판정을 ✅ 통과 / ⚠️ 조건부 / ❌ 미흡 중 하나로 명시하고 근거를 대라.`,
-    maxSteps: 8,
-    onStep: emit("testeng"),
+    step: emit("testeng"),
   });
 
   // 빈 응답을 통과로 읽지 않는다. 판정 정규식은 "❌도 ⚠️도 없으면 통과"라서

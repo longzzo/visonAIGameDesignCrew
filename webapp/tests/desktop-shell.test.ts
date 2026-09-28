@@ -18,6 +18,8 @@ describe("데스크톱 시작 경험", () => {
     expect(desktopMain).toContain("waitForLocalPort(18789, 120_000)");
     expect(desktopMain).toContain('process.env.VE_USE_OPENCLAW_SERVICE === "1"');
     expect(desktopMain).toContain('scheduleGatewayRestart("readiness-timeout")');
+    expect(desktopMain).toContain('handleTrusted("ve:claudeLogin"');
+    expect(desktopMain).toContain('auth login --claudeai');
     expect(desktopMain).toContain("gatewayRestartAttempts > 6");
   });
 

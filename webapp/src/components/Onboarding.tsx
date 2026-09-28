@@ -32,7 +32,9 @@ type Provider = "ollama" | "nvidia" | "github";
 type Readiness = {
   gateway: { running: boolean; configured: boolean; agents: number; installed?: boolean; version?: string };
   ollama: { running: boolean; version?: string; models?: string[]; runningModels?: string[]; recommendedModel?: string; recommendedInstalled?: boolean };
-  codex: { installed: boolean; authenticated: boolean; detail: string; workdir: { dir: string; exists: boolean; writable: boolean; configured: boolean } };
+  claude: { installed: boolean; authenticated: boolean; subscription: boolean; version?: string; detail: string; subscriptionType?: string };
+  codex: { installed: boolean; authenticated: boolean; subscription: boolean; version?: string; detail: string; workdir: { dir: string; exists: boolean; writable: boolean; configured: boolean } };
+  aiRuntime: "subscription" | "openclaw";
   data: { projects: number; root?: string; migration?: { source?: string } | null };
   desktop: boolean;
 };
@@ -159,7 +161,28 @@ export function Onboarding({ onClose, initialPath = null }: { onClose: () => voi
     const desktop = (window as any).veDesktop;
     if (!desktop?.codexLogin) { setMsg("⚠️ PC 앱에서 실행하세요. 터미널에서는 `codex login`을 사용할 수 있습니다."); return; }
     const result = await desktop.codexLogin();
-    setMsg(result?.ok ? "브라우저 로그인 창을 열었습니다. 완료 후 ‘다시 확인’을 누르세요." : `⚠️ ${result?.error || "로그인 창을 열지 못했습니다."}`);
+    setMsg(result?.ok ? "ChatGPT 구독 로그인 창을 열었습니다. 완료 후 ‘다시 확인’을 누르세요." : `⚠️ ${result?.error || "로그인 창을 열지 못했습니다."}`);
+  };
+
+  const loginClaude = async () => {
+    setMsg("");
+    const desktop = (window as any).veDesktop;
+    if (!desktop?.claudeLogin) { setMsg("⚠️ PC 앱에서 실행하세요. 터미널에서는 `claude auth login --claudeai`를 사용할 수 있습니다."); return; }
+    const result = await desktop.claudeLogin();
+    setMsg(result?.ok
+      ? "Claude Pro/Max 구독 로그인 창을 열었습니다. 완료 후 ‘다시 확인’을 누르세요."
+      : `⚠️ ${result?.error || "로그인 창을 열지 못했습니다."}`);
+  };
+
+  const setAiRuntime = async (mode: "subscription" | "openclaw") => {
+    setBusy(true); setMsg("");
+    try {
+      await postReadiness({ action: "set-ai-runtime", mode });
+      setMsg(mode === "subscription"
+        ? "✅ 구독 AI 모드로 전환했습니다. Claude를 총괄로, Codex를 코딩 엔진으로 사용합니다."
+        : "✅ OpenClaw·로컬/API 제공자 모드로 전환했습니다.");
+    } catch (error: any) { setMsg(`⚠️ ${String(error?.message || error)}`); }
+    finally { setBusy(false); }
   };
 
   const startOpenClaw = async () => {
@@ -297,8 +320,9 @@ export function Onboarding({ onClose, initialPath = null }: { onClose: () => voi
   // 방패를 400ms 더 씌워 그 클릭을 흡수한다. 짧아서 사용자는 못 느낀다.
   const [closing, setClosing] = useState(false);
 
+  const subscriptionReady = Boolean(ready?.claude.subscription || ready?.codex.subscription);
   const essentialReady = ready
-    ? [ready.gateway.running, ready.ollama.running, ready.ollama.recommendedInstalled, Boolean(secretProtection?.ok)].filter(Boolean).length
+    ? [ready.data.projects > 0, subscriptionReady, ready.codex.workdir.exists && ready.codex.workdir.writable, Boolean(secretProtection?.ok)].filter(Boolean).length
     : 0;
 
   const secretProtectionMessage = (() => {
@@ -369,7 +393,7 @@ export function Onboarding({ onClose, initialPath = null }: { onClose: () => voi
                 <div className="onb-choice-icon">🖥️</div>
                 <div className="onb-choice-title">PC 앱 준비 확인</div>
                 <div className="onb-choice-desc dim">
-                  기존 프로젝트를 가져오고 OpenClaw·Codex 로그인·코딩 폴더를 한 번에 점검합니다.
+                  기존 프로젝트를 가져오고 Claude·Codex 구독 로그인과 코딩 폴더를 한 번에 점검합니다.
                 </div>
               </button>
               <button className="onb-choice" onClick={() => setPath("connect")}>
@@ -401,6 +425,26 @@ export function Onboarding({ onClose, initialPath = null }: { onClose: () => voi
                   <span>{ready.data.projects}개 · {ready.data.root || "원격 서버"}</span>
                   <button className="btn tiny" onClick={() => void importExistingData()} disabled={busy}>기존 데이터 가져오기</button>
                 </div>
+                <div className={`onb-ready ${ready.aiRuntime === "subscription" && subscriptionReady ? "ok" : "warn"}`}>
+                  <b>{ready.aiRuntime === "subscription" ? "✨" : "⚙️"} 기본 AI 실행 방식</b>
+                  <span>{ready.aiRuntime === "subscription"
+                    ? subscriptionReady ? "구독 AI · Claude 총괄 + Codex 코딩" : "구독 AI 선택됨 · 로그인이 필요합니다."
+                    : "OpenClaw · 로컬/API 제공자"}</span>
+                  <div className="onb-ready-actions">
+                    <button className="btn tiny" onClick={() => void setAiRuntime("subscription")} disabled={busy || ready.aiRuntime === "subscription"}>구독 AI 사용</button>
+                    <button className="btn tiny" onClick={() => void setAiRuntime("openclaw")} disabled={busy || ready.aiRuntime === "openclaw"}>OpenClaw 사용</button>
+                  </div>
+                </div>
+                <div className={`onb-ready ${ready.claude.subscription ? "ok" : "warn"}`}>
+                  <b>{ready.claude.subscription ? "✅" : "⚠️"} Claude Code · 총괄</b>
+                  <span>{ready.claude.detail}{ready.claude.version ? ` · v${ready.claude.version}` : ""}</span>
+                  <button className="btn tiny" onClick={() => void loginClaude()}>Claude 구독 로그인</button>
+                </div>
+                <div className={`onb-ready ${ready.codex.subscription ? "ok" : "warn"}`}>
+                  <b>{ready.codex.subscription ? "✅" : "⚠️"} Codex · 코딩</b>
+                  <span>{ready.codex.detail}{ready.codex.version ? ` · v${ready.codex.version}` : ""}</span>
+                  <button className="btn tiny" onClick={() => void loginCodex()}>ChatGPT 구독 로그인</button>
+                </div>
                 <div className={`onb-ready ${ready.gateway.running ? "ok" : "warn"}`}>
                   <b>{ready.gateway.running ? "✅" : "⚠️"} OpenClaw Gateway</b>
                   <span>{ready.gateway.running ? `실행 중 · 에이전트 ${ready.gateway.agents}명` : ready.gateway.configured ? "설정됨 · 현재 중지" : "초기 설정 필요"}{ready.gateway.version ? ` · v${ready.gateway.version}` : ""}</span>
@@ -431,19 +475,14 @@ export function Onboarding({ onClose, initialPath = null }: { onClose: () => voi
                     : "Ollama가 실행되지 않았습니다."}</span>
                   {!ready.ollama.recommendedInstalled && <button className="btn tiny" onClick={() => void pullRecommendedModel()}>추천 모델 받기</button>}
                 </div>
-                <div className={`onb-ready ${ready.codex.authenticated ? "ok" : "warn"}`}>
-                  <b>{ready.codex.authenticated ? "✅" : "⚠️"} Codex 로그인</b>
-                  <span>{ready.codex.detail || (ready.codex.installed ? "로그인 필요" : "CLI 없음")}</span>
-                  <button className="btn tiny" onClick={() => void loginCodex()}>Codex 로그인</button>
-                </div>
                 <div className={`onb-ready ${ready.codex.workdir.exists && ready.codex.workdir.writable ? "ok" : "warn"}`}>
-                  <b>{ready.codex.workdir.exists && ready.codex.workdir.writable ? "✅" : "⚠️"} Codex 작업 폴더</b>
+                  <b>{ready.codex.workdir.exists && ready.codex.workdir.writable ? "✅" : "⚠️"} 구독 AI 작업 폴더</b>
                   <span title={ready.codex.workdir.dir}>{ready.codex.workdir.dir || "선택되지 않음"}</span>
                   <button className="btn tiny" onClick={() => void chooseCodexWorkdir()} disabled={busy}>코딩 폴더 선택</button>
                 </div>
                 <div className="onb-ready ok">
                   <b>✨ 업데이트로 추가된 기능</b>
-                  <span>로컬 추론·도구 호출·구조화 출력·이미지 입력, OpenClaw 자동 시작 및 최신 설정 호환</span>
+                  <span>공식 CLI 구독 실행·Claude 총괄 + Codex 구현·API 과금 환경 차단·동시 실행 제한</span>
                 </div>
                 <div className={`onb-ready ${backup?.projects ? "ok" : "warn"}`}>
                   <b>💾 프로젝트 백업·복원</b>
@@ -486,6 +525,7 @@ export function Onboarding({ onClose, initialPath = null }: { onClose: () => voi
                 )}
               </div>
             )}
+            <div className="onb-q">고급 연결 · API 키가 필요한 외부 서비스만</div>
             <UserKeyCenter onNotice={setMsg} />
             {msg && <div className="onb-msg">{msg}</div>}
             <div className="onb-actions">

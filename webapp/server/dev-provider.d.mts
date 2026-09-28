@@ -14,11 +14,30 @@ export function runCodexTask(opts: {
   agentId: string;
   task: string;
   onStep?: (step: DevStep) => void;
+  readOnly?: boolean;
+  signal?: AbortSignal;
 }): Promise<{ ok: boolean; transcript: DevStep[]; final: string }>;
+export function runClaudeTask(opts: {
+  agentId: string;
+  task: string;
+  onStep?: (step: DevStep) => void;
+  allowReadTools?: boolean;
+  signal?: AbortSignal;
+}): Promise<{ ok: boolean; final: string }>;
+export function runSubscriptionAgent(opts: {
+  agentId: string;
+  task: string;
+  signal?: AbortSignal;
+}): Promise<{ ok: boolean; final: string }>;
+export function runSubscriptionTask(opts: {
+  agentId: string;
+  task: string;
+  onStep?: (step: DevStep) => void;
+}): Promise<{ ok: boolean; final: string }>;
 export function runDevMeeting(opts: {
   leadId: string;
   task: string;
-  engine?: "codex" | "provider";
+  engine?: "subscription" | "claude" | "codex" | "provider";
   onStep?: (step: DevStep) => void;
 }): Promise<{ ok: boolean; verdict: string }>;
 export function resolveProvider(model: string, config: any): any;

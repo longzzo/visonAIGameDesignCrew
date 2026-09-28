@@ -2,6 +2,17 @@
 
 > 오너의 비전과 단계별 계획. 완료된 것은 ✅, 진행 중은 🔨, 계획은 ⬜.
 
+## v4.3.0 — 공식 CLI 구독 실행 대개편 (2026-09-29) ✅
+
+- ✅ 일반 기획·검토 에이전트를 Claude Code 구독 우선으로 실행하고, 미로그인 시 ChatGPT Codex 구독 읽기 전용 폴백
+- ✅ 개발 기본 엔진을 `Claude 총괄 계획 → Codex 구현 → Claude/Codex 교차 검토` 구독 팀으로 전환
+- ✅ 공식 CLI의 저장된 로그인만 사용하며 OAuth 토큰 추출·구독의 API 키 변환·인증 프록시를 하지 않음
+- ✅ 구독 모드에서 OpenAI/Anthropic API 키·커스텀 엔드포인트·Bedrock/Vertex/Foundry 환경을 제거하는 fail-closed 과금 경계
+- ✅ 다중 에이전트 팬아웃 시 공식 CLI 동시 실행을 기본 2개로 제한
+- ✅ 시스템 상태센터에 Claude/Codex 설치·구독 로그인 상태, 구독/OpenClaw 전환, Claude 구독 로그인 동선 추가
+- ✅ Claude Code 미로그인 + Codex ChatGPT 로그인 환경에서 실제 구독 응답 smoke 통과
+- ⬜ Claude Pro/Max 로그인 후 Claude 총괄 경로와 플랜 한도 도달 시 Codex 폴백의 설치본 실측
+
 ## v4.2.9 — 사용자 키 연결센터·시각 계층 개편 (2026-09-29) ✅
 
 - ✅ GitHub Models·NVIDIA NIM·Brave Search를 한 화면에서 확인·등록·교체

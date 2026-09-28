@@ -4,8 +4,8 @@ import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { getSubscriptionStatus, invalidateSubscriptionStatus } from "./subscription-agents.mjs";
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = () => path.resolve(process.env.VE_REPO_ROOT || path.resolve(moduleDir, "..", ".."));
@@ -136,6 +136,21 @@ export function setCodexWorkdir(dir) {
   return resolveCodexWorkdir();
 }
 
+export function resolveAiRuntime() {
+  const configured = String(readJson(pcConfigFile())?.aiRuntime || "").trim();
+  return configured === "openclaw" ? "openclaw" : "subscription";
+}
+
+export function setAiRuntime(mode) {
+  const value = String(mode || "").trim();
+  if (!new Set(["subscription", "openclaw"]).has(value)) throw new Error("지원하지 않는 AI 실행 모드입니다.");
+  const cfg = readJson(pcConfigFile());
+  cfg.aiRuntime = value;
+  cfg.updatedAt = Date.now();
+  writeJsonAtomic(pcConfigFile(), cfg);
+  return value;
+}
+
 const copyMissing = (source, target) => {
   if (!fs.existsSync(source)) return false;
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -166,70 +181,17 @@ export function importLegacyData(sourceRoot) {
   return receipt;
 }
 
-function codexCliPath() {
-  const candidates = [
-    path.join(process.env.VE_WEBAPP_ROOT || path.join(repoRoot(), "webapp"), "node_modules", "@openai", "codex", "bin", "codex.js"),
-    path.join(moduleDir, "..", "node_modules", "@openai", "codex", "bin", "codex.js"),
-  ];
-  return candidates.find((file) => fs.existsSync(file)) || "";
-}
-
-function codexNativePath() {
-  const platform = {
-    "win32:x64": ["codex-win32-x64", "x86_64-pc-windows-msvc", "codex.exe"],
-    "win32:arm64": ["codex-win32-arm64", "aarch64-pc-windows-msvc", "codex.exe"],
-    "darwin:x64": ["codex-darwin-x64", "x86_64-apple-darwin", "codex"],
-    "darwin:arm64": ["codex-darwin-arm64", "aarch64-apple-darwin", "codex"],
-    "linux:x64": ["codex-linux-x64", "x86_64-unknown-linux-musl", "codex"],
-    "linux:arm64": ["codex-linux-arm64", "aarch64-unknown-linux-musl", "codex"],
-  }[`${process.platform}:${process.arch}`];
-  if (!platform) return "";
-  const [packageName, triple, executable] = platform;
-  const roots = [
-    process.env.VE_WEBAPP_ROOT || path.join(repoRoot(), "webapp"),
-    path.join(moduleDir, ".."),
-  ];
-  return roots
-    .map((root) => path.join(root, "node_modules", "@openai", packageName, "vendor", triple, "bin", executable))
-    .find((file) => fs.existsSync(file)) || "";
-}
-
-async function codexLoginStatus() {
-  const native = codexNativePath();
-  const cli = codexCliPath();
-  const processIsNode = /^node(?:\.exe)?$/i.test(path.basename(process.execPath));
-  if (!native && (!cli || !processIsNode)) return { installed: false, authenticated: false, detail: "이 PC용 Codex 실행 파일을 찾지 못했습니다." };
-  return await new Promise((resolve) => {
-    let output = "";
-    const command = native || process.execPath;
-    const args = [...(native ? [] : [cli]), "login", "status"];
-    const child = spawn(command, args, {
-      windowsHide: true,
-      env: { ...process.env },
-    });
-    const timer = setTimeout(() => child.kill(), 4000);
-    child.stdout?.on("data", (chunk) => { output += String(chunk); });
-    child.stderr?.on("data", (chunk) => { output += String(chunk); });
-    child.once("error", (error) => { clearTimeout(timer); resolve({ installed: true, authenticated: false, detail: error.message.slice(0, 160) }); });
-    child.once("close", (code) => {
-      clearTimeout(timer);
-      const clean = output.replace(/[\r\n]+/g, " ").trim();
-      const authenticated = code === 0;
-      const detail = authenticated ? "로그인됨" : /not logged|login required|로그인 필요/i.test(clean) ? "로그인 필요" : "로그인 상태를 확인하지 못했습니다.";
-      resolve({ installed: true, authenticated, detail });
-    });
-  });
-}
-
 export async function getReadiness({ includePaths = true } = {}) {
-  const [gateway, ollama, codex] = await Promise.all([checkTcp(18789), ollamaStatus(), codexLoginStatus()]);
+  const [gateway, ollama, subscriptions] = await Promise.all([checkTcp(18789), ollamaStatus(), getSubscriptionStatus()]);
   const workdir = resolveCodexWorkdir();
   const openclaw = openClawInstallInfo();
   const result = {
     ok: true,
     gateway: { running: gateway, configured: fs.existsSync(path.join(openclawHome(), ".openclaw", "openclaw.json")), agents: countOpenClawAgents(), ...openclaw },
     ollama,
-    codex: { ...codex, workdir: includePaths ? workdir : { ...workdir, dir: "" } },
+    claude: subscriptions.claude,
+    codex: { ...subscriptions.codex, workdir: includePaths ? workdir : { ...workdir, dir: "" } },
+    aiRuntime: resolveAiRuntime(),
     data: { projects: countProjects(), migration: readJson(path.join(dataRoot(), "migration.json"), null) },
     desktop: process.env.VE_DESKTOP === "1",
     ts: Date.now(),
@@ -294,6 +256,12 @@ export function readinessApiPlugin() {
               const workdir = setCodexWorkdir(body.dir);
               invalidateReadinessCache();
               res.end(JSON.stringify({ ok: true, workdir }));
+            }
+            else if (body.action === "set-ai-runtime") {
+              const aiRuntime = setAiRuntime(body.mode);
+              invalidateReadinessCache();
+              invalidateSubscriptionStatus();
+              res.end(JSON.stringify({ ok: true, aiRuntime }));
             }
             else if (body.action === "import-data") {
               const migration = importLegacyData(body.source);

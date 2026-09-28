@@ -2,7 +2,7 @@
 
 > **Vision Engine이 뭔가요?** — 게임 아이디어 한 줄을 넣으면, AI 에이전트 21명이 픽셀아트 사무실에서 일하는 1인 게임 개발 스튜디오입니다. **기획·제작팀 14명**이 회의해서 게임 기획서(GDD)를 쓰고 서로 검토·채점한 뒤, **개발팀 7명**(Unity 아키텍트·게임플레이 스크립터·멀티플레이·테크니컬 아티스트·에디터 툴·코드 리뷰어·테스트 엔지니어)이 이어받아 실제 개발을 돕습니다. 마지막엔 **유니티 개발 문서 + 밸런스 CSV + 에셋 목록 + C# 스켈레톤 + 플레이 가능한 프로토타입**을 ZIP 하나로 뽑아줍니다.
 >
-> 전부 **무료로** 돌릴 수 있습니다 (로컬 모델 + 무료 클라우드 크레딧). API 키는 이 저장소에 없으며, 새 공급자 키는 여러분 PC의 OpenClaw 쓰기 전용 보호 저장소에 보관됩니다.
+> 기본 실행은 **Claude Code·Codex 공식 CLI의 기존 구독 사용량**을 씁니다. 구독 토큰을 읽거나 API 키로 바꾸지 않습니다. 구독이 없으면 로컬 Ollama + OpenClaw를 선택할 수 있고, 외부 서비스 키는 사용자가 직접 입력해 OpenClaw 보호 저장소에 보관합니다.
 
 ---
 
@@ -12,7 +12,9 @@
 |---|---|---|
 | Windows 10/11 PC | ✅ | 런처(.bat)가 Windows 기준. macOS/리눅스는 수동 실행 필요 |
 | [Node.js](https://nodejs.org) 20+ | ✅ | 웹앱과 OpenClaw 실행 |
-| [Ollama](https://ollama.com) | ✅ | 무료 로컬 AI 모델 (VRAM 8GB 권장) |
+| ChatGPT 계정 | 권장 | 설치본에 포함된 Codex를 공식 ChatGPT 로그인으로 사용 |
+| Claude Pro/Max + Claude Code | 선택 | Claude를 총괄·기획·검토에 사용. 없으면 Codex가 읽기 전용으로 대체 |
+| [Ollama](https://ollama.com) | 선택 | 구독 대신 쓰는 무료 로컬 AI 모델 (VRAM 8GB 권장) |
 | [Git](https://git-scm.com) | ✅ | 저장소 받기 |
 | NVIDIA NIM API 키 | 선택 | [build.nvidia.com](https://build.nvidia.com) 무료 발급 — 회의 품질·속도가 크게 좋아짐 |
 | Stable Diffusion (Forge) | 선택 | 아트 인턴이 컨셉 아트·사무실 배경을 그림 (GPU 필요) |
@@ -135,21 +137,22 @@ cd ..
 
 ### 💻 데스크톱 앱 & 다른 PC에서 쓰기
 
-**Windows 설치형 앱으로 쓰기**: `desktop/dist-installer/VisionEngine-Setup-4.2.9.exe`를 설치하고 바탕화면의 **Vision Engine**을 실행합니다. 별도 로딩 창이 먼저 뜬 뒤 Studio가 열립니다. 웹앱 서버와 Codex CLI는 설치본에 포함돼 있어 Node.js나 저장소 없이도 창이 열리고, OpenClaw가 늦어져도 앱 본체는 먼저 사용할 수 있습니다. AI 실행에는 OpenClaw와 Ollama가 별도로 필요합니다.
+**Windows 설치형 앱으로 쓰기**: `desktop/dist-installer/VisionEngine-Setup-4.3.0.exe`를 설치하고 바탕화면의 **Vision Engine**을 실행합니다. 별도 로딩 창이 먼저 뜬 뒤 Studio가 열립니다. 웹앱 서버와 Codex CLI는 설치본에 포함돼 있어 Node.js나 저장소 없이도 창이 열립니다. 기본 구독 모드는 OpenClaw/Ollama 없이도 Codex의 ChatGPT 로그인으로 동작합니다.
 
 첫 실행에서는 **🖥️ PC 앱 준비 확인**을 누릅니다.
 
 1. 기존 저장소가 감지되면 프로젝트(`workspace`)를 앱 데이터 폴더로 비파괴 이전합니다. 수동으로 다시 가져올 수도 있으며 기존 파일은 덮어쓰지 않습니다.
-2. OpenClaw가 설치돼 있지만 예약 작업이 없다면 **OpenClaw 온보딩**을 누릅니다. 설치 자체가 안 돼 있으면 먼저 `npm install -g openclaw`가 필요합니다.
-3. **Codex 로그인**을 누르면 공식 `codex login` 브라우저 인증 창이 열립니다.
-4. **코딩 폴더 선택**에서 Codex가 실제로 수정할 게임/Unity 프로젝트 폴더를 지정합니다.
-5. 기존 Gateway 토큰이나 GitHub Models·NVIDIA·Brave 키가 평문이라면 **평문 키 자동 보호**를 눌러 OpenClaw 보호 저장소로 이전합니다. 설정·인증 캐시의 기존 평문은 성공 후 정리되고 이벤트 릴레이는 SecretRef를 직접 해석합니다.
+2. **구독 AI 사용**을 선택합니다. 이것이 새 기본값입니다.
+3. **Claude 구독 로그인**은 공식 `claude auth login --claudeai`, **ChatGPT 구독 로그인**은 공식 `codex login` 창을 엽니다. Claude가 없어도 Codex 로그인만으로 동작합니다.
+4. **구독 AI 작업 폴더**에서 Codex가 실제로 수정할 게임/Unity 프로젝트 폴더를 지정합니다.
+5. 구독 대신 로컬 AI를 쓰려면 **OpenClaw 사용**으로 전환하고 OpenClaw + Ollama를 준비합니다.
+6. 기존 Gateway 토큰이나 GitHub Models·NVIDIA·Brave 키가 평문이라면 **평문 키 자동 보호**를 눌러 OpenClaw 보호 저장소로 이전합니다. 설정·인증 캐시의 기존 평문은 성공 후 정리되고 이벤트 릴레이는 SecretRef를 직접 해석합니다.
 
-준비 화면은 닫은 뒤에도 상단 **⚙️ 시스템**에서 다시 열 수 있습니다. 이 화면은 시스템 상태센터로 동작해 OpenClaw·Ollama 상태를 5초마다, 앱 업데이트 다운로드 상태를 1초마다 자동 갱신합니다. **AI·검색 키 관리**에서는 GitHub Models·NVIDIA·Brave 키를 사용자가 직접 입력하며, 값은 마스킹되고 보호 저장소에 등록된 뒤 화면에서 지워집니다. 4.2.7부터 새 버전을 받은 뒤 전체 프로젝트 보호 백업이 성공해야만 설치할 수 있으며, 실패하면 업데이트를 보류하고 상태센터의 **백업 다시 시도**로 재시도합니다. 비밀정보 보호 카드는 읽기 전용 감사를 먼저 실행하고 평문 개수만 표시하며, 사용자가 **평문 키 보호**를 직접 누르기 전에는 설정을 변경하지 않습니다. OpenClaw 설정을 앱 버전별로 병합할 때 기존 사용자 에이전트·채널·플러그인·API 키는 보존하고 백업을 남깁니다.
+준비 화면은 닫은 뒤에도 상단 **⚙️ 시스템**에서 다시 열 수 있습니다. 상태센터는 Claude/Codex 구독 로그인과 OpenClaw·Ollama 상태를 5초마다, 앱 업데이트 다운로드 상태를 1초마다 자동 갱신합니다. 구독 모드는 공식 CLI 프로세스를 로컬에서 실행하고 각 CLI가 보관한 로그인만 사용합니다. 앱은 인증 토큰 원문을 읽거나 저장하지 않으며 API 과금 변수를 구독 프로세스에 전달하지 않습니다. **AI·검색 키 관리**는 GitHub Models·NVIDIA·Brave 같은 선택형 외부 서비스용입니다. 값은 마스킹되고 보호 저장소에 등록된 뒤 화면에서 지워집니다.
 
 **다른 PC에 설치해서 쓰기** (서버는 노트북에 그대로 두고):
 1. 서버 PC에서 `VisionEngine-Start.bat` 실행 (Tailscale 주소로 서버가 열립니다 — 창에 주소 표시)
-2. 다른 PC에 `desktop/dist-installer/VisionEngine-Setup-4.2.9.exe`를 복사해 설치 (바탕화면 바로가기 생성)
+2. 다른 PC에 `desktop/dist-installer/VisionEngine-Setup-4.3.0.exe`를 복사해 설치 (바탕화면 바로가기 생성)
 3. 첫 실행 시 서버 주소 입력: `http://100.x.x.x:5199` (서버 PC의 Tailscale 주소) → 🔌 연결 테스트 → 저장
 4. 두 PC 모두 [Tailscale](https://tailscale.com)에 같은 계정으로 로그인돼 있어야 합니다
 

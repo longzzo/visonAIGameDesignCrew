@@ -123,9 +123,10 @@ try {
   const bridge = await cdp.evaluate(`({
     audit: typeof window.veDesktop?.auditOpenClawSecrets,
     update: typeof window.veDesktop?.getUpdateState,
+    claudeLogin: typeof window.veDesktop?.claudeLogin,
     version: document.title,
   })`);
-  if (bridge?.audit !== "function" || bridge?.update !== "function") {
+  if (bridge?.audit !== "function" || bridge?.update !== "function" || bridge?.claudeLogin !== "function") {
     throw new Error(`Electron preload 상태센터 브리지가 없습니다: ${JSON.stringify(bridge)}`);
   }
 
@@ -159,6 +160,9 @@ try {
     const update = updateState;
     if (snapshot.text.includes("Vision Engine 시스템 상태센터")
       && snapshot.text.includes("비밀정보 보호")
+      && snapshot.text.includes("기본 AI 실행 방식")
+      && snapshot.text.includes("Claude Code · 총괄")
+      && snapshot.text.includes("Codex · 코딩")
       && snapshot.text.includes("평문 비밀값 1개를 보호해야 합니다.")
       && update?.currentVersion === expectedVersion) {
       break;
@@ -167,6 +171,9 @@ try {
 
   if (!snapshot?.text?.includes("Vision Engine 시스템 상태센터")) throw new Error(`상태센터 제목이 렌더되지 않았습니다: ${String(snapshot?.text || "").slice(0, 300)}`);
   if (!snapshot.text.includes("비밀정보 보호")) throw new Error("비밀정보 보호 카드가 렌더되지 않았습니다.");
+  if (!snapshot.text.includes("기본 AI 실행 방식") || !snapshot.text.includes("Claude Code · 총괄") || !snapshot.text.includes("Codex · 코딩")) {
+    throw new Error("구독 AI 상태 카드가 렌더되지 않았습니다.");
+  }
   if (!snapshot.text.includes("평문 비밀값 1개를 보호해야 합니다.")) {
     const logFile = path.join(temp, "user-data", "logs", "vision-engine.log");
     const diagnostics = fs.existsSync(logFile)
@@ -177,7 +184,7 @@ try {
   if (snapshot.update?.currentVersion !== expectedVersion) throw new Error(`상태센터 앱 버전 불일치: ${JSON.stringify(snapshot.update)}`);
   if (JSON.stringify(snapshot).includes(token)) throw new Error("renderer 상태에 비밀 원문이 노출됐습니다.");
 
-  console.log("✅ 데스크톱 상태센터 smoke 통과: Electron renderer → preload IPC → 읽기 전용 감사 → 실시간 업데이트 상태");
+  console.log("✅ 데스크톱 상태센터 smoke 통과: 구독 AI 상태 → preload IPC → 읽기 전용 감사 → 실시간 업데이트 상태");
 } finally {
   cdp?.close();
   try { appProcess?.kill(); } catch { /* noop */ }

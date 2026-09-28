@@ -2,7 +2,7 @@
 
 > 게임 아이디어 한 줄을 넣으면, **AI 에이전트들이 3D 사무실에서 직급에 따라 협업**해 게임 기획서(GDD)를 쓰고, 서로 검토·채점하고, 개발 착수 킷까지 뽑아주는 **1인 게임 개발 스튜디오**.
 
-기획팀이 회의해서 세계관·게임플레이·시스템·밸런스·UI·수익모델·아트를 설계하고, 팀장이 취합해 대표에게 올리면, 개발팀이 이어받아 **유니티 개발 문서 + 밸런스 CSV + 에셋 목록 + C# 스켈레톤 + 플레이 가능한 프로토타입**을 ZIP 하나로 만들어 냅니다. 전부 **로컬 모델 + 무료 클라우드 크레딧으로 무료** 구동 가능하며, 새 공급자 API 키는 OpenClaw의 로컬 쓰기 전용 보호 저장소에 저장됩니다.
+기획팀이 회의해서 세계관·게임플레이·시스템·밸런스·UI·수익모델·아트를 설계하고, 팀장이 취합해 대표에게 올리면, 개발팀이 이어받아 **유니티 개발 문서 + 밸런스 CSV + 에셋 목록 + C# 스켈레톤 + 플레이 가능한 프로토타입**을 ZIP 하나로 만들어 냅니다. 기본값은 **Claude Code·Codex 공식 CLI의 기존 구독 사용량**이며, 로컬 Ollama/OpenClaw와 사용자가 직접 등록한 API 제공자는 선택형 고급 경로로 유지됩니다.
 
 > **처음이라면 → [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md)** 에 15분 설치 walkthrough가 있습니다. 아래는 기능 요약과 빠른 설치입니다.
 
@@ -54,6 +54,8 @@
 - 기존 기획 **PDF 가져오기**(스캔 PDF는 로컬 OCR), 옵시디안 볼트 연동·지식 학습
 
 ### 💰 비용·보안 가드
+- **구독 AI 기본 실행**: Claude Code가 총괄·기획·검토하고 Codex가 코드 구현. 각 공식 CLI의 저장된 로그인을 그대로 사용하며 OAuth 토큰을 읽거나 구독을 API 키로 변환하지 않음
+- **API 과금 차단**: 구독 모드에서는 OpenAI·Anthropic API 키, 커스텀 엔드포인트, Bedrock/Vertex/Foundry 변수를 하위 프로세스에 전달하지 않는 fail-closed 정책
 - **비용 폭탄 방지**: 10분당 LLM 호출 상한(클라이언트+서버 이중), 무한 반복 시 자동 차단·중단
 - **사용량·크레딧 창**: 호출 수·토큰·추정 비용(모델별 단가)
 - **보안**: DNS 리바인딩/CSRF 차단, 개발 작업 PC 전용, 에이전트 산출 HTML 격리(CSP)
@@ -73,7 +75,7 @@
 
 ### 방법 A — 데스크톱 설치본 (가장 쉬움)
 [**Releases**](https://github.com/longzzo/visonAIGameDesignCrew/releases)에서 최신 `VisionEngine-Setup-x.y.z.exe`를 받아 실행하면 설치 + **바탕화면 바로가기**가 생깁니다.
-> 단, AI가 실제로 응답하려면 로컬에 **OpenClaw 게이트웨이 + Ollama**가 켜져 있어야 합니다(아래 방법 B의 준비물 참고).
+> 구독 모드는 **ChatGPT에 로그인된 Codex CLI**가 필요합니다. Claude를 총괄로 쓰려면 Claude Pro/Max 계정으로 Claude Code에도 로그인하세요. 로컬 모드는 OpenClaw + Ollama를 사용합니다.
 
 ### 방법 B — 소스에서 원클릭 실행 (권장)
 
@@ -84,6 +86,8 @@
 | Windows 10/11, [Node.js](https://nodejs.org) 20+ | ✅ | |
 | [Ollama](https://ollama.com) + `qwen3.5:4b` | ✅ | 무료 로컬 모델 (VRAM 8GB 권장, 도구 호출·추론·이미지 입력) |
 | [Git](https://git-scm.com) | ✅ | |
+| ChatGPT 계정 + Codex CLI | 권장 | 설치본에 Codex 포함. 시스템 상태센터에서 ChatGPT 로그인 |
+| Claude Pro/Max + Claude Code | 선택 | 총괄·기획·검토 품질 경로. 없으면 Codex 구독이 읽기 전용으로 대체 |
 | NVIDIA NIM 키 ([build.nvidia.com](https://build.nvidia.com)) | 선택 | 회의 품질·속도 향상 (무료 크레딧) |
 | Stable Diffusion (Forge), Tailscale, Obsidian | 선택 | 아트 생성 / 원격 접속 / 노트 학습 |
 
@@ -115,7 +119,7 @@ npm run dev        # http://127.0.0.1:5199
 ## 🧱 기술 스택 & 구조
 
 - **웹앱**: React 18 + Zustand + Vite (서버 로직은 `webapp/vite.config.ts`의 미들웨어 플러그인), 3D는 react-three-fiber + drei
-- **AI 게이트웨이**: [OpenClaw](docs/README.openclaw.md) — 각 에이전트가 독립 세션에서 실행, 모델은 Ollama(로컬) / NVIDIA NIM / GitHub Models 전환
+- **AI 실행 계층**: 기본은 Claude Code·Codex 공식 CLI 구독 실행, 선택형 [OpenClaw](docs/README.openclaw.md)는 Ollama(로컬) / NVIDIA NIM / GitHub Models 전환
 - **데스크톱**: Electron + NSIS 설치본 (`desktop/`)
 - **에이전트 페르소나**: `agents/<id>/AGENTS.md` (직급·역할·산출물 형식·규칙)
 

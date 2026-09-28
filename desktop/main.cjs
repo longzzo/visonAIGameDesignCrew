@@ -500,6 +500,26 @@ function findCodexNativeExecutable() {
   return fs.existsSync(direct) ? direct : "";
 }
 
+function findClaudeExecutable() {
+  const candidates = [
+    process.env.VE_CLAUDE_CLI,
+    process.platform === "win32" ? path.join(os.homedir(), ".local", "bin", "claude.exe") : "",
+    process.env.APPDATA && path.join(process.env.APPDATA, "npm", "claude.cmd"),
+    process.platform === "win32" ? path.join(os.homedir(), "AppData", "Roaming", "npm", "claude.cmd") : "",
+    process.platform === "win32" ? path.join(os.homedir(), "AppData", "Local", "Programs", "claude", "claude.exe") : "",
+  ].filter(Boolean);
+  const direct = candidates.find((file) => fs.existsSync(file));
+  if (direct) return direct;
+  if (process.platform === "win32") {
+    for (const command of ["claude.exe", "claude.cmd", "claude"]) {
+      const result = spawnSync("where.exe", [command], { windowsHide: true, encoding: "utf-8" });
+      const found = String(result.stdout || "").split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+      if (result.status === 0 && found) return found;
+    }
+  }
+  return process.platform === "win32" ? "" : "claude";
+}
+
 function launchOllamaPull(model = "qwen3.5:4b") {
   if (!/^[a-zA-Z0-9_.:/-]+$/.test(model)) return { ok: false, error: "올바르지 않은 모델 이름입니다." };
   const cli = findOllamaCli();
@@ -1383,6 +1403,34 @@ handleTrusted("ve:codexLogin", async () => {
       child.unref();
     } else {
       const child = spawn(cli, ["login"], { detached: true, stdio: "ignore" });
+      child.unref();
+    }
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error).slice(0, 200) };
+  }
+});
+handleTrusted("ve:claudeLogin", async () => {
+  const cli = findClaudeExecutable();
+  if (!cli) {
+    await shell.openExternal("https://docs.anthropic.com/en/docs/claude-code/getting-started");
+    return { ok: false, openedDocs: true, error: "Claude Code CLI가 없어 공식 설치 안내를 열었습니다." };
+  }
+  try {
+    const env = externalAiEnv({ VE_CLAUDE_CLI: cli });
+    for (const key of Object.keys(env)) {
+      if (/^ANTHROPIC_(?:API_KEY|AUTH_TOKEN|BASE_URL)$/i.test(key)
+        || /^CLAUDE_CODE_USE_(?:BEDROCK|VERTEX|FOUNDRY)$/i.test(key)
+        || /^(?:AWS_|AMAZON_BEDROCK_|VERTEX_)/i.test(key)) delete env[key];
+    }
+    if (process.platform === "win32") {
+      const child = spawn("powershell.exe", [
+        "-NoLogo", "-NoProfile", "-NoExit", "-Command",
+        "& $env:VE_CLAUDE_CLI auth login --claudeai; Write-Host ''; Write-Host 'Claude 구독 로그인 확인 후 이 창을 닫으세요.'",
+      ], { windowsHide: false, detached: true, stdio: "ignore", env });
+      child.unref();
+    } else {
+      const child = spawn(cli, ["auth", "login", "--claudeai"], { detached: true, stdio: "ignore", env });
       child.unref();
     }
     return { ok: true };

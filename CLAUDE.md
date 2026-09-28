@@ -38,7 +38,7 @@ curl -X POST http://127.0.0.1:5199/api/health -d '{"restart":"gateway"}'
 - `webapp/src/lib/agents.ts` — 로스터(AgentDef: GDD 섹션 소유권, `phase: plan|dev`, `staff`)와 **모든 프롬프트 빌더**. 개발팀 7명은 `staff:true, phase:"dev"`로 기획 팬아웃에서 제외된다.
 - `~/.openclaw/openclaw.json` — 실제 게이트웨이(포트 18789) 에이전트. 기본 로스터 21명의 정본은 `config/agents.manifest.json`이며 채용 직원이 추가될 수 있다. **전원 write/edit/exec 도구가 deny**되어 있다 — 프롬프트의 "도구 호출 금지" 문구는 불충분하고 이 deny 목록이 진짜 강제 장치다. 배포용 키리스 템플릿은 `config/openclaw.json`(`{{API_KEY}}` 플레이스홀더).
 
-**LLM 라우팅(오너 방침, docs/DESKTOP-PLAN.md):** 로컬(Ollama)이 최종 목표, 클라우드는 과도기, 제공자는 스왑 가능해야 한다. OpenClaw는 걷어내지 않는다. 기획 에이전트는 OpenClaw 게이트웨이 경유, 개발팀은 기본적으로 공식 Codex SDK의 `workspace-write` 샌드박스를 쓰고 필요하면 `webapp/server/dev-provider.mjs`의 OpenAI 호환 제공자+MCP 루프로 전환한다. 총괄·코딩 경계의 정본은 `config/execution-policy.json`이다.
+**LLM 라우팅(오너 방침, docs/DESKTOP-PLAN.md):** 기본은 공식 CLI 구독 실행이다. Claude Code가 총괄·기획·검토를 맡고 Codex가 `workspace-write` 샌드박스에서 구현한다. Claude 미로그인/한도 시 Codex를 읽기 전용 총괄로 폴백한다. 구독 모드는 API 키·커스텀 엔드포인트·Bedrock/Vertex/Foundry 환경을 상속하지 않는다. OpenClaw+Ollama와 OpenAI 호환 제공자+MCP는 사용자가 선택하는 고급/로컬 경로로 유지한다. 총괄·코딩 경계의 정본은 `config/execution-policy.json`이다.
 
 **MCP:** `webapp/server/mcp-hub.mjs`가 클라이언트 허브. `config/mcp.json`에 서버 목록 + **에이전트별 도구 배정**(assignments; 예: td→unity-ankle, 구현팀→unity-coplay, QA→unity-hunt). 유니티 프로젝트는 `config/unity.local.json`(gitignored)에 경로만 등록하면 `unity-project` 파일시스템 서버가 자동 합성돼 개발팀 8명에게 배정된다. 가이드: `docs/UNITY-REVIEW.md`.
 

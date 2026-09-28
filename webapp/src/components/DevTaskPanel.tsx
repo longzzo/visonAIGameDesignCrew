@@ -6,7 +6,7 @@ import { notify } from "../lib/notify";
 
 /**
  * 개발 작업 패널 — 개발팀 에이전트에게 실제 작업을 시킨다.
- * Codex SDK 또는 OpenAI 호환 제공자의 함수호출 루프로 실제 프로젝트에 관여한다.
+ * Claude Code가 계획·검토하고 Codex가 구현하는 구독 실행 또는 고급 제공자 모드로 실제 프로젝트에 관여한다.
  */
 export function DevTaskPanel({
   agentId,
@@ -24,7 +24,10 @@ export function DevTaskPanel({
   const [steps, setSteps] = useState<DevStep[]>([]);
   const [running, setRunning] = useState(false);
   const [meetingMode, setMeetingMode] = useState(!!autoMeeting);
-  const [engine, setEngine] = useState<DevEngine>(() => localStorage.getItem("ve-dev-engine") === "provider" ? "provider" : "codex");
+  const [engine, setEngine] = useState<DevEngine>(() => {
+    const saved = localStorage.getItem("ve-dev-engine");
+    return saved === "claude" || saved === "codex" || saved === "provider" || saved === "subscription" ? saved : "subscription";
+  });
   const [toolCount, setToolCount] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -86,7 +89,7 @@ export function DevTaskPanel({
             disabled={running}
           />
           <div className="devtask-run">
-            <label className="devtask-mode" title="Codex는 공식 SDK로 작업 폴더 안에서 코딩합니다. 제공자 모드는 기존 MCP 함수호출을 사용합니다.">
+            <label className="devtask-mode" title="구독 팀은 Claude Code가 계획·검토하고 Codex가 작업 폴더 안에서 구현합니다. API 키를 사용하지 않습니다.">
               실행 엔진{" "}
               <select
                 value={engine}
@@ -97,8 +100,10 @@ export function DevTaskPanel({
                 }}
                 disabled={running}
               >
-                <option value="codex">Codex (권장)</option>
-                <option value="provider">MCP 제공자</option>
+                <option value="subscription">Claude × Codex 구독 팀 (권장)</option>
+                <option value="codex">Codex 구독 · 구현</option>
+                <option value="claude">Claude 구독 · 읽기 전용</option>
+                <option value="provider">MCP/API 제공자 · 고급</option>
               </select>
             </label>
             <label className="devtask-mode" title="켜면 구현 → 코드 리뷰어 검토 → 테스트 엔지니어 검증까지 3단계 교차 검증으로 진행합니다 (시간이 더 걸립니다)">
@@ -114,7 +119,7 @@ export function DevTaskPanel({
         <div className="devtask-log">
           {steps.length === 0 && !running && (
             <div className="empty-hint">
-              Codex는 공식 SDK의 작업공간 쓰기 샌드박스로 코딩합니다. MCP 제공자 모드는 연결된 도구 범위 안에서 파일을 읽고 수정합니다.
+              기본 모드는 Claude Code 구독으로 계획·검토하고 Codex 구독의 작업공간 쓰기 샌드박스로 구현합니다. 키 기반 제공자는 고급 모드에서만 사용합니다.
             </div>
           )}
           {steps.map((s, i) => (
