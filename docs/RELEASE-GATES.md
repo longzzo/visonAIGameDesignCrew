@@ -26,7 +26,7 @@
 
 GitHub Actions의 `Windows release` 수동 실행은 새 Windows runner에서 설치·실행·보안 헤더·단일 인스턴스·제거를 자동 검증합니다. `vX.Y.Z` 태그 실행은 여기에 유효한 Authenticode 서명과 GitHub Release 게시까지 추가합니다. 설정 방법은 [상용 릴리스 운영서](COMMERCIAL-RELEASE.md)를 따릅니다.
 
-## 4.2.3 로컬 검증 기록 (2026-09-28)
+## 4.2.4 로컬 검증 기록 (2026-09-28)
 
 - Ollama `0.34.4`, OpenClaw `2026.9.6` 업데이트와 OpenClaw 상태 DB·에이전트 DB·검색 플러그인 마이그레이션 완료
 - 손상되지 않은 DB를 막던 0바이트 잔여 Gateway lock만 복구 폴더로 격리하고 `openclaw doctor --fix --non-interactive` 통과
@@ -34,9 +34,12 @@ GitHub Actions의 `Windows release` 수동 실행은 새 Windows runner에서 �
 - 전체 37개 테스트·TypeScript·프로덕션 빌드·독립 런타임 smoke 통과
 - 웹앱·데스크톱의 프로덕션 및 전체 빌드 npm 보안 감사 4종 모두 취약점 0건
 - 기존 `🖥️ 비전엔진 데스크톱 앱.lnk` 실행에서 Studio 5199를 먼저 준비하고 OpenClaw 18789 자동 복구 성공, 기존 프로젝트 5개 보존 확인
-- Ollama 사용자 컨텍스트 `32768` 적용 후 설치본 `/api/agent` → OpenClaw → `ollama/qwen3.5:4b` 실제 요청 `OK` 응답(24.049초)
-- NSIS 패키지 `305,166,124`바이트, blockmap·`latest.yml` 일치, 패키지 비밀정보 검사 0건
-- 설치본 SHA-256: `d6f0e49acececf5fdef5e27f18b351acd24f4985fa7dc2758f91edc7bd0a86b6`
+- Ollama 사용자 컨텍스트 `32768` 적용 후 설치본 `/api/agent` → OpenClaw → `ollama/qwen3.5:4b` 실제 요청 `OK` 응답(21.447초)
+- 서버 외부 import 10개만 런타임에 포함하고 React·Three.js 등 브라우저 전용 중복을 차단하는 패키지 검사 통과
+- NSIS 패키지 `268,341,498`바이트(4.2.3 대비 12.1% 감소), blockmap·`latest.yml` 일치, 패키지 비밀정보 검사 0건
+- 격리 설치 E2E 전체 통과: 설치 158.73초, 첫 준비 8.82초, HTML/PDF/PPTX 41.57초, 백업 왕복 0.23초, 런타임 복구 10.08초, 제거 9.41초
+- 기존 4.2.3 동일 E2E의 설치 393.36초 대비 59.6% 단축; 보안 헤더·악성 Host/Origin 차단·단일 인스턴스·비파괴 복원 유지
+- 설치본 SHA-256: `e71ef45a6c31f59b749f1f263cf4b1347939281446f8d05985963457af616414`
 - 설치 파일과 앱 본체는 아직 상용 코드서명 전이므로 고객 배포 금지
 
 ## 4.2.0 로컬 검증 기록 (2026-09-11)

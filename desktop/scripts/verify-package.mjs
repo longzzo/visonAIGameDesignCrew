@@ -113,6 +113,21 @@ for (const directory of ["legal", "vision-engine/agents", "vision-engine/config"
 }
 if (secretFindings.length) errors.push(`설치본 비밀정보 유출 의심: ${secretFindings.slice(0, 8).join(" | ")}`);
 
+const runtimeModules = path.join(resources, "vision-engine", "webapp", "node_modules");
+const requiredRuntimePackages = [
+  "@marp-team/marp-cli", "@marp-team/marp-core", "@modelcontextprotocol/sdk", "@napi-rs/canvas",
+  "@openai/codex-sdk", "connect", "pdfjs-dist", "sirv", "tesseract.js", "ws",
+];
+const browserOnlyPackages = ["@react-three/drei", "@react-three/fiber", "@react-three/postprocessing", "react", "react-dom", "three", "zustand"];
+for (const name of requiredRuntimePackages) {
+  if (!fs.existsSync(path.join(runtimeModules, ...name.split("/"), "package.json"))) errors.push(`데스크톱 런타임 필수 패키지 없음: ${name}`);
+}
+for (const name of browserOnlyPackages) {
+  if (fs.existsSync(path.join(runtimeModules, ...name.split("/")))) errors.push(`브라우저 전용 패키지가 데스크톱 런타임에 중복 포함됨: ${name}`);
+}
+const runtimeFiles = walkFiles(runtimeModules);
+const runtimeBytes = runtimeFiles.reduce((sum, file) => sum + fs.statSync(file).size, 0);
+
 let fuseOutput = "";
 if (fs.existsSync(appExe)) {
   const fuseCli = path.join(desktop, "node_modules", "@electron", "fuses", "dist", "bin.js");
@@ -161,6 +176,7 @@ const report = {
   sha256,
   signature,
   appSignature,
+  runtimeDependencies: { files: runtimeFiles.length, bytes: runtimeBytes, requiredPackages: requiredRuntimePackages.length },
   secretScan: { ok: secretFindings.length === 0, findings: secretFindings.length },
   errors,
   warnings,

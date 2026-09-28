@@ -38,6 +38,12 @@ $uninstallVerified = $false
 $startedAt = Get-Date
 $report = $null
 $resolvedReport = ""
+$installSeconds = 0
+$startupSeconds = 0
+$deckSeconds = 0
+$backupSeconds = 0
+$recoverySeconds = 0
+$uninstallSeconds = 0
 
 function Wait-Readiness([datetime]$Deadline) {
   $lastError = ""
@@ -62,7 +68,9 @@ function Stop-TestProcesses {
 try {
   New-Item -ItemType Directory -Path $runRoot -Force | Out-Null
   Write-Host "[E2E] 임시 설치 시작: $installDir"
+  $phaseStartedAt = Get-Date
   $installer = Start-Process -FilePath $resolvedInstaller -ArgumentList @("/S", "/D=$installDir") -WindowStyle Hidden -Wait -PassThru
+  $installSeconds = [math]::Round(((Get-Date) - $phaseStartedAt).TotalSeconds, 2)
   if ($installer.ExitCode -ne 0) { throw "설치 프로그램 종료 코드: $($installer.ExitCode)" }
   if (-not (Test-Path -LiteralPath $appExe)) { throw "설치된 실행 파일을 찾지 못했습니다: $appExe" }
   Stop-TestProcesses
@@ -86,12 +94,15 @@ try {
   )
 
   Write-Host "[E2E] 격리 앱 실행 및 준비 상태 확인: $baseUrl"
+  $phaseStartedAt = Get-Date
   $appProcess = Start-Process -FilePath $appExe -ArgumentList "--disable-gpu" -PassThru
   $readiness = Wait-Readiness ((Get-Date).AddSeconds(120))
+  $startupSeconds = [math]::Round(((Get-Date) - $phaseStartedAt).TotalSeconds, 2)
   if ($readiness.ok -ne $true -or $readiness.desktop -ne $true) { throw "데스크톱 준비 상태가 올바르지 않습니다." }
   if ($readiness.codex.installed -ne $true) { throw "설치본에 Codex 네이티브 실행 파일이 없습니다." }
 
   Write-Host "[E2E] 설치본 PDF·PPTX 발표자료 렌더링 검증"
+  $phaseStartedAt = Get-Date
   $deckPayload = @{
     projectId = "e2e-deck"
     formats = @("html", "pdf", "pptx")
@@ -121,8 +132,10 @@ try {
     }
     if ($actualMagic -ne $expected.Magic) { throw "설치본 발표자료 시그니처 오류: $($expected.Name)" }
   }
+  $deckSeconds = [math]::Round(((Get-Date) - $phaseStartedAt).TotalSeconds, 2)
 
   Write-Host "[E2E] 전체 프로젝트 백업·비파괴 복원 검증"
+  $phaseStartedAt = Get-Date
   $backupStatus = Invoke-RestMethod -Uri "$baseUrl/api/backup/status" -TimeoutSec 30
   if ($backupStatus.ok -ne $true -or $backupStatus.projects -ne 1 -or $backupStatus.files -lt 4) {
     throw "백업 상태가 올바르지 않습니다."
@@ -148,6 +161,7 @@ try {
   } finally {
     $backupClient.Dispose()
   }
+  $backupSeconds = [math]::Round(((Get-Date) - $phaseStartedAt).TotalSeconds, 2)
 
   $head = Invoke-WebRequest -Uri "$baseUrl/" -Method Head -UseBasicParsing -TimeoutSec 15
   foreach ($header in @("Content-Security-Policy", "X-Content-Type-Options", "X-Frame-Options", "Permissions-Policy")) {
@@ -172,6 +186,7 @@ try {
   }
 
   Write-Host "[E2E] 내장 Studio 런타임 비정상 종료·자동 복구 검증"
+  $phaseStartedAt = Get-Date
   $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop | Select-Object -First 1
   $runtimeProcessId = [int]$listener.OwningProcess
   if ($runtimeProcessId -le 0 -or $runtimeProcessId -eq $appProcess.Id) {
@@ -194,6 +209,7 @@ try {
   if ($readinessAfterRecovery.ok -ne $true -or $appProcess.HasExited) {
     throw "Studio 런타임 자동 복구에 실패했습니다."
   }
+  $recoverySeconds = [math]::Round(((Get-Date) - $phaseStartedAt).TotalSeconds, 2)
 
   Write-Host "[E2E] 단일 인스턴스 검증"
   $second = Start-Process -FilePath $appExe -ArgumentList "--disable-gpu" -PassThru
@@ -219,6 +235,13 @@ try {
     deckFormats = @("html", "pdf", "pptx")
     backupRoundTrip = $true
     runtimeAutoRecovery = $true
+    timings = [ordered]@{
+      installSeconds = $installSeconds
+      startupSeconds = $startupSeconds
+      deckSeconds = $deckSeconds
+      backupSeconds = $backupSeconds
+      runtimeRecoverySeconds = $recoverySeconds
+    }
   }
 
   if (-not $ReportPath) {
@@ -230,11 +253,13 @@ try {
   Start-Sleep -Seconds 2
   if ($uninstaller -and (Test-Path -LiteralPath $uninstaller.FullName)) {
     Write-Host "[E2E] 무인 제거 검증"
+    $phaseStartedAt = Get-Date
     $remove = Start-Process -FilePath $uninstaller.FullName -ArgumentList "/S" -WindowStyle Hidden -Wait -PassThru
     if ($remove.ExitCode -ne 0) { throw "제거 프로그램 종료 코드: $($remove.ExitCode)" }
     $deadline = (Get-Date).AddSeconds(30)
     while ((Test-Path -LiteralPath $appExe) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
     $uninstallVerified = -not (Test-Path -LiteralPath $appExe)
+    $uninstallSeconds = [math]::Round(((Get-Date) - $phaseStartedAt).TotalSeconds, 2)
     if (-not $uninstallVerified) { throw "무인 제거 후 실행 파일이 남아 있습니다: $appExe" }
   }
   Stop-TestProcesses
@@ -248,6 +273,7 @@ try {
 
 if (-not $uninstallVerified) { throw "제거 검증이 완료되지 않았습니다." }
 $report["uninstallVerified"] = $true
+$report["timings"]["uninstallSeconds"] = $uninstallSeconds
 $report["elapsedSeconds"] = [math]::Round(((Get-Date) - $startedAt).TotalSeconds, 2)
 New-Item -ItemType Directory -Path (Split-Path -Parent $resolvedReport) -Force | Out-Null
 $report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $resolvedReport -Encoding utf8
