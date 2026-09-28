@@ -13,6 +13,7 @@ const http = require("node:http");
 const https = require("node:https");
 const net = require("node:net");
 const { fileURLToPath } = require("node:url");
+const { createPreUpdateProjectBackup } = require("./update-backup.cjs");
 
 // 패키지 E2E/기업 배포 검증은 실제 사용자 데이터와 완전히 분리된 경로에서 실행한다.
 // 일반 실행에서는 이 환경변수가 없으므로 기존 Electron userData 경로를 그대로 쓴다.
@@ -32,6 +33,8 @@ let diagnosticLogFile = "";
 let updateState = { status: "disabled", version: "", progress: 0, message: "업데이트 서버가 설정되지 않았습니다." };
 let updateCheckInProgress = false;
 let updatePromptRequested = false;
+let updateBackupPromise = null;
+let downloadedUpdateInfo = null;
 
 const configuredRuntimePort = Number(process.env.VE_RUNTIME_PORT || 5199);
 const RUNTIME_PORT = Number.isInteger(configuredRuntimePort) && configuredRuntimePort >= 1024 && configuredRuntimePort <= 65535 ? configuredRuntimePort : 5199;
@@ -618,6 +621,8 @@ function publicUpdateState() {
     progress: Number(updateState.progress || 0),
     message: String(updateState.message || "").slice(0, 300),
     currentVersion: app.getVersion(),
+    backupReady: updateState.backupReady === true,
+    backupName: String(updateState.backupName || "").slice(0, 180),
   };
 }
 
@@ -644,6 +649,79 @@ async function promptForUpdate(info) {
   catch (error) { setUpdateState({ status: "error", message: `다운로드 실패: ${String(error?.message || error).slice(0, 180)}` }); }
 }
 
+function configuredRemoteServerUrl() {
+  const value = String(loadConfig()?.serverUrl || "").trim();
+  if (!value) return "";
+  try {
+    const parsed = new URL(value);
+    return ["127.0.0.1", "localhost", "::1"].includes(parsed.hostname) ? "" : value;
+  } catch { return value; }
+}
+
+function prepareDownloadedUpdate(info) {
+  if (updateBackupPromise) return updateBackupPromise;
+  const version = String(info?.version || updateState.version || "새 버전");
+  updateBackupPromise = (async () => {
+    autoUpdater.autoInstallOnAppQuit = false;
+    setUpdateState({ status: "backing-up", version, progress: 100, backupReady: false, backupName: "", message: "업데이트 전 프로젝트를 자동 백업하고 있습니다…" });
+    try {
+      const backup = await createPreUpdateProjectBackup({
+        userDataDir: app.getPath("userData"),
+        runtimePort: RUNTIME_PORT,
+        currentVersion: app.getVersion(),
+        targetVersion: version,
+        remoteServerUrl: configuredRemoteServerUrl(),
+      });
+      const detail = backup.created
+        ? `프로젝트 ${backup.projects}개를 ${backup.name}에 백업했습니다.\n${backup.file}`
+        : backup.reason === "remote-client"
+          ? "프로젝트가 원격 서버에 있어 이 PC에서는 백업을 건너뜁니다. 서버 PC의 백업 정책을 확인하세요."
+          : "아직 프로젝트가 없어 백업 없이 안전하게 업데이트할 수 있습니다.";
+      setUpdateState({
+        status: "ready",
+        version,
+        progress: 100,
+        backupReady: backup.created || backup.reason === "no-projects" || backup.reason === "remote-client",
+        backupName: backup.name || "",
+        message: backup.created ? "업데이트 백업과 설치 준비가 끝났습니다." : "업데이트 설치 준비가 끝났습니다.",
+      });
+      const answer = await dialog.showMessageBox(win, {
+        type: "info",
+        title: "Vision Engine 업데이트",
+        message: "업데이트 설치 준비가 끝났습니다.",
+        detail,
+        buttons: ["지금 재시작", "종료할 때 설치"],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      });
+      if (answer.response === 0) {
+        quitting = true;
+        autoUpdater.quitAndInstall(false, true);
+        return;
+      }
+      autoUpdater.autoInstallOnAppQuit = true;
+      setUpdateState({ status: "scheduled", message: "앱을 종료할 때 업데이트를 설치합니다.", backupReady: true });
+    } catch (error) {
+      const message = `업데이트 전 자동 백업 실패: ${String(error?.message || error).slice(0, 180)}`;
+      console.warn(message);
+      setUpdateState({ status: "backup-error", version, progress: 100, backupReady: false, backupName: "", message });
+      const answer = await dialog.showMessageBox(win, {
+        type: "warning",
+        title: "Vision Engine 업데이트 보류",
+        message: "프로젝트 자동 백업에 실패해 업데이트 설치를 보류했습니다.",
+        detail: `${message}\n\n프로젝트를 보호하기 위해 백업 없이 자동 설치하지 않습니다.`,
+        buttons: ["백업 다시 시도", "업데이트 취소"],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      });
+      if (answer.response === 0) setTimeout(() => { void prepareDownloadedUpdate(info); }, 0);
+    }
+  })().finally(() => { updateBackupPromise = null; });
+  return updateBackupPromise;
+}
+
 function configureAutoUpdater() {
   const product = loadProductConfig();
   const updateUrl = String(product.updateUrl || "").trim();
@@ -664,14 +742,16 @@ function configureAutoUpdater() {
     return;
   }
   autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = true;
+  // 업데이트 전 프로젝트 백업이 성공한 뒤에만 종료 시 설치를 허용한다.
+  autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.allowDowngrade = false;
   autoUpdater.setFeedURL({ provider: "generic", url: updateUrl });
   setUpdateState({ status: "idle", message: "업데이트 확인 준비됨" });
 
   autoUpdater.on("checking-for-update", () => setUpdateState({ status: "checking", message: "업데이트를 확인하고 있습니다…" }));
   autoUpdater.on("update-available", (info) => {
-    setUpdateState({ status: "available", version: String(info?.version || ""), message: "새 업데이트가 있습니다." });
+    downloadedUpdateInfo = null;
+    setUpdateState({ status: "available", version: String(info?.version || ""), backupReady: false, backupName: "", message: "새 업데이트가 있습니다." });
     void promptForUpdate(info);
   });
   autoUpdater.on("update-not-available", () => {
@@ -684,11 +764,8 @@ function configureAutoUpdater() {
     message: `업데이트 다운로드 중 · ${Math.round(Number(progress?.percent || 0))}%`,
   }));
   autoUpdater.on("update-downloaded", (info) => {
-    setUpdateState({ status: "ready", version: String(info?.version || ""), progress: 100, message: "업데이트 설치 준비가 끝났습니다." });
-    void dialog.showMessageBox(win, {
-      type: "info", title: "Vision Engine 업데이트", message: "업데이트 설치 준비가 끝났습니다.",
-      detail: "지금 재시작하면 새 버전이 설치됩니다.", buttons: ["지금 재시작", "종료할 때 설치"], defaultId: 0, cancelId: 1, noLink: true,
-    }).then((answer) => { if (answer.response === 0) { quitting = true; autoUpdater.quitAndInstall(false, true); } });
+    downloadedUpdateInfo = info;
+    void prepareDownloadedUpdate(info);
   });
   autoUpdater.on("error", (error) => {
     const message = `업데이트 확인 실패: ${String(error?.message || error).slice(0, 180)}`;
@@ -700,6 +777,10 @@ function configureAutoUpdater() {
 
 async function checkForUpdates(userInitiated = false) {
   if (updateState.status === "disabled") return { ok: false, ...publicUpdateState() };
+  if (updateState.status === "backup-error" && downloadedUpdateInfo) {
+    await prepareDownloadedUpdate(downloadedUpdateInfo);
+    return { ok: updateState.status !== "backup-error", ...publicUpdateState() };
+  }
   if (updateCheckInProgress) return { ok: true, ...publicUpdateState() };
   updateCheckInProgress = true;
   updatePromptRequested = Boolean(userInitiated);
@@ -1209,6 +1290,12 @@ function refreshTrayMenu() {
   const product = loadProductConfig();
   const updateLabel = updateState.status === "downloading"
     ? `업데이트 다운로드 중… ${updateState.progress}%`
+    : updateState.status === "backing-up"
+      ? "업데이트 전 프로젝트 백업 중…"
+      : updateState.status === "backup-error"
+        ? "업데이트 백업 다시 시도…"
+        : updateState.status === "scheduled"
+          ? `업데이트 ${updateState.version || ""} · 종료 시 설치`
     : updateState.status === "ready"
       ? `업데이트 ${updateState.version || ""} 설치 준비됨`
       : "업데이트 확인…";
@@ -1221,9 +1308,14 @@ function refreshTrayMenu() {
     { label: "🏢 Vision Engine 열기", click: showWindow },
     { type: "separator" },
     { label: `버전 ${app.getVersion()}`, enabled: false },
-    { label: updateLabel, enabled: updateState.status !== "disabled" && updateState.status !== "downloading", click: () => { void checkForUpdates(true); } },
+    { label: updateLabel, enabled: !["disabled", "downloading", "backing-up", "scheduled"].includes(updateState.status), click: () => { void checkForUpdates(true); } },
     { label: "진단 보고서 저장…", click: () => { void exportSupportReport(); } },
     { label: "진단 로그 폴더 열기", click: openDiagnosticFolder },
+    { label: "업데이트 백업 폴더 열기", click: () => {
+      const directory = path.join(app.getPath("userData"), "backups");
+      fs.mkdirSync(directory, { recursive: true });
+      void shell.openPath(directory);
+    } },
     { label: "사용자 데이터 폴더 열기", click: () => { void shell.openPath(desktopDataRoot()); } },
     ...(supportItems.length ? [{ type: "separator" }, ...supportItems] : []),
     { type: "separator" },

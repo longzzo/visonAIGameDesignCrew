@@ -14,6 +14,13 @@ if ($env:OS -ne "Windows_NT") {
   throw "Windows 설치 E2E는 Windows에서만 실행할 수 있습니다."
 }
 
+# electron-builder NSIS는 사용자 단위 설치 등록을 공유한다. 이미 설치된 PC에서
+# 임시 /D 경로로 E2E를 실행하면 기존 앱을 먼저 제거할 수 있으므로 클린 환경만 허용한다.
+$existingInstalledApp = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "Programs\Vision Engine\Vision Engine.exe"
+if (Test-Path -LiteralPath $existingInstalledApp) {
+  throw "기존 Vision Engine 설치가 있어 E2E를 중단했습니다. 실제 사용자 앱을 보호하려면 클린 Windows VM 또는 GitHub Actions runner에서 실행하세요: $existingInstalledApp"
+}
+
 $resolvedInstaller = (Resolve-Path -LiteralPath $InstallerPath).Path
 if ([IO.Path]::GetExtension($resolvedInstaller) -ne ".exe") {
   throw "NSIS .exe 설치 파일이 필요합니다."
@@ -276,6 +283,7 @@ $report["uninstallVerified"] = $true
 $report["timings"]["uninstallSeconds"] = $uninstallSeconds
 $report["elapsedSeconds"] = [math]::Round(((Get-Date) - $startedAt).TotalSeconds, 2)
 New-Item -ItemType Directory -Path (Split-Path -Parent $resolvedReport) -Force | Out-Null
-$report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $resolvedReport -Encoding utf8
+$reportJson = $report | ConvertTo-Json -Depth 5
+[IO.File]::WriteAllText($resolvedReport, $reportJson, [Text.UTF8Encoding]::new($false))
 $report | ConvertTo-Json -Depth 5
 Write-Host "[E2E] 설치·실행·백업·보안·단일 인스턴스·제거 검증 통과"

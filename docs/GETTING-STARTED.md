@@ -135,7 +135,7 @@ cd ..
 
 ### 💻 데스크톱 앱 & 다른 PC에서 쓰기
 
-**Windows 설치형 앱으로 쓰기**: `desktop/dist-installer/VisionEngine-Setup-4.2.6.exe`를 설치하고 바탕화면의 **Vision Engine**을 실행합니다. 별도 로딩 창이 먼저 뜬 뒤 Studio가 열립니다. 웹앱 서버와 Codex CLI는 설치본에 포함돼 있어 Node.js나 저장소 없이도 창이 열리고, OpenClaw가 늦어져도 앱 본체는 먼저 사용할 수 있습니다. AI 실행에는 OpenClaw와 Ollama가 별도로 필요합니다.
+**Windows 설치형 앱으로 쓰기**: `desktop/dist-installer/VisionEngine-Setup-4.2.7.exe`를 설치하고 바탕화면의 **Vision Engine**을 실행합니다. 별도 로딩 창이 먼저 뜬 뒤 Studio가 열립니다. 웹앱 서버와 Codex CLI는 설치본에 포함돼 있어 Node.js나 저장소 없이도 창이 열리고, OpenClaw가 늦어져도 앱 본체는 먼저 사용할 수 있습니다. AI 실행에는 OpenClaw와 Ollama가 별도로 필요합니다.
 
 첫 실행에서는 **🖥️ PC 앱 준비 확인**을 누릅니다.
 
@@ -145,11 +145,11 @@ cd ..
 4. **코딩 폴더 선택**에서 Codex가 실제로 수정할 게임/Unity 프로젝트 폴더를 지정합니다.
 5. 기존 Gateway 토큰이나 GitHub Models·NVIDIA·Brave 키가 평문이라면 **평문 키 자동 보호**를 눌러 OpenClaw 보호 저장소로 이전합니다. 설정·인증 캐시의 기존 평문은 성공 후 정리되고 이벤트 릴레이는 SecretRef를 직접 해석합니다.
 
-준비 화면은 닫은 뒤에도 상단 **⚙️ PC 준비**에서 다시 열 수 있습니다. 4.2.6부터 이 화면은 시스템 상태센터로 동작해 OpenClaw·Ollama 상태를 5초마다, 앱 업데이트 다운로드 상태를 1초마다 자동 갱신합니다. 비밀정보 보호 카드는 읽기 전용 감사를 먼저 실행하고 평문 개수만 표시하며, 사용자가 **평문 키 보호**를 직접 누르기 전에는 설정을 변경하지 않습니다. OpenClaw 설정을 앱 버전별로 병합할 때 기존 사용자 에이전트·채널·플러그인·API 키는 보존하고 백업을 남깁니다.
+준비 화면은 닫은 뒤에도 상단 **⚙️ PC 준비**에서 다시 열 수 있습니다. 이 화면은 시스템 상태센터로 동작해 OpenClaw·Ollama 상태를 5초마다, 앱 업데이트 다운로드 상태를 1초마다 자동 갱신합니다. 4.2.7부터 새 버전을 받은 뒤 전체 프로젝트 보호 백업이 성공해야만 설치할 수 있으며, 실패하면 업데이트를 보류하고 상태센터의 **백업 다시 시도**로 재시도합니다. 비밀정보 보호 카드는 읽기 전용 감사를 먼저 실행하고 평문 개수만 표시하며, 사용자가 **평문 키 보호**를 직접 누르기 전에는 설정을 변경하지 않습니다. OpenClaw 설정을 앱 버전별로 병합할 때 기존 사용자 에이전트·채널·플러그인·API 키는 보존하고 백업을 남깁니다.
 
 **다른 PC에 설치해서 쓰기** (서버는 노트북에 그대로 두고):
 1. 서버 PC에서 `VisionEngine-Start.bat` 실행 (Tailscale 주소로 서버가 열립니다 — 창에 주소 표시)
-2. 다른 PC에 `desktop/dist-installer/VisionEngine-Setup-4.2.6.exe`를 복사해 설치 (바탕화면 바로가기 생성)
+2. 다른 PC에 `desktop/dist-installer/VisionEngine-Setup-4.2.7.exe`를 복사해 설치 (바탕화면 바로가기 생성)
 3. 첫 실행 시 서버 주소 입력: `http://100.x.x.x:5199` (서버 PC의 Tailscale 주소) → 🔌 연결 테스트 → 저장
 4. 두 PC 모두 [Tailscale](https://tailscale.com)에 같은 계정으로 로그인돼 있어야 합니다
 

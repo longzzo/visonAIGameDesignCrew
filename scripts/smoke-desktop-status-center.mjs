@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const unpacked = path.join(root, "desktop", "dist-installer", "win-unpacked");
 const executable = path.join(unpacked, "Vision Engine.exe");
+const expectedVersion = JSON.parse(fs.readFileSync(path.join(root, "desktop", "package.json"), "utf-8")).version;
 const requireFromRuntime = createRequire(path.join(unpacked, "resources", "vision-engine", "webapp", "package.json"));
 const { WebSocket } = requireFromRuntime("ws");
 if (!fs.existsSync(executable)) throw new Error(`최종 Electron 실행 파일을 찾지 못했습니다: ${executable}`);
@@ -159,7 +160,7 @@ try {
     if (snapshot.text.includes("Vision Engine 시스템 상태센터")
       && snapshot.text.includes("비밀정보 보호")
       && snapshot.text.includes("평문 비밀값 1개를 보호해야 합니다.")
-      && update?.currentVersion === "4.2.6") {
+      && update?.currentVersion === expectedVersion) {
       break;
     }
   }
@@ -173,7 +174,7 @@ try {
       : "진단 로그 없음";
     throw new Error(`읽기 전용 평문 감사 문구가 올바르지 않습니다: ${snapshot.text.slice(0, 500)}\n${diagnostics}`);
   }
-  if (snapshot.update?.currentVersion !== "4.2.6") throw new Error(`상태센터 앱 버전 불일치: ${JSON.stringify(snapshot.update)}`);
+  if (snapshot.update?.currentVersion !== expectedVersion) throw new Error(`상태센터 앱 버전 불일치: ${JSON.stringify(snapshot.update)}`);
   if (JSON.stringify(snapshot).includes(token)) throw new Error("renderer 상태에 비밀 원문이 노출됐습니다.");
 
   console.log("✅ 데스크톱 상태센터 smoke 통과: Electron renderer → preload IPC → 읽기 전용 감사 → 실시간 업데이트 상태");

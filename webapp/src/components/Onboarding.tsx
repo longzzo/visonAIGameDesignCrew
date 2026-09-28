@@ -41,6 +41,8 @@ type UpdateState = {
   progress?: number;
   message: string;
   currentVersion: string;
+  backupReady?: boolean;
+  backupName?: string;
 };
 type SecretProtectionState = {
   ok: boolean;
@@ -464,10 +466,20 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
                   </div>
                 </div>
                 {update && (
-                  <div className={`onb-ready ${["error", "disabled"].includes(update.status) ? "warn" : "ok"}`}>
-                    <b>{["error", "disabled"].includes(update.status) ? "⚠️" : update.status === "downloading" ? "⬇️" : "✅"} Vision Engine 업데이트</b>
-                    <span>현재 v{update.currentVersion} · {update.message}{update.status === "downloading" ? ` · ${Math.round(update.progress || 0)}%` : ""}</span>
-                    <button className="btn tiny" onClick={() => void checkDesktopUpdate()} disabled={busy || update.status === "disabled" || update.status === "downloading"}>업데이트 확인</button>
+                  <div className={`onb-ready ${["error", "backup-error", "disabled"].includes(update.status) ? "warn" : "ok"}`}>
+                    <b>{["error", "backup-error", "disabled"].includes(update.status) ? "⚠️" : update.status === "downloading" ? "⬇️" : update.status === "backing-up" ? "💾" : "✅"} Vision Engine 업데이트</b>
+                    <span>
+                      현재 v{update.currentVersion} · {update.message}
+                      {update.status === "downloading" ? ` · ${Math.round(update.progress || 0)}%` : ""}
+                      {update.backupName ? ` · 보호 백업: ${update.backupName}` : ""}
+                    </span>
+                    <button
+                      className="btn tiny"
+                      onClick={() => void checkDesktopUpdate()}
+                      disabled={busy || ["disabled", "downloading", "backing-up", "scheduled"].includes(update.status)}
+                    >
+                      {update.status === "backup-error" ? "백업 다시 시도" : update.status === "scheduled" ? "종료 시 설치 예약됨" : "업데이트 확인"}
+                    </button>
                   </div>
                 )}
               </div>

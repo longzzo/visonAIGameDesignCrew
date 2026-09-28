@@ -39,7 +39,7 @@ GitHub 저장소 Actions Secrets에 다음 값을 저장한다.
 
 ## 4. 클린 Windows 검증과 게시
 
-태그 없이 GitHub Actions의 `Windows release`를 수동 실행하면 unsigned 설치 후보를 클린 Windows runner에서 다음 순서로 검증한다.
+태그 없이 GitHub Actions의 `Windows release`를 수동 실행하면 unsigned 설치 후보를 클린 Windows runner에서 다음 순서로 검증한다. NSIS의 사용자 단위 설치 등록은 같은 PC의 기존 앱과 충돌할 수 있으므로 `windows-release-e2e.ps1`은 Vision Engine이 이미 설치된 PC에서는 실행을 거부한다. 로컬 검증이 필요하면 전용 Windows VM을 사용한다.
 
 1. 잠금 파일 기반 의존성 설치
 2. 타입 검사·단위 테스트·웹 빌드·독립 런타임 smoke
@@ -72,9 +72,11 @@ OpenClaw 또는 외부 모델 카탈로그가 바뀐 릴리스는 클린 VM 검�
 1. 서명된 기준 버전을 클린 VM에 설치한다.
 2. 패치 버전을 올려 새 태그 릴리스를 게시한다.
 3. 기준 버전 앱에서 업데이트 확인 → 다운로드 → 재시작 설치를 수행한다.
-4. 새 버전, 프로젝트 보존, 서명 상태, 롤백 금지, 제거를 확인한다.
+4. 다운로드 뒤 `backups` 폴더에 `VisionEngine-pre-update-*.vebackup`이 생성되고 상태센터가 보호 백업 파일명을 표시하는지 확인한다.
+5. 백업 API를 의도적으로 실패시켜 설치가 보류되고 **백업 다시 시도**가 제공되는지 확인한다.
+6. 새 버전, 프로젝트 보존, 서명 상태, 롤백 금지, 제거를 확인한다.
 
-이 왕복 검증 전에는 `docs/RELEASE-GATES.md`의 자동 업데이트 항목을 완료 처리하지 않는다.
+4.2.7부터 백업 성공 전에는 종료해도 내려받은 업데이트가 자동 설치되지 않는다. 프로젝트가 없는 새 설치나 원격 서버 클라이언트는 안전 사유를 표시한 뒤 설치를 허용한다. 이 왕복 검증 전에는 `docs/RELEASE-GATES.md`의 공개 자동 업데이트 항목을 완료 처리하지 않는다.
 
 ## 6. OpenClaw 비밀키 이전
 

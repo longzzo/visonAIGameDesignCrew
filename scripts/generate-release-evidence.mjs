@@ -18,6 +18,8 @@ const writeAtomic = (file, content) => {
   fs.renameSync(temporary, file);
 };
 
+const readJson = (file) => JSON.parse(fs.readFileSync(file, "utf-8").replace(/^\uFEFF/, ""));
+
 const argumentValue = (name) => {
   const index = process.argv.indexOf(name);
   return index >= 0 ? process.argv[index + 1] : "";
@@ -108,8 +110,8 @@ export function validateUpdateManifest(text, { version, installerName, installer
 export function generateReleaseEvidence({ e2eReport = "", strict = false } = {}) {
   const desktopDir = path.join(root, "desktop");
   const outputDir = path.join(desktopDir, "dist-installer");
-  const desktopPackage = JSON.parse(fs.readFileSync(path.join(desktopDir, "package.json"), "utf-8"));
-  const product = JSON.parse(fs.readFileSync(path.join(root, "config", "product.json"), "utf-8"));
+  const desktopPackage = readJson(path.join(desktopDir, "package.json"));
+  const product = readJson(path.join(root, "config", "product.json"));
   const version = String(desktopPackage.version);
   const installerName = `VisionEngine-Setup-${version}.exe`;
   const installer = path.join(outputDir, installerName);
@@ -123,7 +125,7 @@ export function generateReleaseEvidence({ e2eReport = "", strict = false } = {})
   }
 
   validateUpdateManifest(fs.readFileSync(latest, "utf-8"), { version, installerName, installerFile: installer });
-  const e2e = JSON.parse(fs.readFileSync(e2eFile, "utf-8"));
+  const e2e = readJson(e2eFile);
   if (path.basename(String(e2e.installer || "")) !== installerName) throw new Error("E2E 보고서 설치 파일명이 현재 버전과 다릅니다.");
 
   const verification = runJson(process.execPath, [path.join(desktopDir, "scripts", "verify-package.mjs")], root, "패키지 검증");

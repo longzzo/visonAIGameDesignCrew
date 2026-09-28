@@ -98,10 +98,19 @@ const appAsar = path.join(unpacked, "resources", "app.asar");
 if (fs.existsSync(appAsar)) {
   const contents = listPackage(appAsar);
   if (!contents.some((entry) => entry.replaceAll("\\", "/").includes("node_modules/electron-updater"))) errors.push("app.asar에 electron-updater가 포함되지 않음");
+  if (!contents.some((entry) => entry.replaceAll("\\", "/").replace(/^\/+/, "") === "update-backup.cjs")) errors.push("app.asar에 업데이트 전 백업 모듈이 포함되지 않음");
   const mainSource = extractFile(appAsar, "main.cjs").toString("utf-8");
   const preloadSource = extractFile(appAsar, "preload.cjs").toString("utf-8");
+  const packagedUpdateBackup = extractFile(appAsar, "update-backup.cjs");
+  const sourceUpdateBackup = fs.readFileSync(path.join(desktop, "update-backup.cjs"));
+  if (crypto.createHash("sha256").update(packagedUpdateBackup).digest("hex") !== crypto.createHash("sha256").update(sourceUpdateBackup).digest("hex")) {
+    errors.push("app.asar 업데이트 전 백업 모듈이 소스와 다름");
+  }
   for (const marker of ["VE_RUN_SECRET_AUDIT_ONLY", "ve:auditOpenClawSecrets", "runNodeModule(script"]) {
     if (!mainSource.includes(marker)) errors.push(`시스템 상태센터 비밀정보 감사 마커 없음: ${marker}`);
+  }
+  for (const marker of ["createPreUpdateProjectBackup", "autoInstallOnAppQuit = false", 'status: "backup-error"']) {
+    if (!mainSource.includes(marker)) errors.push(`업데이트 전 자동 백업 마커 없음: ${marker}`);
   }
   if (!preloadSource.includes("auditOpenClawSecrets")) errors.push("시스템 상태센터 감사 preload 브리지 없음");
   for (const entry of contents) {

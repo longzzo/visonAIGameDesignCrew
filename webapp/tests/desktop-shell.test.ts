@@ -33,4 +33,13 @@ describe("데스크톱 시작 경험", () => {
     expect(desktopMain).toMatch(/function auditOpenClawSecretProtection\(\)[\s\S]*?runNodeModule\(script/);
     expect(desktopMain).not.toMatch(/runUtilityModule\(script,[\s\S]*?VE_RUN_SECRET_(?:MIGRATION|AUDIT_ONLY)/);
   });
+
+  it("업데이트 설치 전에 프로젝트 자동 백업을 강제한다", () => {
+    expect(desktopMain).toContain('require("./update-backup.cjs")');
+    expect(desktopMain).toMatch(/autoUpdater\.autoInstallOnAppQuit\s*=\s*false/);
+    expect(desktopMain).toMatch(/update-downloaded[\s\S]*?prepareDownloadedUpdate\(info\)/);
+    expect(desktopMain).toMatch(/await createPreUpdateProjectBackup\([\s\S]*?autoUpdater\.quitAndInstall/);
+    expect(desktopMain).toContain('status: "backup-error"');
+    expect(desktopMain).toContain("백업 없이 자동 설치하지 않습니다");
+  });
 });

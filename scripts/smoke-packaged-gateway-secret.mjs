@@ -39,7 +39,16 @@ const freePort = () => new Promise((resolve, reject) => {
     probe.close(() => resolve(address.port));
   });
 });
-const closeServer = (server) => new Promise((resolve) => server?.close(() => resolve()));
+const closeServer = (server) => new Promise((resolve) => {
+  if (!server) { resolve(); return; }
+  for (const client of server.clients || []) client.terminate();
+  const timeout = setTimeout(resolve, 2_000);
+  timeout.unref?.();
+  server.close(() => {
+    clearTimeout(timeout);
+    resolve();
+  });
+});
 
 try {
   const [gatewayPort, runtimePort] = await Promise.all([freePort(), freePort()]);
