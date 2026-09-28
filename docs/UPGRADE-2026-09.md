@@ -1,8 +1,14 @@
-# Vision Engine 4.2.5 업그레이드 안내
+# Vision Engine 4.2.6 업그레이드 안내
 
 기준일: 2026-09-29
 
 ## 적용된 업데이트
+
+- **시스템 상태센터**: 상단 **⚙️ PC 준비**에서 OpenClaw·Ollama·권장 모델·비밀정보 보호·백업·앱 업데이트를 한 화면으로 확인
+- **자동 상태 갱신**: AI 서비스는 5초, 업데이트 다운로드 진행률은 1초 간격으로 갱신
+- **읽기 전용 비밀정보 감사**: 실제 설정을 바꾸지 않고 평문·미해결 SecretRef 개수만 표시하며 값과 경로는 renderer에 전달하지 않음
+- **명시적 이전 유지**: 평문 키는 사용자가 상태센터에서 직접 보호 버튼을 누른 경우에만 OpenClaw store로 이전
+- **감사 worker 안정화**: OpenClaw 하위 프로세스를 중첩 Electron UtilityProcess가 아닌 외부 Node worker에서 실행해 상태센터 시간 초과를 제거
 
 - Ollama 0.34.4 및 RTX 4060 Laptop 8GB용 `qwen3.5:4b`
 - OpenClaw 2026.9.6, 상태 DB·31개 에이전트 DB·검색 플러그인 마이그레이션과 Windows Gateway 서비스 재등록

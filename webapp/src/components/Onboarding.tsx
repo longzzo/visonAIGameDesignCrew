@@ -42,6 +42,13 @@ type UpdateState = {
   message: string;
   currentVersion: string;
 };
+type SecretProtectionState = {
+  ok: boolean;
+  status: "checking" | "protected" | "clean" | "action-required" | "error" | "unavailable" | "not-configured";
+  inspection?: { protectedCount: number; plaintextCount: number; unconfiguredCount: number };
+  audit?: { plaintextCount: number; unresolvedRefCount: number; refCount: number } | null;
+  error?: string;
+};
 
 export function Onboarding({ onClose }: { onClose: () => void }) {
   const [path, setPath] = useState<Path>(null);
@@ -52,6 +59,8 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
   const [ready, setReady] = useState<Readiness | null>(null);
   const [update, setUpdate] = useState<UpdateState | null>(null);
   const [backup, setBackup] = useState<BackupStatus | null>(null);
+  const [secretProtection, setSecretProtection] = useState<SecretProtectionState | null>(null);
+  const [secretAuditBusy, setSecretAuditBusy] = useState(false);
   const backupInput = useRef<HTMLInputElement>(null);
 
   const refreshBackupStatus = async () => {
@@ -70,12 +79,46 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const refreshUpdateState = async () => {
+    const desktop = (window as any).veDesktop;
+    if (!desktop?.getUpdateState) return;
+    try { setUpdate(await desktop.getUpdateState()); }
+    catch { /* 웹 접속 모드에서는 데스크톱 업데이트 상태가 없다. */ }
+  };
+
+  const refreshSecretProtection = async () => {
+    const desktop = (window as any).veDesktop;
+    if (!desktop?.auditOpenClawSecrets) return;
+    setSecretAuditBusy(true);
+    setSecretProtection((current) => current || { ok: false, status: "checking" });
+    try {
+      setSecretProtection(await desktop.auditOpenClawSecrets());
+    } catch (error: any) {
+      setSecretProtection({ ok: false, status: "unavailable", error: String(error?.message || error) });
+    } finally {
+      setSecretAuditBusy(false);
+    }
+  };
+
   useEffect(() => {
     void refreshReadiness();
     void refreshBackupStatus();
-    const desktop = (window as any).veDesktop;
-    if (desktop?.getUpdateState) void desktop.getUpdateState().then((state: UpdateState) => setUpdate(state)).catch(() => {});
+    void refreshUpdateState();
   }, []);
+
+  // 상태센터가 열린 동안 서비스는 5초, 업데이트 다운로드 진행률은 1초마다 자동 반영한다.
+  useEffect(() => {
+    if (path !== "pc") return undefined;
+    void refreshReadiness();
+    void refreshUpdateState();
+    void refreshSecretProtection();
+    const readinessTimer = window.setInterval(() => void refreshReadiness(), 5_000);
+    const updateTimer = window.setInterval(() => void refreshUpdateState(), 1_000);
+    return () => {
+      window.clearInterval(readinessTimer);
+      window.clearInterval(updateTimer);
+    };
+  }, [path]);
 
   const postReadiness = async (body: Record<string, string>) => {
     const response = await fetch("/api/readiness", {
@@ -165,7 +208,7 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
       setMsg(count > 0
         ? `🔐 Gateway·공급자 비밀값 ${count}개를 보호했습니다. 평문 감사를 통과했습니다.`
         : "🔐 이전할 평문 비밀값이 없으며 보호 상태를 확인했습니다.");
-      await refreshReadiness();
+      await Promise.all([refreshReadiness(), refreshSecretProtection()]);
     } catch (error: any) {
       setMsg(`⚠️ ${String(error?.message || error)}`);
     } finally {
@@ -251,6 +294,20 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
   // 방패를 400ms 더 씌워 그 클릭을 흡수한다. 짧아서 사용자는 못 느낀다.
   const [closing, setClosing] = useState(false);
 
+  const essentialReady = ready
+    ? [ready.gateway.running, ready.ollama.running, ready.ollama.recommendedInstalled, Boolean(secretProtection?.ok)].filter(Boolean).length
+    : 0;
+
+  const secretProtectionMessage = (() => {
+    const state = secretProtection;
+    if (!state || state.status === "checking") return "보호 상태를 확인하는 중…";
+    if (state.status === "not-configured") return "OpenClaw 설정 후 보호 상태를 검사할 수 있습니다.";
+    if (state.status === "action-required") return `평문 비밀값 ${state.inspection?.plaintextCount || state.audit?.plaintextCount || 0}개를 보호해야 합니다.`;
+    if (state.status === "error") return `해석되지 않는 SecretRef ${state.audit?.unresolvedRefCount || 0}개가 있습니다.`;
+    if (state.status === "unavailable") return state.error || "OpenClaw 감사를 실행하지 못했습니다.";
+    return `평문 0개 · 보호 저장소 ${state.inspection?.protectedCount || 0}개 · 감사 통과`;
+  })();
+
   const finish = () => {
     markOnboarded();
     setClosing(true);
@@ -296,8 +353,8 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
         <div className="onb-brand">
           <span className="onb-logo">🏢</span>
           <div>
-            <div className="onb-title">Vision Engine에 오신 걸 환영합니다</div>
-            <div className="onb-sub dim">게임 기획부터 개발까지, AI 팀과 함께.</div>
+            <div className="onb-title">{path === "pc" ? "Vision Engine 시스템 상태센터" : "Vision Engine에 오신 걸 환영합니다"}</div>
+            <div className="onb-sub dim">{path === "pc" ? "서비스·모델·보안·백업·업데이트를 한곳에서 관리합니다." : "게임 기획부터 개발까지, AI 팀과 함께."}</div>
           </div>
         </div>
 
@@ -332,7 +389,7 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
 
         {path === "pc" && (
           <>
-            <div className="onb-q">PC 앱 실행 준비</div>
+            <div className="onb-q">PC 앱 실행 준비 · 핵심 상태 {essentialReady}/4 <span className="dim">(자동 새로고침)</span></div>
             {!ready ? <p className="onb-p dim">상태를 확인하는 중…</p> : (
               <div className="onb-ready-grid">
                 <div className={`onb-ready ${ready.data.projects > 0 ? "ok" : "warn"}`}>
@@ -346,10 +403,23 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
                   <div className="onb-ready-actions">
                     <button className="btn tiny" onClick={() => void startOpenClaw()}>Gateway 시작</button>
                     {!ready.gateway.running && <button className="btn tiny" onClick={() => void onboardOpenClaw()}>OpenClaw 온보딩</button>}
-                    <button className="btn tiny" onClick={() => void protectOpenClawSecrets()} disabled={busy}>평문 키 자동 보호</button>
                     <button className="btn tiny" onClick={() => void configureOpenClawSecrets()}>고급 비밀키 설정</button>
                   </div>
                 </div>
+                {ready.desktop && (
+                  <div className={`onb-ready ${secretProtection?.ok ? "ok" : "warn"}`}>
+                    <b>{secretProtection?.ok ? "✅" : secretProtection?.status === "checking" ? "⏳" : "⚠️"} 비밀정보 보호</b>
+                    <span>{secretProtectionMessage}</span>
+                    <div className="onb-ready-actions">
+                      {secretProtection?.status === "action-required" && (
+                        <button className="btn tiny" onClick={() => void protectOpenClawSecrets()} disabled={busy || secretAuditBusy}>평문 키 보호</button>
+                      )}
+                      <button className="btn tiny" onClick={() => void refreshSecretProtection()} disabled={secretAuditBusy}>
+                        {secretAuditBusy ? "감사 중…" : "보호 상태 다시 검사"}
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div className={`onb-ready ${ready.ollama.running && ready.ollama.recommendedInstalled ? "ok" : "warn"}`}>
                   <b>{ready.ollama.running && ready.ollama.recommendedInstalled ? "✅" : "⚠️"} 로컬 AI · Ollama</b>
                   <span>{ready.ollama.running
@@ -394,9 +464,9 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
                   </div>
                 </div>
                 {update && (
-                  <div className={`onb-ready ${update.status === "error" ? "warn" : "ok"}`}>
-                    <b>{update.status === "disabled" ? "ℹ️" : "✅"} Vision Engine 업데이트</b>
-                    <span>현재 v{update.currentVersion} · {update.message}</span>
+                  <div className={`onb-ready ${["error", "disabled"].includes(update.status) ? "warn" : "ok"}`}>
+                    <b>{["error", "disabled"].includes(update.status) ? "⚠️" : update.status === "downloading" ? "⬇️" : "✅"} Vision Engine 업데이트</b>
+                    <span>현재 v{update.currentVersion} · {update.message}{update.status === "downloading" ? ` · ${Math.round(update.progress || 0)}%` : ""}</span>
                     <button className="btn tiny" onClick={() => void checkDesktopUpdate()} disabled={busy || update.status === "disabled" || update.status === "downloading"}>업데이트 확인</button>
                   </div>
                 )}

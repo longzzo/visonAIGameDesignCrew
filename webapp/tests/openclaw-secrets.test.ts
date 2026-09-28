@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildProtectionPlan, buildSecretMigration, isSecretRef, migrationAuditOk } from "../../scripts/migrate-openclaw-secrets.mjs";
+import {
+  buildProtectionPlan,
+  buildSecretMigration,
+  inspectOpenClawSecretProtection,
+  isSecretRef,
+  migrationAuditOk,
+  publicAuditSummary,
+} from "../../scripts/migrate-openclaw-secrets.mjs";
 
 describe("OpenClaw 비밀키 보호 이전", () => {
   it("평문 값은 계획에서 제외하고 store SecretRef만 만든다", () => {
@@ -73,5 +80,26 @@ describe("OpenClaw 비밀키 보호 이전", () => {
     }]);
     expect(JSON.stringify(plan)).not.toContain("never-persist-this-value");
     expect(plan.targets[0].ref).toEqual({ source: "store", provider: "default", id: "NVIDIA_API_KEY" });
+  });
+
+  it("읽기 전용 상태 점검은 평문 원문 없이 보호 개수만 안전하게 분류한다", () => {
+    const gatewaySecret = "gateway-plaintext-never-return-this";
+    const result = inspectOpenClawSecretProtection({
+      gateway: { auth: { token: gatewaySecret } },
+      models: { providers: { nvidia: { apiKey: { source: "store", provider: "default", id: "NVIDIA_API_KEY" } } } },
+    });
+    expect(result).toMatchObject({ protectedCount: 1, plaintextCount: 1, unconfiguredCount: 2 });
+    expect(result.plaintextNames).toEqual(["OPENCLAW_GATEWAY_TOKEN"]);
+    expect(JSON.stringify(result)).not.toContain(gatewaySecret);
+  });
+
+  it("OpenClaw 감사 결과는 경로나 값 없이 숫자 집계만 공개한다", () => {
+    const result = publicAuditSummary({
+      summary: { plaintextCount: 1, unresolvedRefCount: 2, refCount: 3 },
+      findings: [{ code: "PLAINTEXT_FOUND", jsonPath: "gateway.auth.token", value: "never-expose" }],
+    });
+    expect(result).toEqual({ plaintextCount: 1, unresolvedRefCount: 2, refCount: 3 });
+    expect(JSON.stringify(result)).not.toContain("gateway.auth.token");
+    expect(JSON.stringify(result)).not.toContain("never-expose");
   });
 });

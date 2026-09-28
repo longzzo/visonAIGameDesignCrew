@@ -11,12 +11,15 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const webappRoot = path.resolve(process.env.VE_PACKAGED_WEBAPP_ROOT
   || path.join(root, "desktop", "dist-installer", "win-unpacked", "resources", "vision-engine", "webapp"));
 const runtimeFile = path.join(webappRoot, "dist-server", "runtime.mjs");
+const packagedRoot = path.dirname(webappRoot);
+const auditScript = path.join(packagedRoot, "scripts", "migrate-openclaw-secrets.mjs");
 const entry = [
   process.env.VE_OPENCLAW_ENTRY,
   process.env.APPDATA && path.join(process.env.APPDATA, "npm", "node_modules", "openclaw", "dist", "index.js"),
   path.join(os.homedir(), "AppData", "Roaming", "npm", "node_modules", "openclaw", "dist", "index.js"),
 ].filter(Boolean).find((candidate) => fs.existsSync(candidate));
 if (!fs.existsSync(runtimeFile)) throw new Error(`패키지 Studio 런타임을 찾지 못했습니다: ${runtimeFile}`);
+if (!fs.existsSync(auditScript)) throw new Error(`패키지 비밀정보 감사 도구를 찾지 못했습니다: ${auditScript}`);
 if (!entry) throw new Error("OpenClaw CLI를 찾지 못했습니다.");
 
 const requireFromRuntime = createRequire(path.join(webappRoot, "package.json"));
@@ -68,6 +71,19 @@ try {
   });
   if (stored.status !== 0) throw new Error(String(stored.stderr || stored.stdout || "격리 비밀 저장 실패").trim());
 
+  const audited = spawnSync(process.execPath, [auditScript], {
+    encoding: "utf-8",
+    windowsHide: true,
+    timeout: 60_000,
+    env: { ...env, VE_RUN_SECRET_AUDIT_ONLY: "1" },
+  });
+  if (audited.status !== 0) throw new Error(String(audited.stderr || audited.stdout || "패키지 비밀정보 감사 실패").trim());
+  const auditState = JSON.parse(String(audited.stdout || "{}").trim().split(/\r?\n/).filter(Boolean).at(-1) || "{}");
+  if (!auditState.ok || auditState.status !== "protected" || Number(auditState.audit?.plaintextCount || 0) !== 0) {
+    throw new Error(`패키지 비밀정보 보호 상태가 올바르지 않습니다: ${JSON.stringify(auditState)}`);
+  }
+  if (`${audited.stdout}${audited.stderr}`.includes(secret)) throw new Error("패키지 감사 출력에 비밀 원문이 포함됐습니다.");
+
   let authenticated = false;
   gatewayServer = new WebSocketServer({ host: "127.0.0.1", port: gatewayPort });
   gatewayServer.on("connection", (socket) => {
@@ -108,7 +124,7 @@ try {
   if (!authenticated || !relay?.connected) {
     throw new Error(`패키지 Gateway SecretRef 연결 실패: ${String(relay?.detail || runtimeOutput || "준비 시간 초과").slice(0, 400)}`);
   }
-  console.log("✅ 패키지 Gateway SecretRef smoke 통과: store → 최종 Studio 런타임 → WebSocket 인증");
+  console.log("✅ 패키지 SecretRef smoke 통과: store → 읽기 전용 감사 → 최종 Studio 런타임 → WebSocket 인증");
 } finally {
   runtime?.kill();
   await closeServer(gatewayServer);

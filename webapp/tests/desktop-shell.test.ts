@@ -27,4 +27,10 @@ describe("데스크톱 시작 경험", () => {
     expect(desktopMain).toContain('delete env[key]');
     expect(desktopMain).not.toMatch(/utilityProcess\.fork\(entry/);
   });
+
+  it("OpenClaw 비밀정보 감사·이전도 중첩 UtilityProcess가 아닌 외부 Node worker를 사용한다", () => {
+    expect(desktopMain).toMatch(/function protectOpenClawSecrets\(\)[\s\S]*?runNodeModule\(script/);
+    expect(desktopMain).toMatch(/function auditOpenClawSecretProtection\(\)[\s\S]*?runNodeModule\(script/);
+    expect(desktopMain).not.toMatch(/runUtilityModule\(script,[\s\S]*?VE_RUN_SECRET_(?:MIGRATION|AUDIT_ONLY)/);
+  });
 });

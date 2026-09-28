@@ -2,6 +2,17 @@
 
 > 오너의 비전과 단계별 계획. 완료된 것은 ✅, 진행 중은 🔨, 계획은 ⬜.
 
+## v4.2.6 — 시스템 상태센터·상용 운영 UX (2026-09-29) ✅
+
+- ✅ OpenClaw 비밀정보 읽기 전용 감사: 실제 설정을 바꾸지 않고 평문·SecretRef·미해결 참조 수만 공개
+- ✅ 비밀 원문·JSON 경로를 Electron renderer와 지원 화면에 전달하지 않는 안전한 집계 계약
+- ✅ 사용자의 명시적 클릭 전에는 실제 평문 이전을 실행하지 않는 기존 동의 경계 유지
+- ✅ 상태센터가 OpenClaw·Ollama 준비 상태를 5초마다 자동 갱신
+- ✅ 자동 업데이트 확인·다운로드 진행률을 1초마다 상태센터에 반영
+- ✅ 중첩 UtilityProcess 교착을 외부 Node worker로 수정하고 실제 Electron renderer·preload IPC 상태센터 smoke 통과
+- ✅ 4.2.6 설치본·실제 바로가기·AI 응답·Windows E2E 재검증
+- ⬜ 코드서명 인증서와 공개 업데이트 채널을 연결한 구버전 → 신버전 왕복 검증
+
 ## v4.2.5 — Gateway 비밀값 보호 (2026-09-29) ✅
 
 - ✅ Gateway 토큰을 OpenClaw store SecretRef 이전 대상에 포함

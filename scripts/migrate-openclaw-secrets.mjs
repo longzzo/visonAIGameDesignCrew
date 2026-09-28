@@ -53,6 +53,39 @@ export const migrationAuditOk = (report) => {
 const valueAt = (source, segments) => segments.reduce((value, segment) => value?.[segment], source);
 const usablePlaintext = (value) => typeof value === "string" && value.trim().length >= 10 && !value.includes("{{");
 
+/**
+ * 설정을 변경하지 않고 앱이 관리하는 비밀값 경로의 보호 상태만 요약한다.
+ * 반환값에는 비밀 원문이나 JSON 경로가 포함되지 않아 renderer/지원 보고서에 전달해도 안전하다.
+ */
+export function inspectOpenClawSecretProtection(config) {
+  const protectedNames = [];
+  const plaintextNames = [];
+  const unconfiguredNames = [];
+  for (const spec of SECRET_SPECS) {
+    const value = valueAt(config, spec.pathSegments);
+    if (isSecretRef(value)) protectedNames.push(spec.name);
+    else if (usablePlaintext(value)) plaintextNames.push(spec.name);
+    else unconfiguredNames.push(spec.name);
+  }
+  return {
+    protectedCount: protectedNames.length,
+    plaintextCount: plaintextNames.length,
+    unconfiguredCount: unconfiguredNames.length,
+    protectedNames,
+    plaintextNames,
+  };
+}
+
+/** OpenClaw 감사 원문에서 숫자 집계만 꺼내 비밀 경로·값 노출을 막는다. */
+export function publicAuditSummary(report) {
+  const findings = Array.isArray(report?.findings) ? report.findings : [];
+  const summary = report?.summary && typeof report.summary === "object" ? report.summary : {};
+  const plaintextCount = Number(summary.plaintextCount ?? findings.filter((finding) => finding?.code === "PLAINTEXT_FOUND").length) || 0;
+  const unresolvedRefCount = Number(summary.unresolvedRefCount ?? findings.filter((finding) => finding?.code === "UNRESOLVED_REF").length) || 0;
+  const refCount = Number(summary.refCount ?? summary.secretRefCount ?? 0) || 0;
+  return { plaintextCount, unresolvedRefCount, refCount };
+}
+
 export function buildSecretMigration(config) {
   const entries = [];
   const targets = [];
@@ -198,7 +231,64 @@ export async function migrateOpenClawSecrets({ configFile, nodeRuntime = findNod
   return { ok: migrationAuditOk(audit), changed: true, migrated: migration.entries.map((item) => item.name), audit };
 }
 
-if (process.env.VE_RUN_SECRET_MIGRATION === "1" || (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(moduleFile))) {
+/**
+ * 읽기 전용 상태 점검. 평문이 있어도 절대 이전하지 않으며, renderer에는 안전한 집계만 반환한다.
+ */
+export async function auditOpenClawSecretProtection({ configFile, nodeRuntime = findNodeRuntime(), entry = findOpenClawEntry() } = {}) {
+  const file = path.resolve(configFile || process.env.VE_OPENCLAW_CONFIG || process.env.OPENCLAW_CONFIG_PATH
+    || path.join(os.homedir(), ".openclaw", "openclaw.json"));
+  if (!fs.existsSync(file)) {
+    return {
+      ok: true,
+      status: "not-configured",
+      inspection: { protectedCount: 0, plaintextCount: 0, unconfiguredCount: SECRET_SPECS.length },
+      audit: null,
+    };
+  }
+  const config = JSON.parse(fs.readFileSync(file, "utf-8"));
+  const inspected = inspectOpenClawSecretProtection(config);
+  const inspection = {
+    protectedCount: inspected.protectedCount,
+    plaintextCount: inspected.plaintextCount,
+    unconfiguredCount: inspected.unconfiguredCount,
+  };
+  if (!nodeRuntime || !entry) {
+    return { ok: false, status: "unavailable", inspection, audit: null, error: "OpenClaw 감사 도구를 찾지 못했습니다." };
+  }
+
+  try {
+    const result = await runCli(nodeRuntime, entry, ["secrets", "audit", "--json"], { timeoutMs: 45_000 });
+    const report = JSON.parse(result.stdout);
+    const audit = publicAuditSummary(report);
+    const plaintextCount = Math.max(inspection.plaintextCount, audit.plaintextCount);
+    const ok = plaintextCount === 0 && audit.unresolvedRefCount === 0;
+    const status = plaintextCount > 0 ? "action-required"
+      : audit.unresolvedRefCount > 0 ? "error"
+        : inspection.protectedCount > 0 ? "protected" : "clean";
+    return { ok, status, inspection: { ...inspection, plaintextCount }, audit };
+  } catch {
+    return {
+      ok: false,
+      status: inspection.plaintextCount > 0 ? "action-required" : "unavailable",
+      inspection,
+      audit: null,
+      error: "OpenClaw 비밀정보 감사를 완료하지 못했습니다.",
+    };
+  }
+}
+
+const runDirectly = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(moduleFile);
+if (process.env.VE_RUN_SECRET_AUDIT_ONLY === "1") {
+  auditOpenClawSecretProtection()
+    .then((result) => {
+      process.stdout.write(`${JSON.stringify(result)}\n`);
+      process.exitCode = result.status === "unavailable" ? 1 : 0;
+    })
+    .catch(() => {
+      process.stderr.write("OpenClaw 비밀키 감사를 완료하지 못했습니다.\n");
+      process.exitCode = 1;
+    });
+} else if (process.env.VE_RUN_SECRET_MIGRATION === "1" || runDirectly) {
   migrateOpenClawSecrets()
     .then((result) => {
       process.stdout.write(`${JSON.stringify({

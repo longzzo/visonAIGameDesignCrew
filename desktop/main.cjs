@@ -118,10 +118,9 @@ async function protectOpenClawSecrets() {
   const entry = findOpenClawEntry();
   if (!fs.existsSync(script) || !entry) return { ok: false, error: "OpenClaw 또는 비밀키 이전 도구를 찾지 못했습니다." };
   try {
-    const migration = await runUtilityModule(script, [], {
+    const migration = await runNodeModule(script, [], {
       cwd: root,
       env: externalAiEnv({ VE_RUN_SECRET_MIGRATION: "1", VE_OPENCLAW_ENTRY: entry }),
-      serviceName: "Vision Engine OpenClaw Secret Migration",
       timeoutMs: 180_000,
     });
     const line = String(migration.stdout || "").trim().split(/\r?\n/).filter(Boolean).at(-1);
@@ -133,6 +132,32 @@ async function protectOpenClawSecrets() {
     return result;
   } catch (error) {
     return { ok: false, error: String(error?.message || error).slice(0, 500) };
+  }
+}
+
+async function auditOpenClawSecretProtection() {
+  const studio = packagedStudio();
+  const root = studio?.root || path.resolve(__dirname, "..");
+  const script = path.join(root, "scripts", "migrate-openclaw-secrets.mjs");
+  const entry = findOpenClawEntry();
+  if (!fs.existsSync(script) || !entry) {
+    return { ok: false, status: "unavailable", error: "OpenClaw 또는 비밀키 감사 도구를 찾지 못했습니다." };
+  }
+  try {
+    const audit = await runNodeModule(script, [], {
+      cwd: root,
+      env: externalAiEnv({ VE_RUN_SECRET_AUDIT_ONLY: "1", VE_OPENCLAW_ENTRY: entry }),
+      timeoutMs: 60_000,
+    });
+    const line = String(audit.stdout || "").trim().split(/\r?\n/).filter(Boolean).at(-1);
+    const result = line ? JSON.parse(line) : null;
+    if (!result || (audit.code !== 0 && result.status !== "action-required")) {
+      return { ok: false, status: "unavailable", error: "비밀정보 감사를 완료하지 못했습니다. 진단 보고서를 확인하세요." };
+    }
+    return result;
+  } catch (error) {
+    console.warn("⚠️ OpenClaw 비밀정보 감사 실패:", String(error?.message || error).slice(0, 300));
+    return { ok: false, status: "unavailable", error: "비밀정보 감사를 완료하지 못했습니다. 진단 보고서를 확인하세요." };
   }
 }
 
@@ -1279,6 +1304,7 @@ handleTrusted("ve:startOpenClaw", async () => {
 handleTrusted("ve:openclawOnboard", async () => launchOpenClawOnboard());
 handleTrusted("ve:openclawSecrets", async () => launchOpenClawSecrets());
 handleTrusted("ve:protectOpenClawSecrets", async () => protectOpenClawSecrets());
+handleTrusted("ve:auditOpenClawSecrets", async () => auditOpenClawSecretProtection());
 handleTrusted("ve:ollamaPull", async (_event, model) => launchOllamaPull(String(model || "qwen3.5:4b")));
 handleTrusted("ve:exportSupportReport", async () => exportSupportReport());
 handleTrusted("ve:getUpdateState", async () => publicUpdateState());

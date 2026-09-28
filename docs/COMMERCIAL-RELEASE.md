@@ -70,7 +70,7 @@ OpenClaw 또는 외부 모델 카탈로그가 바뀐 릴리스는 클린 VM 검�
 
 ## 6. OpenClaw 비밀키 이전
 
-고객 배포 이미지나 지원 보고서에 비밀값을 포함하지 않는다. 4.2.5부터 Gateway 토큰과 앱에서 등록하는 GitHub Models·NVIDIA·Brave 키는 `openclaw secrets store`에 stdin으로 전달되고 설정에는 store SecretRef만 기록된다. 기존 평문 값은 **⚙️ PC 준비 → 평문 키 자동 보호**에서 사용자가 명시적으로 동의한 뒤 이전한다. 이전은 OpenClaw 공식 plan dry-run/apply와 롤백 절차를 사용하며 설정·환경 파일·인증 캐시를 감사한다.
+고객 배포 이미지나 지원 보고서에 비밀값을 포함하지 않는다. 4.2.5부터 Gateway 토큰과 앱에서 등록하는 GitHub Models·NVIDIA·Brave 키는 `openclaw secrets store`에 stdin으로 전달되고 설정에는 store SecretRef만 기록된다. 4.2.6 상태센터는 설정을 변경하지 않는 읽기 전용 감사를 별도 worker에서 실행하고 renderer에는 평문·미해결 참조 개수만 전달한다. 기존 평문 값은 **⚙️ PC 준비 → 평문 키 보호**에서 사용자가 명시적으로 동의한 뒤 이전한다. 이전은 OpenClaw 공식 plan dry-run/apply와 롤백 절차를 사용하며 설정·환경 파일·인증 캐시를 감사한다.
 
 고급 설정은 앱의 `고급 비밀키 설정` 또는 `openclaw secrets configure`를 사용한다. 이벤트 릴레이는 설치된 OpenClaw의 공식 SecretRef 런타임을 동적으로 불러 토큰을 서버 메모리 안에서만 해석하며, 브라우저·로그·지원 보고서에는 토큰을 전달하지 않는다. 상용 출시 전 사용자가 명시적으로 이전을 실행한 뒤 `openclaw secrets audit --json`의 `plaintextCount`가 0인지 확인한다.
 

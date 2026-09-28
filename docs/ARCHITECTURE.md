@@ -91,6 +91,7 @@ Vision Engine은 **하나의 오케스트레이터 + 다수의 전문 서브에�
 - 각 에이전트는 독립된 `workspace`와 `agentDir`를 가진다(공유 시 세션·인증 충돌).
 - 무료 API로 나가는 프롬프트에 독점 IP·개인정보를 넣지 않는다.
 - Gateway 토큰과 GitHub Models·NVIDIA·Brave 공급자 키는 OpenClaw store SecretRef로 보관한다. 기존 평문 값은 사용자가 앱에서 명시적으로 동의한 경우에만 이전하며, 이벤트 릴레이는 OpenClaw 공식 SecretRef 런타임으로 토큰을 서버 메모리 안에서만 해석한다.
+- Electron 상태센터의 비밀정보 감사 worker는 OpenClaw 하위 프로세스를 실행할 수 있는 외부 Node 런타임에서 동작하고, 감사 원문을 main process 안에서 숫자 집계로 축약한다. renderer에는 `plaintextCount`·`unresolvedRefCount`·`protectedCount`만 전달하고 값이나 JSON 경로는 전달하지 않는다.
 
 ## 8. 확장 로드맵
 

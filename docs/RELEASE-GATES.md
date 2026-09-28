@@ -27,6 +27,22 @@
 
 GitHub Actions의 `Windows release` 수동 실행은 새 Windows runner에서 설치·실행·보안 헤더·단일 인스턴스·제거를 자동 검증합니다. `vX.Y.Z` 태그 실행은 여기에 유효한 Authenticode 서명과 GitHub Release 게시까지 추가합니다. 설정 방법은 [상용 릴리스 운영서](COMMERCIAL-RELEASE.md)를 따릅니다.
 
+## 4.2.6 로컬 검증 기록 (2026-09-29)
+
+- 시스템 상태센터에서 OpenClaw·Ollama 상태를 5초, 업데이트 진행률을 1초마다 자동 갱신
+- OpenClaw 비밀정보 읽기 전용 감사를 별도 worker로 실행하고 renderer에는 숫자 집계만 전달
+- 실제 사용자 설정에 평문 3건이 남아 있음을 변경 없이 탐지했으며 사용자 확인 전 자동 이전 금지 경계를 유지
+- 비밀 원문과 JSON 경로가 공개 감사 결과에 포함되지 않는 단위 검사 통과
+- 중첩 Electron UtilityProcess에서 OpenClaw 자식 Node가 교착되던 문제를 실제 Electron UI smoke로 발견하고 외부 Node worker로 교체; renderer → preload IPC → 읽기 전용 감사 → 업데이트 상태 전체 경로 통과
+- 최종 `win-unpacked`의 store SecretRef 저장 → 읽기 전용 감사 → Studio 런타임 해석 → 가짜 WebSocket Gateway 인증 smoke 통과
+- 전체 43개 테스트·TypeScript·프로덕션 빌드·독립 런타임 smoke 통과, 웹앱·데스크톱 프로덕션/전체 빌드 npm 감사 취약점 0건
+- 최종 해시 설치본 Windows E2E 전체 통과: 설치 236.20초, 첫 준비 8.70초, HTML/PDF/PPTX 19.53초, 백업 왕복 0.28초, 런타임 복구 12.50초, 제거 9.47초, 전체 290.63초
+- 실제 PC에 4.2.6 설치 후 설치 실행 파일과 `win-unpacked` 실행 파일 SHA-256 일치, 사용자 바로가기 대상 유효
+- 실제 바로가기 실행에서 OpenClaw `2026.9.6`·Ollama 연결, `/api/agent` → `qwen3.5:4b` 32K 요청이 폴백 없이 `OK` 응답(26.04초)
+- NSIS 패키지 `268,346,889`바이트, 런타임 파일 14,961개·필수 패키지 10개, 패키지 비밀정보 검사 0건
+- 설치 파일 SHA-256: `00e5b42b9eac395700da8cc194c7883fce42674e9b8d3d53e4cfdb2df78e50cd`
+- 설치 파일과 앱 본체는 아직 상용 코드서명 전이므로 고객 배포 금지
+
 ## 4.2.5 로컬 검증 기록 (2026-09-29)
 
 - Gateway 토큰을 OpenClaw store SecretRef 보호 대상으로 추가하고, 공식 SecretRef 런타임으로 서버 메모리에서만 해석

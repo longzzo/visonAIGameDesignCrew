@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("veDesktop", {
   openclawOnboard: () => ipcRenderer.invoke("ve:openclawOnboard"),
   openclawSecrets: () => ipcRenderer.invoke("ve:openclawSecrets"),
   protectOpenClawSecrets: () => ipcRenderer.invoke("ve:protectOpenClawSecrets"),
+  auditOpenClawSecrets: () => ipcRenderer.invoke("ve:auditOpenClawSecrets"),
   ollamaPull: (model) => ipcRenderer.invoke("ve:ollamaPull", model),
   exportSupportReport: () => ipcRenderer.invoke("ve:exportSupportReport"),
   getUpdateState: () => ipcRenderer.invoke("ve:getUpdateState"),
