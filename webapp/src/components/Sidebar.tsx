@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { AGENTS } from "../lib/agents";
-import { uiAlert, uiConfirm, uiPrompt } from "../lib/dialog";
-import { setBraveKey } from "../lib/gdd";
-import { getModelsInfo, registerModelKey, setAgentModels, switchModel, type ModelsInfo } from "../lib/models";
+import { uiAlert, uiConfirm } from "../lib/dialog";
+import { getModelsInfo, setAgentModels, switchModel, type ModelsInfo } from "../lib/models";
 import { KnowledgeStudio } from "./KnowledgeStudio";
 import { McpPanel } from "./McpPanel";
 import { notifyEnabled, setNotifyEnabled } from "../lib/notify";
@@ -28,7 +27,6 @@ export function Sidebar() {
     healthRunning,
     healthCheck,
     braveOk,
-    loadBraveStatus,
     modelName,
     setModelName,
     reports,
@@ -99,38 +97,6 @@ export function Sidebar() {
       })
       .catch((e) => void uiAlert("적용 실패", e.message))
       .finally(() => setSwitching(false));
-  };
-
-  const onBraveKey = async () => {
-    const key = await uiPrompt("Brave Search API 키 등록", {
-      message: "발급: https://brave.com/search/api (Free 플랜, 월 2,000회 무료)\n저장하면 게이트웨이가 자동 재시작됩니다(약 10초).",
-      placeholder: "BSA…",
-    });
-    if (!key?.trim()) return;
-    void setBraveKey(key.trim())
-      .then(() => {
-        void loadBraveStatus();
-        void uiAlert("저장 완료", "게이트웨이 재시작 중입니다. 10초 뒤부터 에이전트가 웹 검색을 쓸 수 있습니다.");
-      })
-      .catch((e) => void uiAlert("실패", e.message));
-  };
-
-  const onRegisterKey = async (provider: "github" | "nvidia") => {
-    const guide =
-      provider === "github"
-        ? "GitHub PAT (github.com → Settings → Developer settings → Fine-grained token, models 권한)"
-        : "NVIDIA API 키 (발급: https://build.nvidia.com — 무료 크레딧 제공)";
-    const key = await uiPrompt(`${provider === "github" ? "GitHub Models 토큰" : "NVIDIA API 키"} 등록`, {
-      message: `${guide}\n저장하면 게이트웨이가 자동 재시작됩니다(약 10초).`,
-      placeholder: provider === "nvidia" ? "nvapi-…" : "github_pat_…",
-    });
-    if (!key?.trim()) return;
-    void registerModelKey(provider, key.trim())
-      .then(() => {
-        void uiAlert("키 등록 완료", "게이트웨이 재시작 중입니다. 이제 모델 목록에서 선택할 수 있습니다.");
-        setTimeout(refreshModels, 1000);
-      })
-      .catch((e) => void uiAlert("실패", e.message));
   };
 
   const onSwitchModel = async (id: string) => {
@@ -265,16 +231,9 @@ export function Sidebar() {
                   {switching ? "적용 중…" : draftDirty ? "✅ 적용 (게이트웨이 재시작)" : "변경 없음"}
                 </button>
               </details>
-              {!models.providers.github && (
-                <button className="btn small" onClick={() => void onRegisterKey("github")} title="GitHub Models(GPT-5 계열)를 쓰려면 PAT 등록">
-                  🔑 GitHub Models 토큰 등록
-                </button>
-              )}
-              {!models.providers.nvidia && (
-                <button className="btn small" onClick={() => void onRegisterKey("nvidia")} title="NVIDIA NIM API(Qwen3 235B 등)를 쓰려면 키 등록">
-                  🔑 NVIDIA API 키 등록
-                </button>
-              )}
+              <button className="btn small" onClick={() => window.dispatchEvent(new CustomEvent("ve:open-api-keys"))} title="사용자가 GitHub Models·NVIDIA·Brave 키를 직접 입력하고 보호 저장소에 등록합니다">
+                🔐 AI·검색 키 관리 ({Number(models.providers.github) + Number(models.providers.nvidia) + Number(braveOk)}/3)
+              </button>
             </>
           ) : (
             <span className="dim">{modelName}</span>
@@ -298,13 +257,6 @@ export function Sidebar() {
         >
           📚 지식 학습{knowledge.length > 0 ? ` (${knowledge.length})` : ""}
           {obsidianNew > 0 && <span className="report-badge">🗃️{obsidianNew}</span>}
-        </button>
-        <button
-          className="btn small"
-          onClick={() => void onBraveKey()}
-          title="Brave Search API 키를 등록하면 에이전트들이 웹 검색(web_search)을 쓸 수 있습니다. 페이지 조회(web_fetch)는 키 없이도 됩니다."
-        >
-          {braveOk ? "🔑 웹 검색 활성화됨 ✓ (키 변경)" : "🔑 웹 검색 키 등록"}
         </button>
         <button
           className="btn small"

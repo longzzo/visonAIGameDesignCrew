@@ -49,6 +49,7 @@ export function DocViewer() {
       message:
         "notion.so/my-integrations 에서 내부 통합(Internal Integration)을 만들고 토큰(ntn_…)을 붙여넣으세요.\n토큰은 이 PC의 config/notion.json에만 저장됩니다 (커밋 제외).",
       placeholder: "ntn_…",
+      sensitive: true,
     });
     if (!token?.trim()) return;
     const parentUrl = await uiPrompt("노션 연동 ② 부모 페이지", {

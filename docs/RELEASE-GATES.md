@@ -29,6 +29,22 @@
 
 GitHub Actions의 `Windows release` 수동 실행은 새 Windows runner에서 설치·실행·보안 헤더·단일 인스턴스·제거를 자동 검증합니다. `vX.Y.Z` 태그 실행은 여기에 유효한 Authenticode 서명과 GitHub Release 게시까지 추가합니다. 설정 방법은 [상용 릴리스 운영서](COMMERCIAL-RELEASE.md)를 따릅니다.
 
+## 4.2.9 로컬 검증 기록 (2026-09-29)
+
+- GitHub Models·NVIDIA NIM·Brave Search 사용자 키 연결센터와 시스템 상태센터 직접 진입 추가
+- AI·검색 키 입력 3종과 Notion 토큰을 비밀번호 필드로 마스킹하고 자동완성·평문 prompt 폴백 차단
+- 키 등록 성공·실패 뒤 화면 입력값 제거, 등록 여부만 반환, 신규 값은 OpenClaw store SecretRef 유지
+- 전체 56개 테스트·TypeScript·프로덕션 빌드·독립 런타임 smoke 통과
+- 최종 패키지 SecretRef 저장 → 읽기 전용 감사 → Studio 런타임 해석 → 가짜 WebSocket Gateway 인증 smoke 통과
+- 실제 Electron renderer → preload IPC → 읽기 전용 감사 → 4.2.9 업데이트 상태센터 UI smoke 통과
+- 설치본의 AI·검색 키 연결 화면을 실제 렌더링해 2열 카드 배치와 `password` 입력 3개·빈 초기값 확인
+- NSIS 패키지 `268,349,505`바이트, 런타임 파일 14,961개·필수 패키지 10개, 패키지 비밀정보 검사 0건
+- 설치 파일 SHA-256: `95a3a673995c27fe5d35ae1ce6370a0ae49e128e526610478aa5e3165d362f4e`
+- 실제 PC 기본 경로에 4.2.9 설치 후 지정 바로가기 대상·작업 폴더·아이콘·설명 갱신, 앱 메인 창과 내장 서버 기동 확인
+- 실제 바로가기 실행에서 프로젝트 5개 보존, OpenClaw `2026.9.6`·Ollama `0.34.4` 연결, `/api/agent` → `qwen3.5:4b` 요청이 폴백 없이 `OK` 응답(25.15초)
+- CycloneDX SBOM과 4.2.9 자산 체크섬·`release-evidence-4.2.9.json` 생성; 클린 Windows E2E 미실행을 `missing=true`로 기록
+- 설치 파일과 앱 본체는 아직 상용 코드서명 전이며 판매자 정보·공개 정책 URL·공개 업데이트 왕복도 미완료이므로 고객 배포 금지
+
 ## 4.2.8 로컬 검증 기록 (2026-09-29)
 
 - 공식 웹사이트·개인정보·이용약관·환불·지원 페이지의 비로그인 HTTPS 접근을 검사하는 공개 엔드포인트 검증기 추가

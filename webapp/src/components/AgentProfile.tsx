@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { AGENTS, AGENT_MAP, REVIEWERS, RANK_LABEL, RANK_EMOJI, directReports, escalationTarget } from "../lib/agents";
-import { uiAlert, uiConfirm, uiPrompt } from "../lib/dialog";
+import { uiAlert, uiConfirm } from "../lib/dialog";
 import { xpForLevel } from "../lib/growth";
-import { getModelsInfo, registerModelKey, setAgentModels, type ModelsInfo } from "../lib/models";
+import { getModelsInfo, setAgentModels, type ModelsInfo } from "../lib/models";
 import { saveTemp, tempOf, TEMP_DEFAULT } from "../lib/tuning";
 import { zoneOfAgent } from "../lib/zones";
 import { AgentSprite } from "./AgentSprite";
@@ -106,24 +106,6 @@ export function AgentProfile() {
       })
       .catch((e) => void uiAlert("적용 실패", e.message))
       .finally(() => setApplying(false));
-  };
-
-  const onRegisterKey = async (provider: "github" | "nvidia") => {
-    const guide =
-      provider === "github"
-        ? "GitHub PAT (⚠️ GitHub Models는 무료 티어 4,000토큰 제한 — 유료 결제 필요)"
-        : "NVIDIA API 키 (발급: https://build.nvidia.com — 무료 크레딧 제공)";
-    const key = await uiPrompt(`${provider === "github" ? "GitHub 토큰" : "NVIDIA 키"} 등록`, {
-      message: `${guide}\n저장하면 게이트웨이가 자동 재시작됩니다(약 10초).`,
-      placeholder: provider === "nvidia" ? "nvapi-…" : "github_pat_…",
-    });
-    if (!key?.trim()) return;
-    void registerModelKey(provider, key.trim())
-      .then(() => {
-        void uiAlert("키 등록 완료", "이제 모델 목록에서 선택할 수 있습니다.");
-        setTimeout(refresh, 1000);
-      })
-      .catch((e) => void uiAlert("실패", e.message));
   };
 
   return (
@@ -261,12 +243,12 @@ export function AgentProfile() {
                 </div>
                 <div className="profile-keys">
                   {!models.providers.nvidia && (
-                    <button className="btn tiny" onClick={() => void onRegisterKey("nvidia")}>
+                    <button className="btn tiny" onClick={() => window.dispatchEvent(new CustomEvent("ve:open-api-keys"))}>
                       🔑 NVIDIA 키 등록
                     </button>
                   )}
                   {!models.providers.github && (
-                    <button className="btn tiny" onClick={() => void onRegisterKey("github")}>
+                    <button className="btn tiny" onClick={() => window.dispatchEvent(new CustomEvent("ve:open-api-keys"))}>
                       🔑 GitHub 토큰 등록
                     </button>
                   )}

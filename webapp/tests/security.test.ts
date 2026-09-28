@@ -17,4 +17,20 @@ describe("게이트웨이 비밀 경계", () => {
     expect(relay).toContain('scopes: ["operator.read"]');
     expect(relay).not.toContain('"operator.write"');
   });
+
+  it("사용자 API 키는 마스킹된 입력창으로만 받고 등록 후 다시 표시하지 않는다", () => {
+    const keyCenter = read("src/components/UserKeyCenter.tsx");
+    const dialog = read("src/components/DialogHost.tsx");
+    const sidebar = read("src/components/Sidebar.tsx");
+    const profile = read("src/components/AgentProfile.tsx");
+    const notion = read("src/components/DocViewer.tsx");
+
+    expect(keyCenter).toContain('type="password"');
+    expect(keyCenter).toContain('autoComplete="new-password"');
+    expect(keyCenter).toContain('setValues((current) => ({ ...current, [provider]: "" }))');
+    expect(dialog).toContain('type={req.sensitive ? "password" : "text"}');
+    expect(notion).toMatch(/노션 연동 ① 통합 토큰[\s\S]*?sensitive: true/);
+    expect(sidebar).not.toContain("uiPrompt");
+    expect(profile).not.toContain("uiPrompt");
+  });
 });

@@ -8,6 +8,8 @@ export interface DialogRequest {
   message?: string;
   defaultValue?: string;
   placeholder?: string;
+  /** API 키·토큰처럼 화면에 원문을 노출하면 안 되는 값 */
+  sensitive?: boolean;
   confirmLabel?: string;
   cancelLabel?: string;
   /** 파괴적 작업(삭제 등) — 확인 버튼을 빨간색으로 */
@@ -52,10 +54,13 @@ interface PromptOpts {
   message?: string;
   defaultValue?: string;
   placeholder?: string;
+  sensitive?: boolean;
   confirmLabel?: string;
 }
 
 export function uiPrompt(title: string, opts: PromptOpts = {}): Promise<string | null> {
+  // 브라우저 기본 prompt는 값을 가릴 수 없다. 민감값은 스타일 다이얼로그가 준비되기 전에는 받지 않는다.
+  if (!host && opts.sensitive) return Promise.resolve(null);
   if (!host) return Promise.resolve(window.prompt(`${title}${opts.message ? `\n${opts.message}` : ""}`, opts.defaultValue ?? ""));
   return new Promise((resolve) => enqueue({ kind: "prompt", title, ...opts, resolve }));
 }

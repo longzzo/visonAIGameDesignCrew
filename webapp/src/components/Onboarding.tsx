@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { registerModelKey, getModelsInfo } from "../lib/models";
 import { downloadBackup, getBackupStatus, restoreBackup, type BackupStatus } from "../lib/backup";
 import { uiConfirm } from "../lib/dialog";
+import { UserKeyCenter } from "./UserKeyCenter";
 
 /**
  * 첫 실행 온보딩 — 두 갈래로 나눈다:
@@ -26,7 +27,7 @@ export function needsOnboarding(): boolean {
   }
 }
 
-type Path = null | "connect" | "custom" | "pc";
+type Path = null | "connect" | "custom" | "pc" | "keys";
 type Provider = "ollama" | "nvidia" | "github";
 type Readiness = {
   gateway: { running: boolean; configured: boolean; agents: number; installed?: boolean; version?: string };
@@ -52,8 +53,8 @@ type SecretProtectionState = {
   error?: string;
 };
 
-export function Onboarding({ onClose }: { onClose: () => void }) {
-  const [path, setPath] = useState<Path>(null);
+export function Onboarding({ onClose, initialPath = null }: { onClose: () => void; initialPath?: Path }) {
+  const [path, setPath] = useState<Path>(initialPath);
   const [provider, setProvider] = useState<Provider>("ollama");
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
@@ -353,10 +354,10 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
     <div className="onb-backdrop">
       <div className="onb-card">
         <div className="onb-brand">
-          <span className="onb-logo">🏢</span>
+          <span className="onb-logo">{path === "pc" ? "⚙️" : path === "keys" ? "🔐" : "🏢"}</span>
           <div>
-            <div className="onb-title">{path === "pc" ? "Vision Engine 시스템 상태센터" : "Vision Engine에 오신 걸 환영합니다"}</div>
-            <div className="onb-sub dim">{path === "pc" ? "서비스·모델·보안·백업·업데이트를 한곳에서 관리합니다." : "게임 기획부터 개발까지, AI 팀과 함께."}</div>
+            <div className="onb-title">{path === "pc" ? "Vision Engine 시스템 상태센터" : path === "keys" ? "AI·검색 키 연결" : "Vision Engine에 오신 걸 환영합니다"}</div>
+            <div className="onb-sub dim">{path === "pc" ? "서비스·모델·보안·백업·업데이트를 한곳에서 관리합니다." : path === "keys" ? "필요한 서비스만 사용자가 직접 연결합니다." : "게임 기획부터 개발까지, AI 팀과 함께."}</div>
           </div>
         </div>
 
@@ -386,12 +387,13 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
                 </div>
               </button>
             </div>
+            <button className="onb-skip" onClick={() => setPath("keys")}>🔐 GitHub·NVIDIA·Brave 키 직접 관리</button>
           </>
         )}
 
         {path === "pc" && (
           <>
-            <div className="onb-q">PC 앱 실행 준비 · 핵심 상태 {essentialReady}/4 <span className="dim">(자동 새로고침)</span></div>
+            <div className="onb-q">핵심 실행 환경 · {essentialReady}/4 준비 <span className="dim">(열어 둔 동안 자동 새로고침)</span></div>
             {!ready ? <p className="onb-p dim">상태를 확인하는 중…</p> : (
               <div className="onb-ready-grid">
                 <div className={`onb-ready ${ready.data.projects > 0 ? "ok" : "warn"}`}>
@@ -484,12 +486,29 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
                 )}
               </div>
             )}
+            <UserKeyCenter onNotice={setMsg} />
             {msg && <div className="onb-msg">{msg}</div>}
             <div className="onb-actions">
               <button className="btn" onClick={() => setPath(null)} disabled={busy}>← 뒤로</button>
               <button className="btn" onClick={() => void exportSupportReport()} disabled={busy || !ready?.desktop}>진단 보고서 저장</button>
               <button className="btn" onClick={() => void refreshReadiness()} disabled={busy}>다시 확인</button>
               <button className="btn primary" onClick={finish}>확인하고 시작 →</button>
+            </div>
+          </>
+        )}
+
+        {path === "keys" && (
+          <>
+            <p className="onb-p dim">
+              Vision Engine은 공용 키를 포함하지 않습니다. 키는 이 PC에서 사용자가 직접 입력하고 OpenClaw 보호 저장소로 전달합니다.
+              등록된 원문은 화면·프로젝트·진단 보고서에 다시 표시하지 않습니다.
+            </p>
+            <UserKeyCenter onNotice={setMsg} />
+            {msg && <div className="onb-msg">{msg}</div>}
+            <div className="onb-actions">
+              <button className="btn" onClick={() => setPath(null)} disabled={busy}>← 시작 메뉴</button>
+              <button className="btn" onClick={() => setPath("pc")} disabled={busy}>시스템 상태 함께 보기</button>
+              <button className="btn primary" onClick={finish}>완료</button>
             </div>
           </>
         )}
@@ -550,6 +569,7 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
                 value={key}
                 onChange={(e) => setKey(e.target.value)}
                 placeholder={provider === "nvidia" ? "nvapi-... (build.nvidia.com에서 발급)" : "GitHub PAT (models:read 권한)"}
+                autoComplete="new-password"
                 spellCheck={false}
               />
             )}

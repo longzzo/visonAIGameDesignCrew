@@ -110,20 +110,32 @@ export default function App() {
   } = useVE();
 
   const [onboard, setOnboard] = useState(false);
+  const [onboardPath, setOnboardPath] = useState<"pc" | "keys" | null>(null);
   useEffect(() => {
     void init();
     setOnboard(needsOnboarding());
   }, [init]);
   useEffect(() => {
-    const open = () => setOnboard(true);
-    window.addEventListener("ve:open-readiness", open);
-    return () => window.removeEventListener("ve:open-readiness", open);
+    const openReadiness = () => {
+      setOnboardPath("pc");
+      setOnboard(true);
+    };
+    const openKeys = () => {
+      setOnboardPath("keys");
+      setOnboard(true);
+    };
+    window.addEventListener("ve:open-readiness", openReadiness);
+    window.addEventListener("ve:open-api-keys", openKeys);
+    return () => {
+      window.removeEventListener("ve:open-readiness", openReadiness);
+      window.removeEventListener("ve:open-api-keys", openKeys);
+    };
   }, []);
 
 
   return (
     <div className="app">
-      {onboard && <Onboarding onClose={() => setOnboard(false)} />}
+      {onboard && <Onboarding initialPath={onboardPath} onClose={() => { setOnboard(false); setOnboardPath(null); }} />}
       <TopBar />
       {conn !== "connected" && conn !== "idle" && <ConnBanner />}
       {deadModels.length > 0 && (

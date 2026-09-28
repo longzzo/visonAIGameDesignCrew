@@ -40,8 +40,11 @@ export function DialogHost() {
           <input
             ref={inputRef}
             className="dialog-input"
+            type={req.sensitive ? "password" : "text"}
             value={value}
             placeholder={req.placeholder}
+            autoComplete={req.sensitive ? "new-password" : "off"}
+            spellCheck={false}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.nativeEvent.isComposing) confirm();
