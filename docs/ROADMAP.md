@@ -11,6 +11,7 @@
 - ✅ 자동 업데이트 확인·다운로드 진행률을 1초마다 상태센터에 반영
 - ✅ 중첩 UtilityProcess 교착을 외부 Node worker로 수정하고 실제 Electron renderer·preload IPC 상태센터 smoke 통과
 - ✅ 4.2.6 설치본·실제 바로가기·AI 응답·Windows E2E 재검증
+- ✅ CycloneDX SBOM·SHA-256·E2E·서명·메타데이터를 묶는 재현 가능한 상용 릴리스 증거 생성기와 GitHub Actions strict 게시 게이트
 - ⬜ 코드서명 인증서와 공개 업데이트 채널을 연결한 구버전 → 신버전 왕복 검증
 
 ## v4.2.5 — Gateway 비밀값 보호 (2026-09-29) ✅

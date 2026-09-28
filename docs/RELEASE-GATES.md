@@ -35,11 +35,13 @@ GitHub Actions의 `Windows release` 수동 실행은 새 Windows runner에서 �
 - 비밀 원문과 JSON 경로가 공개 감사 결과에 포함되지 않는 단위 검사 통과
 - 중첩 Electron UtilityProcess에서 OpenClaw 자식 Node가 교착되던 문제를 실제 Electron UI smoke로 발견하고 외부 Node worker로 교체; renderer → preload IPC → 읽기 전용 감사 → 업데이트 상태 전체 경로 통과
 - 최종 `win-unpacked`의 store SecretRef 저장 → 읽기 전용 감사 → Studio 런타임 해석 → 가짜 WebSocket Gateway 인증 smoke 통과
-- 전체 43개 테스트·TypeScript·프로덕션 빌드·독립 런타임 smoke 통과, 웹앱·데스크톱 프로덕션/전체 빌드 npm 감사 취약점 0건
+- 전체 45개 테스트·TypeScript·프로덕션 빌드·독립 런타임 smoke 통과, 웹앱·데스크톱 프로덕션/전체 빌드 npm 감사 취약점 0건
 - 최종 해시 설치본 Windows E2E 전체 통과: 설치 236.20초, 첫 준비 8.70초, HTML/PDF/PPTX 19.53초, 백업 왕복 0.28초, 런타임 복구 12.50초, 제거 9.47초, 전체 290.63초
 - 실제 PC에 4.2.6 설치 후 설치 실행 파일과 `win-unpacked` 실행 파일 SHA-256 일치, 사용자 바로가기 대상 유효
 - 실제 바로가기 실행에서 OpenClaw `2026.9.6`·Ollama 연결, `/api/agent` → `qwen3.5:4b` 32K 요청이 폴백 없이 `OK` 응답(26.04초)
 - NSIS 패키지 `268,346,889`바이트, 런타임 파일 14,961개·필수 패키지 10개, 패키지 비밀정보 검사 0건
+- CycloneDX SBOM 웹앱 321개·데스크톱 5개 구성요소 생성, 설치 파일·blockmap·업데이트 manifest·SBOM·E2E·제3자 고지·증거 JSON 8개 SHA-256 독립 대조 통과
+- `release-evidence-4.2.6.json`이 패키지/E2E 통과와 상용 차단 항목을 분리 기록하고, strict 모드는 미서명·비활성 업데이트·미입력 판매자 정보에서 의도대로 실패
 - 설치 파일 SHA-256: `00e5b42b9eac395700da8cc194c7883fce42674e9b8d3d53e4cfdb2df78e50cd`
 - 설치 파일과 앱 본체는 아직 상용 코드서명 전이므로 고객 배포 금지
 

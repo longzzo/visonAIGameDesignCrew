@@ -58,6 +58,7 @@
 - **보안**: DNS 리바인딩/CSRF 차단, 개발 작업 PC 전용, 에이전트 산출 HTML 격리(CSP)
 - **비밀값 자동 보호**: Gateway 토큰과 GitHub Models·NVIDIA·Brave 키를 평문 설정 대신 OpenClaw 보호 저장소에 등록하고, 기존 값은 **⚙️ PC 준비 → 평문 키 보호**로 명시적으로 이전. 4.2.6 상태센터는 설정을 바꾸지 않는 읽기 전용 감사를 먼저 실행하며 비밀 원문·경로를 UI에 노출하지 않음
 - **실시간 시스템 상태센터**: OpenClaw·Ollama·권장 모델·비밀정보 감사·백업·업데이트 다운로드 상태를 한 화면에서 자동 갱신
+- **상용 릴리스 증거**: `npm run release:evidence --prefix desktop` 한 번으로 CycloneDX SBOM·8개 자산 SHA-256·E2E·서명·제품 메타데이터 게이트를 `dist-installer`에 생성
 
 ### 🖥 어디서나
 - **원클릭 데스크톱 앱**(설치 시 바탕화면 바로가기 자동 생성)

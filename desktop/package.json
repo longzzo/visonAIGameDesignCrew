@@ -11,6 +11,7 @@
     "predist": "npm --prefix ../webapp run build:studio && node ../webapp/scripts/prepare-desktop-runtime.mjs && node ../scripts/generate-third-party-notices.mjs",
     "dist": "electron-builder --win nsis --publish never",
     "verify:package": "node scripts/verify-package.mjs",
+    "release:evidence": "node ../scripts/generate-release-evidence.mjs",
     "release:check": "node ../scripts/release-check.mjs --strict",
     "dist:release": "npm run release:check && npm run dist"
   },

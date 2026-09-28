@@ -53,6 +53,14 @@ GitHub 저장소 Actions Secrets에 다음 값을 저장한다.
 10. 무인 제거 및 실행 파일 삭제 확인
 11. EXE·blockmap·`latest.yml`·SBOM·SHA-256·E2E 보고서 보관
 
+로컬에서도 동일한 고객·마켓·보안 검토용 증거 묶음을 생성할 수 있다.
+
+```powershell
+npm run release:evidence --prefix desktop
+```
+
+이 명령은 설치 EXE·blockmap·`latest.yml`을 상호 검증하고, 웹앱/데스크톱 CycloneDX SBOM, `SHA256SUMS.txt`, `release-evidence-<version>.json`, 제3자 고지 사본을 생성한다. 증거 JSON은 기술 검증 통과와 고객 배포 가능을 별도 필드로 기록한다. `-- --strict`를 추가하면 Authenticode 서명·공개 업데이트 채널·판매자 메타데이터가 하나라도 빠진 릴리스는 실패한다.
+
 OpenClaw 또는 외부 모델 카탈로그가 바뀐 릴리스는 클린 VM 검사와 별도로, 실제 공급자 `/models` 목록과 앱의 `/api/agent` 경유 한국어 응답을 확인한다. OpenClaw 내장 카탈로그만으로 제공 여부를 판단하지 않는다.
 
 정식 게시 시 `desktop/package.json` 버전과 동일한 `vX.Y.Z` 태그를 푸시한다. 모든 게이트와 코드 서명이 통과한 경우에만 GitHub Release가 만들어진다.

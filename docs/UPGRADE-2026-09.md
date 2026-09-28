@@ -9,6 +9,7 @@
 - **읽기 전용 비밀정보 감사**: 실제 설정을 바꾸지 않고 평문·미해결 SecretRef 개수만 표시하며 값과 경로는 renderer에 전달하지 않음
 - **명시적 이전 유지**: 평문 키는 사용자가 상태센터에서 직접 보호 버튼을 누른 경우에만 OpenClaw store로 이전
 - **감사 worker 안정화**: OpenClaw 하위 프로세스를 중첩 Electron UtilityProcess가 아닌 외부 Node worker에서 실행해 상태센터 시간 초과를 제거
+- **릴리스 증거 자동화**: CycloneDX SBOM, 자산 체크섬, Windows E2E, 서명·업데이트·판매자 메타데이터 상태를 하나의 증거 JSON으로 생성
 
 - Ollama 0.34.4 및 RTX 4060 Laptop 8GB용 `qwen3.5:4b`
 - OpenClaw 2026.9.6, 상태 DB·31개 에이전트 DB·검색 플러그인 마이그레이션과 Windows Gateway 서비스 재등록

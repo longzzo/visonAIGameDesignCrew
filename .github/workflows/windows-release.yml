@@ -97,29 +97,13 @@ jobs:
             -InstallerPath "desktop/dist-installer/VisionEngine-Setup-$($package.version).exe" `
             -ReportPath "desktop/dist-installer/windows-e2e-report.json"
 
-      - name: SBOM과 SHA-256 생성
-        shell: pwsh
-        run: |
-          npm sbom --prefix webapp --omit=dev --sbom-format cyclonedx | Out-File -LiteralPath desktop/dist-installer/webapp-sbom.cdx.json -Encoding utf8
-          npm sbom --prefix desktop --omit=dev --sbom-format cyclonedx | Out-File -LiteralPath desktop/dist-installer/desktop-sbom.cdx.json -Encoding utf8
-          $package = Get-Content -LiteralPath desktop/package.json -Raw | ConvertFrom-Json
-          $files = @(
-            Get-Item -LiteralPath "desktop/dist-installer/VisionEngine-Setup-$($package.version).exe"
-            Get-Item -LiteralPath "desktop/dist-installer/VisionEngine-Setup-$($package.version).exe.blockmap"
-            Get-Item -LiteralPath "desktop/dist-installer/latest.yml"
-            Get-Item -LiteralPath "desktop/dist-installer/webapp-sbom.cdx.json"
-            Get-Item -LiteralPath "desktop/dist-installer/desktop-sbom.cdx.json"
-            Get-Item -LiteralPath "desktop/dist-installer/windows-e2e-report.json"
-          ) | Sort-Object Name
-          $lines = foreach ($file in $files) {
-            $digest = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$digest  $($file.Name)"
-          }
-          [IO.File]::WriteAllLines(
-            (Join-Path $PWD "desktop/dist-installer/SHA256SUMS.txt"),
-            $lines,
-            [Text.UTF8Encoding]::new($false)
-          )
+      - name: SBOM·체크섬·릴리스 증거 생성
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: node scripts/generate-release-evidence.mjs --e2e-report desktop/dist-installer/windows-e2e-report.json
+
+      - name: 서명 포함 상용 릴리스 증거 강제
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: node scripts/generate-release-evidence.mjs --e2e-report desktop/dist-installer/windows-e2e-report.json --strict
 
       - name: 검증된 설치 자산 보관
         uses: actions/upload-artifact@v7.0.1
@@ -133,9 +117,10 @@ jobs:
             desktop/dist-installer/VisionEngine-Setup-*.exe.blockmap
             desktop/dist-installer/latest.yml
             desktop/dist-installer/SHA256SUMS.txt
+            desktop/dist-installer/release-evidence-*.json
             desktop/dist-installer/*-sbom.cdx.json
             desktop/dist-installer/windows-e2e-report.json
-            THIRD-PARTY-NOTICES.md
+            desktop/dist-installer/THIRD-PARTY-NOTICES.md
 
   publish-release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -157,8 +142,9 @@ jobs:
         run: |
           $assets = @(Get-ChildItem -LiteralPath release-assets -Recurse -File | Where-Object {
             $_.Name -match '^VisionEngine-Setup-.+\.exe(\.blockmap)?$' -or
+            $_.Name -match '^release-evidence-.+\.json$' -or
             $_.Name -in @('latest.yml', 'SHA256SUMS.txt', 'webapp-sbom.cdx.json', 'desktop-sbom.cdx.json', 'windows-e2e-report.json', 'THIRD-PARTY-NOTICES.md')
           } | Sort-Object Name | Select-Object -ExpandProperty FullName)
-          if ($assets.Count -ne 8) { throw "릴리스 자산 수가 올바르지 않습니다: $($assets.Count)/8" }
+          if ($assets.Count -ne 9) { throw "릴리스 자산 수가 올바르지 않습니다: $($assets.Count)/9" }
           gh release create $env:GITHUB_REF_NAME @assets --verify-tag --generate-notes --latest
           if ($LASTEXITCODE -ne 0) { throw "GitHub Release 게시에 실패했습니다." }
