@@ -90,7 +90,7 @@ Vision Engine은 **하나의 오케스트레이터 + 다수의 전문 서브에�
 - 메인 PC와 분리된 워크스페이스에서 시작하고, 민감 디렉터리 접근은 단계적으로 연다.
 - 각 에이전트는 독립된 `workspace`와 `agentDir`를 가진다(공유 시 세션·인증 충돌).
 - 무료 API로 나가는 프롬프트에 독점 IP·개인정보를 넣지 않는다.
-- GitHub Models·NVIDIA·Brave 공급자 키는 OpenClaw store SecretRef로 보관한다. 기존 평문 키는 사용자가 앱에서 명시적으로 동의한 경우에만 이전하며, Gateway 토큰은 릴레이 SecretRef 지원 전까지 로컬 설정 파일 권한으로 보호한다.
+- Gateway 토큰과 GitHub Models·NVIDIA·Brave 공급자 키는 OpenClaw store SecretRef로 보관한다. 기존 평문 값은 사용자가 앱에서 명시적으로 동의한 경우에만 이전하며, 이벤트 릴레이는 OpenClaw 공식 SecretRef 런타임으로 토큰을 서버 메모리 안에서만 해석한다.
 
 ## 8. 확장 로드맵
 

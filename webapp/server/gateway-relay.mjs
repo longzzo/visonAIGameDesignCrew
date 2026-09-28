@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { WebSocket } from "ws";
+import { resolveOpenClawSecretInput } from "./openclaw-secret-resolver.mjs";
 
 const OPENCLAW_CFG = path.resolve(process.env.OPENCLAW_CONFIG_PATH || path.join(os.homedir(), ".openclaw", "openclaw.json"));
 const EVENT_ALLOW = new Set(["agent", "chat"]);
@@ -41,6 +42,7 @@ export function gatewayRelayPlugin() {
   let reconnectTimer = null;
   let connectTimer = null;
   let stopped = false;
+  let resolvingCredential = false;
   let seq = 0;
 
   const send = (res, frame) => {
@@ -57,22 +59,28 @@ export function gatewayRelayPlugin() {
     if (stopped || reconnectTimer) return;
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
-      connectUpstream();
+      void connectUpstream();
     }, 2500);
   };
 
-  const connectUpstream = () => {
-    if (stopped || upstream?.readyState === WebSocket.OPEN || upstream?.readyState === WebSocket.CONNECTING) return;
+  const connectUpstream = async () => {
+    if (stopped || resolvingCredential || upstream?.readyState === WebSocket.OPEN || upstream?.readyState === WebSocket.CONNECTING) return;
+    resolvingCredential = true;
     const cfg = readConfig();
     const port = Number(cfg?.gateway?.port) || 18789;
-    const token = cfg?.gateway?.auth?.token;
-    if (!token || typeof token !== "string") {
+    let token;
+    try {
+      token = await resolveOpenClawSecretInput(cfg?.gateway?.auth?.token, cfg);
+    } catch (error) {
       connected = false;
-      detail = "OpenClaw 게이트웨이 토큰을 찾지 못했습니다";
+      detail = `OpenClaw 게이트웨이 인증 준비 실패: ${String(error?.message || error).slice(0, 140)}`;
       broadcastStatus();
       scheduleReconnect();
+      resolvingCredential = false;
       return;
     }
+    resolvingCredential = false;
+    if (stopped || upstream?.readyState === WebSocket.OPEN || upstream?.readyState === WebSocket.CONNECTING) return;
 
     let connectSent = false;
     const ws = new WebSocket(`ws://127.0.0.1:${port}`);
@@ -141,7 +149,7 @@ export function gatewayRelayPlugin() {
   return {
     name: "vision-engine-gateway-relay",
     configureServer(server) {
-      connectUpstream();
+      void connectUpstream();
       server.httpServer?.once("close", () => {
         stopped = true;
         clearTimeout(reconnectTimer);
@@ -182,7 +190,7 @@ export function gatewayRelayPlugin() {
             clearInterval(keepalive);
             clients.delete(res);
           });
-          connectUpstream();
+          void connectUpstream();
           return;
         }
         res.statusCode = 404;

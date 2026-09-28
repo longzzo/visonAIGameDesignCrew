@@ -40,15 +40,25 @@ describe("OpenClaw 비밀키 보호 이전", () => {
     });
   });
 
-  it("Gateway 토큰 한 건만 남은 감사는 성공으로 처리하고 다른 평문은 막는다", () => {
+  it("Gateway 토큰도 보호 대상으로 만들고 평문이 남은 감사는 막는다", () => {
+    const migration = buildSecretMigration({
+      gateway: { auth: { token: "gateway-token-for-test-only" } },
+    });
+    expect(migration.entries.map((entry) => entry.name)).toEqual(["OPENCLAW_GATEWAY_TOKEN"]);
+    expect(migration.plan.targets[0]).toMatchObject({
+      type: "gateway.auth.token",
+      path: "gateway.auth.token",
+      pathSegments: ["gateway", "auth", "token"],
+      ref: { source: "store", provider: "default", id: "OPENCLAW_GATEWAY_TOKEN" },
+    });
     expect(migrationAuditOk({
       summary: { unresolvedRefCount: 0 },
       findings: [{ code: "PLAINTEXT_FOUND", jsonPath: "gateway.auth.token" }],
-    })).toBe(true);
-    expect(migrationAuditOk({
-      summary: { unresolvedRefCount: 0 },
-      findings: [{ code: "PLAINTEXT_FOUND", jsonPath: "models.providers.nvidia.apiKey" }],
     })).toBe(false);
+    expect(migrationAuditOk({
+      summary: { unresolvedRefCount: 0, plaintextCount: 0 },
+      findings: [],
+    })).toBe(true);
   });
 
   it("보호 계획에는 입력 값과 중복 ref 필드를 남기지 않는다", () => {

@@ -2,6 +2,14 @@
 
 > 오너의 비전과 단계별 계획. 완료된 것은 ✅, 진행 중은 🔨, 계획은 ⬜.
 
+## v4.2.5 — Gateway 비밀값 보호 (2026-09-29) ✅
+
+- ✅ Gateway 토큰을 OpenClaw store SecretRef 이전 대상에 포함
+- ✅ 이벤트 릴레이가 설치된 OpenClaw 공식 런타임으로 SecretRef를 서버 메모리 안에서만 해석
+- ✅ 평문 Gateway 토큰 예외 제거, `plaintextCount=0`만 성공으로 판정
+- ✅ 격리 OpenClaw 상태 DB에서 store 저장·SecretRef 해석·평문 파일 미기록 및 최종 패키지 WebSocket 인증 smoke
+- ✅ 사용자 확인 전 실제 설정은 변경하지 않는 명시적 동의 흐름 유지
+
 ## v4.2.4 — AI 런타임 대개편·설치 편의성 (2026-09-28) ✅
 
 - ✅ Ollama `0.34.4`, OpenClaw `2026.9.6` 업데이트와 OpenClaw DB·플러그인 마이그레이션
@@ -14,13 +22,13 @@
 - ✅ 브라우저 번들 의존성의 서버 런타임 중복 제거: 설치 파일 12.1% 축소, 설치 시간 59.6% 단축
 - ✅ 데스크톱 시작 경험·AI 런타임 격리 회귀 테스트 추가
 
-## v4.2.0 — 보호 저장소·키 등록 개편 (2026-09-11) 🔨
+## v4.2.0 — 보호 저장소·키 등록 개편 (2026-09-11) ✅
 
 - ✅ GitHub Models·NVIDIA·Brave 신규 키를 OpenClaw 쓰기 전용 store에 stdin으로 저장하고 설정에는 SecretRef만 기록
 - ✅ **⚙️ PC 준비 → 평문 키 자동 보호**: 사용자 확인 후 기존 공급자 키 이전, 공식 dry-run/apply, 인증 캐시 평문 정리, 감사, Gateway 재기동
 - ✅ OpenClaw 설정 병합이 SecretRef를 실제 키처럼 보존하고 커스텀 `OPENCLAW_CONFIG_PATH`를 서버·릴레이·마이그레이션에서 일관되게 지원
 - ✅ 비밀값이 계획 파일에 들어가지 않는 단위 검사, 모델 경로 2건·설치된 Brave 플러그인의 설정 변경 없는 SecretRef dry-run 통과
-- ⬜ Gateway 이벤트 릴레이의 SecretRef 해석 지원 후 `openclaw secrets audit --json` 평문 0건 달성
+- ✅ Gateway 이벤트 릴레이의 SecretRef 해석 지원과 평문 0건 감사 기준 적용
 - ⬜ 판매자 정보·지원 이메일·공개 약관/환불/SLA, Authenticode 서명, 공개 업데이트 왕복 검증
 
 ## v4.1.4 — Windows 상용 후보 기반 (2026-09-11) 🔨
@@ -33,7 +41,7 @@
 - ✅ Windows 설치·문서 렌더·보안·단일 인스턴스·제거 E2E 및 패키지 비밀정보 0건
 - ⬜ 판매자 정보·지원 이메일·공개 약관/환불/SLA 확정
 - ⬜ Windows Authenticode 인증서 연결과 서명된 클린 VM 릴리스 검증
-- 🔨 OpenClaw 공급자 키 SecretRef 이전은 v4.2.0에서 완료, Gateway 토큰 1건은 릴레이 개편 대기
+- ✅ OpenClaw 공급자 키와 Gateway 토큰의 SecretRef 이전·릴레이 해석 구현
 - ⬜ GitHub 태그 릴리스와 구버전 → 신버전 자동 업데이트 왕복 검증
 
 ## 최종 비전: "보이는 사무실" 🏢

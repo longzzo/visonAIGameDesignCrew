@@ -149,8 +149,8 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
       setMsg("⚠️ 최신 PC 앱에서만 자동 보호할 수 있습니다.");
       return;
     }
-    const proceed = await uiConfirm("평문 공급자 키를 보호할까요?", {
-      message: "GitHub Models·NVIDIA·Brave 키를 OpenClaw의 쓰기 전용 보호 저장소로 옮기고 기존 설정·인증 캐시의 평문을 지웁니다. Gateway 토큰은 실시간 이벤트 기능을 위해 유지합니다.",
+    const proceed = await uiConfirm("평문 Gateway·공급자 비밀값을 보호할까요?", {
+      message: "OpenClaw Gateway 토큰과 GitHub Models·NVIDIA·Brave 키를 쓰기 전용 보호 저장소로 옮기고 기존 설정·인증 캐시의 평문을 지웁니다.",
       confirmLabel: "보호 저장소로 이전",
       cancelLabel: "취소",
       danger: true,
@@ -163,8 +163,8 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
       if (!result?.ok) throw new Error(result?.error || "비밀키 보호를 완료하지 못했습니다.");
       const count = Array.isArray(result.migrated) ? result.migrated.length : 0;
       setMsg(count > 0
-        ? `🔐 공급자 키 ${count}개를 보호했습니다. Gateway 토큰 1건만 별도 개선 대상으로 남습니다.`
-        : "🔐 이전할 평문 공급자 키가 없습니다.");
+        ? `🔐 Gateway·공급자 비밀값 ${count}개를 보호했습니다. 평문 감사를 통과했습니다.`
+        : "🔐 이전할 평문 비밀값이 없으며 보호 상태를 확인했습니다.");
       await refreshReadiness();
     } catch (error: any) {
       setMsg(`⚠️ ${String(error?.message || error)}`);

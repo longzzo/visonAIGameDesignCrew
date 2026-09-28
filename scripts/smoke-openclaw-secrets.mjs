@@ -30,7 +30,7 @@ try {
   const before = `${JSON.stringify(config, null, 2)}\n`;
   fs.writeFileSync(configFile, before, "utf-8");
   const migration = buildSecretMigration(config);
-  if (migration.entries.length !== 2) throw new Error("모델 공급자 보호 계획 수가 예상과 다릅니다.");
+  if (migration.entries.length !== 3) throw new Error("Gateway·모델 공급자 보호 계획 수가 예상과 다릅니다.");
   for (const item of migration.entries) {
     if (JSON.stringify(migration.plan).includes(item.value)) throw new Error("보호 계획에 비밀값이 포함됐습니다.");
   }
@@ -52,13 +52,14 @@ try {
       ...process.env,
       OPENCLAW_STATE_DIR: temp,
       OPENCLAW_CONFIG_PATH: configFile,
+      OPENCLAW_GATEWAY_TOKEN: "fake-gateway-token-for-read-only-smoke",
       GITHUB_MODELS_API_KEY: "fake-github-key-for-read-only-smoke",
       NVIDIA_API_KEY: "fake-nvidia-key-for-read-only-smoke",
     },
   });
   if (checked.status !== 0) throw new Error(String(checked.stderr || checked.stdout || "SecretRef 계획 dry-run 실패").trim());
   if (fs.readFileSync(configFile, "utf-8") !== before) throw new Error("dry-run이 격리 설정을 변경했습니다.");
-  console.log("✅ OpenClaw 비밀키 계획 smoke 통과: 비밀값 미포함, 모델 경로 2건, 설정 변경 0건");
+  console.log("✅ OpenClaw 비밀키 계획 smoke 통과: 비밀값 미포함, Gateway·모델 경로 3건, 설정 변경 0건");
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
 }

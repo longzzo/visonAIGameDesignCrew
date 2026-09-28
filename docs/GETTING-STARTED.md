@@ -135,7 +135,7 @@ cd ..
 
 ### 💻 데스크톱 앱 & 다른 PC에서 쓰기
 
-**Windows 설치형 앱으로 쓰기**: `desktop/dist-installer/VisionEngine-Setup-4.2.4.exe`를 설치하고 바탕화면의 **Vision Engine**을 실행합니다. 별도 로딩 창이 먼저 뜬 뒤 Studio가 열립니다. 웹앱 서버와 Codex CLI는 설치본에 포함돼 있어 Node.js나 저장소 없이도 창이 열리고, OpenClaw가 늦어져도 앱 본체는 먼저 사용할 수 있습니다. AI 실행에는 OpenClaw와 Ollama가 별도로 필요합니다.
+**Windows 설치형 앱으로 쓰기**: `desktop/dist-installer/VisionEngine-Setup-4.2.5.exe`를 설치하고 바탕화면의 **Vision Engine**을 실행합니다. 별도 로딩 창이 먼저 뜬 뒤 Studio가 열립니다. 웹앱 서버와 Codex CLI는 설치본에 포함돼 있어 Node.js나 저장소 없이도 창이 열리고, OpenClaw가 늦어져도 앱 본체는 먼저 사용할 수 있습니다. AI 실행에는 OpenClaw와 Ollama가 별도로 필요합니다.
 
 첫 실행에서는 **🖥️ PC 앱 준비 확인**을 누릅니다.
 
@@ -143,13 +143,13 @@ cd ..
 2. OpenClaw가 설치돼 있지만 예약 작업이 없다면 **OpenClaw 온보딩**을 누릅니다. 설치 자체가 안 돼 있으면 먼저 `npm install -g openclaw`가 필요합니다.
 3. **Codex 로그인**을 누르면 공식 `codex login` 브라우저 인증 창이 열립니다.
 4. **코딩 폴더 선택**에서 Codex가 실제로 수정할 게임/Unity 프로젝트 폴더를 지정합니다.
-5. 기존 GitHub Models·NVIDIA·Brave 키가 평문이라면 **평문 키 자동 보호**를 눌러 OpenClaw 보호 저장소로 이전합니다. 설정·인증 캐시의 기존 평문은 성공 후 정리되며, 실시간 이벤트용 Gateway 토큰은 현재 버전에서 유지됩니다.
+5. 기존 Gateway 토큰이나 GitHub Models·NVIDIA·Brave 키가 평문이라면 **평문 키 자동 보호**를 눌러 OpenClaw 보호 저장소로 이전합니다. 설정·인증 캐시의 기존 평문은 성공 후 정리되고 이벤트 릴레이는 SecretRef를 직접 해석합니다.
 
 준비 화면은 닫은 뒤에도 상단 **⚙️ PC 준비**에서 다시 열 수 있습니다. OpenClaw 설정을 앱 버전별로 병합할 때 기존 사용자 에이전트·채널·플러그인·API 키는 보존하고 백업을 남깁니다.
 
 **다른 PC에 설치해서 쓰기** (서버는 노트북에 그대로 두고):
 1. 서버 PC에서 `VisionEngine-Start.bat` 실행 (Tailscale 주소로 서버가 열립니다 — 창에 주소 표시)
-2. 다른 PC에 `desktop/dist-installer/VisionEngine-Setup-4.2.4.exe`를 복사해 설치 (바탕화면 바로가기 생성)
+2. 다른 PC에 `desktop/dist-installer/VisionEngine-Setup-4.2.5.exe`를 복사해 설치 (바탕화면 바로가기 생성)
 3. 첫 실행 시 서버 주소 입력: `http://100.x.x.x:5199` (서버 PC의 Tailscale 주소) → 🔌 연결 테스트 → 저장
 4. 두 PC 모두 [Tailscale](https://tailscale.com)에 같은 계정으로 로그인돼 있어야 합니다
 
@@ -184,7 +184,7 @@ PC와 폰에 [Tailscale](https://tailscale.com) 설치 + 같은 계정 로그인
 **🔍 이번 회의 변경 확인** → **⏪ 회의 전으로 되돌리기**. GDD는 저장 때마다 자동 백업되며 📄 GDD 패널의 히스토리에서 언제든 복원 가능합니다.
 
 **Q. API 키는 어디에 저장되나요?**
-4.2.0부터 앱에서 새로 등록한 GitHub Models·NVIDIA·Brave 키는 OpenClaw의 로컬 쓰기 전용 보호 저장소에 들어가고, 설정에는 SecretRef만 남습니다. 예전 평문 키는 **⚙️ PC 준비 → 평문 키 자동 보호**로 이전할 수 있습니다. Gateway 토큰은 실시간 이벤트 릴레이 호환 때문에 아직 `~/.openclaw/openclaw.json`에 남으므로 PC 계정과 파일 권한을 보호하세요. 저장소의 `config/openclaw.json`은 키가 없는 플레이스홀더 템플릿입니다.
+4.2.5부터 Gateway 토큰과 앱에서 등록하는 GitHub Models·NVIDIA·Brave 키는 OpenClaw의 로컬 쓰기 전용 보호 저장소에 들어가고, 설정에는 SecretRef만 남습니다. 예전 평문 값은 **⚙️ PC 준비 → 평문 키 자동 보호**로 이전할 수 있습니다. 저장소의 `config/openclaw.json`은 키가 없는 플레이스홀더 템플릿입니다.
 
 ---
 

@@ -15,16 +15,32 @@
 - [x] 앱 내부 자동 업데이트 확인·다운로드·재시작 설치 흐름
 - [x] 로컬 격리 포트에서 압축 해제본 기동·내장 런타임·두 번째 실행 E2E
 - [x] 신규 공급자 키 보호 저장소 등록 및 기존 평문 키의 명시적 SecretRef 이전 흐름
+- [x] Gateway 이벤트 릴레이의 OpenClaw store SecretRef 해석과 격리 저장소 smoke
 - [ ] 실제 지원 이메일 확정
 - [ ] Windows 코드 서명 인증서 연결 및 서명 검증
 - [ ] GitHub Release에 설치 EXE·blockmap·`latest.yml` 업로드 후 업데이트 왕복 검증
-- [ ] Gateway 릴레이 SecretRef 지원 및 OpenClaw 평문 자격증명 감사 0건
+- [ ] 실제 사용자 확인 후 Gateway·공급자 평문 이전 및 `openclaw secrets audit` 0건
 - [ ] 결제 상품·환불 정책·세금 처리·고객 지원 SLA 확정
 - [ ] 클린 Windows VM 설치/업데이트/제거 E2E 통과
 
 `node scripts/release-check.mjs --strict`가 자동 검증 가능한 출시 차단 항목을 검사합니다. 빈 제품 메타데이터나 서명 자격증명이 있으면 정식 배포를 실패시킵니다.
 
 GitHub Actions의 `Windows release` 수동 실행은 새 Windows runner에서 설치·실행·보안 헤더·단일 인스턴스·제거를 자동 검증합니다. `vX.Y.Z` 태그 실행은 여기에 유효한 Authenticode 서명과 GitHub Release 게시까지 추가합니다. 설정 방법은 [상용 릴리스 운영서](COMMERCIAL-RELEASE.md)를 따릅니다.
+
+## 4.2.5 로컬 검증 기록 (2026-09-29)
+
+- Gateway 토큰을 OpenClaw store SecretRef 보호 대상으로 추가하고, 공식 SecretRef 런타임으로 서버 메모리에서만 해석
+- 평문 Gateway 토큰을 예외 처리하던 감사를 제거해 `plaintextCount=0`만 성공으로 인정
+- 실제 사용자 설정과 분리한 OpenClaw 상태 DB에서 store 저장 → SecretRef 해석 → 값 일치 smoke 통과
+- 최종 `win-unpacked` Studio 런타임이 격리 store SecretRef를 해석해 가짜 WebSocket Gateway 인증까지 완료하는 패키지 smoke 통과
+- 실제 4.2.5 바로가기 실행에서 이벤트 릴레이 `OpenClaw 2026.9.6` 연결 및 `/api/agent` → `ollama/qwen3.5:4b` 32K 요청 `OK` 응답(29.349초)
+- 보안 경계를 벗어난 `browser-automation`·`canvas` junction을 복구용으로 보존하고 실제 디렉터리로 교체; 두 스킬 `eligible=true`·실제 AI 요청 후 invalid 경고 0건
+- 전체 40개 테스트·TypeScript·프로덕션 빌드·독립 런타임 smoke 통과
+- NSIS 패키지 `268,343,829`바이트, 런타임 필수 패키지 10개·파일 14,961개, 패키지 비밀정보 검사 0건
+- 최종 해시 설치본 격리 E2E 전체 통과: 설치 314.81초, 첫 준비 13.23초, HTML/PDF/PPTX 44.90초, 백업 왕복 0.13초, 런타임 복구 9.69초, 제거 14.36초
+- 설치본 SHA-256: `a8b156ddcae3e89a9686f915b999dc12fa34bac8e3565dfa80682b64369cfcaf`
+- 실제 사용자 키 이전은 앱의 명시적 확인 이후에만 실행하도록 기존 안전장치 유지
+- 설치 파일과 앱 본체는 아직 상용 코드서명 전이므로 고객 배포 금지
 
 ## 4.2.4 로컬 검증 기록 (2026-09-28)
 

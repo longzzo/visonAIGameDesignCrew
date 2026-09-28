@@ -12,6 +12,12 @@ const moduleFile = fileURLToPath(import.meta.url);
 
 export const SECRET_SPECS = [
   {
+    name: "OPENCLAW_GATEWAY_TOKEN",
+    type: "gateway.auth.token",
+    path: "gateway.auth.token",
+    pathSegments: ["gateway", "auth", "token"],
+  },
+  {
     name: "GITHUB_MODELS_API_KEY",
     type: "models.providers.apiKey",
     path: "models.providers.github.apiKey",
@@ -39,8 +45,9 @@ export const isSecretRef = (value) =>
 
 export const migrationAuditOk = (report) => {
   if (!report || Number(report?.summary?.unresolvedRefCount || 0) > 0) return false;
-  return (report.findings ?? []).every((finding) =>
-    finding?.code === "PLAINTEXT_FOUND" && finding?.jsonPath === "gateway.auth.token");
+  const findings = Array.isArray(report.findings) ? report.findings : [];
+  const plaintextCount = Number(report?.summary?.plaintextCount ?? findings.filter((finding) => finding?.code === "PLAINTEXT_FOUND").length);
+  return plaintextCount === 0 && findings.every((finding) => finding?.code !== "PLAINTEXT_FOUND");
 };
 
 const valueAt = (source, segments) => segments.reduce((value, segment) => value?.[segment], source);

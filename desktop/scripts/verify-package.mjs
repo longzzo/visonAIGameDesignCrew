@@ -114,6 +114,7 @@ for (const directory of ["legal", "vision-engine/agents", "vision-engine/config"
 if (secretFindings.length) errors.push(`설치본 비밀정보 유출 의심: ${secretFindings.slice(0, 8).join(" | ")}`);
 
 const runtimeModules = path.join(resources, "vision-engine", "webapp", "node_modules");
+const runtimeEntry = path.join(resources, "vision-engine", "webapp", "dist-server", "runtime.mjs");
 const requiredRuntimePackages = [
   "@marp-team/marp-cli", "@marp-team/marp-core", "@modelcontextprotocol/sdk", "@napi-rs/canvas",
   "@openai/codex-sdk", "connect", "pdfjs-dist", "sirv", "tesseract.js", "ws",
@@ -127,6 +128,14 @@ for (const name of browserOnlyPackages) {
 }
 const runtimeFiles = walkFiles(runtimeModules);
 const runtimeBytes = runtimeFiles.reduce((sum, file) => sum + fs.statSync(file).size, 0);
+if (!fs.existsSync(runtimeEntry)) {
+  errors.push("데스크톱 Studio 런타임 엔트리 없음");
+} else {
+  const runtimeSource = fs.readFileSync(runtimeEntry, "utf-8");
+  for (const marker of ["./plugin-sdk/secret-ref-runtime", "resolveOpenClawSecretInput", "OPENCLAW_GATEWAY_TOKEN"]) {
+    if (!runtimeSource.includes(marker)) errors.push(`Gateway SecretRef 런타임 마커 없음: ${marker}`);
+  }
+}
 
 let fuseOutput = "";
 if (fs.existsSync(appExe)) {
