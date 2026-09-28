@@ -34,7 +34,7 @@ vision-engine/
 | 구성 | 값 |
 |---|---|
 | LLM | Ollama `qwen3.5:4b` (8GB VRAM 권장) — 도구 호출·추론·이미지 입력이 가능한 오프라인 기본 작업자 |
-| 게이트웨이 | OpenClaw 2026.6.11 — Windows 예약작업 "OpenClaw Gateway"로 자동 실행, `ws://127.0.0.1:18789` (토큰 인증, 루프백 전용) |
+| 게이트웨이 | OpenClaw 2026.9.6 — Windows 예약작업 또는 앱 관리 프로세스로 자동 실행, `ws://127.0.0.1:18789` (토큰 인증, 루프백 전용) |
 | 기본 WebChat | http://127.0.0.1:18789 (openclaw dashboard) |
 | 커스텀 웹앱 | React + Vite + zustand, `webapp/` 참고 |
 

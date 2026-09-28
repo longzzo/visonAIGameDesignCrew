@@ -2,6 +2,26 @@
 
 > 오너의 비전과 단계별 계획. 완료된 것은 ✅, 진행 중은 🔨, 계획은 ⬜.
 
+## v4.2.3 — AI 런타임 대개편·실행 편의성 (2026-09-28) ✅
+
+- ✅ Ollama `0.34.4`, OpenClaw `2026.9.6` 업데이트와 OpenClaw DB·플러그인 마이그레이션
+- ✅ 메인 창과 분리된 전용 로딩 창, 준비 상태 문구, 로딩 완료 후 본체 표시
+- ✅ OpenClaw 기동을 Studio와 분리해 AI 준비가 늦거나 실패해도 프로젝트 화면은 먼저 사용
+- ✅ OpenClaw 외부 Node worker 실행, 일반 사용자 npm 경로 우선, Codex/Claude 가상 환경값 격리
+- ✅ 실행 중인 예약 작업은 재사용하고, 미기동 시 서비스 제어 worker를 거치지 않고 앱 관리 Gateway로 직행해 SQLite 경합 제거
+- ✅ 느린 최초 마이그레이션 120초 허용, 실패 후 남는 진단 프로세스 정리, 자동 복구 6회 상한으로 재시작 폭주 방지
+- ✅ Ollama 32K 컨텍스트 적용 후 설치본 → OpenClaw → `qwen3.5:4b` 실제 에이전트 응답 검증
+- ✅ 데스크톱 시작 경험·AI 런타임 격리 회귀 테스트 추가
+
+## v4.2.0 — 보호 저장소·키 등록 개편 (2026-09-11) 🔨
+
+- ✅ GitHub Models·NVIDIA·Brave 신규 키를 OpenClaw 쓰기 전용 store에 stdin으로 저장하고 설정에는 SecretRef만 기록
+- ✅ **⚙️ PC 준비 → 평문 키 자동 보호**: 사용자 확인 후 기존 공급자 키 이전, 공식 dry-run/apply, 인증 캐시 평문 정리, 감사, Gateway 재기동
+- ✅ OpenClaw 설정 병합이 SecretRef를 실제 키처럼 보존하고 커스텀 `OPENCLAW_CONFIG_PATH`를 서버·릴레이·마이그레이션에서 일관되게 지원
+- ✅ 비밀값이 계획 파일에 들어가지 않는 단위 검사, 모델 경로 2건·설치된 Brave 플러그인의 설정 변경 없는 SecretRef dry-run 통과
+- ⬜ Gateway 이벤트 릴레이의 SecretRef 해석 지원 후 `openclaw secrets audit --json` 평문 0건 달성
+- ⬜ 판매자 정보·지원 이메일·공개 약관/환불/SLA, Authenticode 서명, 공개 업데이트 왕복 검증
+
 ## v4.1.4 — Windows 상용 후보 기반 (2026-09-11) 🔨
 
 - ✅ 바로가기 한 번으로 로딩 화면 → Electron 앱 → 내장 Studio 런타임 기동
@@ -12,7 +32,7 @@
 - ✅ Windows 설치·문서 렌더·보안·단일 인스턴스·제거 E2E 및 패키지 비밀정보 0건
 - ⬜ 판매자 정보·지원 이메일·공개 약관/환불/SLA 확정
 - ⬜ Windows Authenticode 인증서 연결과 서명된 클린 VM 릴리스 검증
-- ⬜ OpenClaw 평문 비밀키 SecretRef 이전 및 감사 0건
+- 🔨 OpenClaw 공급자 키 SecretRef 이전은 v4.2.0에서 완료, Gateway 토큰 1건은 릴레이 개편 대기
 - ⬜ GitHub 태그 릴리스와 구버전 → 신버전 자동 업데이트 왕복 검증
 
 ## 최종 비전: "보이는 사무실" 🏢
@@ -153,7 +173,7 @@
 - ✅ 옵시디안: 사이드바 🗃️N 배지(학습 대기 노트), 볼트 GDD 사본에 "수정해도 반영 안 됨" 경고 삽입
 - ✅ 보안: 프롬프트 인젝션 가드(외부 자료 내 지시문 무시 규칙 + 내부망 URL 제거 — SSRF류 차단),
   VE_REMOTE_MODE=readonly 옵션(폰은 열람만 — 실행·수정·삭제 403)
-- ⚠️ 알려진 한계: API 키는 ~/.openclaw/openclaw.json 평문 (OpenClaw 구조상 불가피 — PC 공유 시 주의)
+- ✅ v4.2.0에서 GitHub Models·NVIDIA·Brave 키는 OpenClaw store SecretRef로 전환. Gateway 토큰은 릴레이 개편 전까지 로컬 설정 파일 권한으로 보호.
 
 ## v1.5 — 선임 개발자 + 개발 인턴 (2026-07-04) ✅
 

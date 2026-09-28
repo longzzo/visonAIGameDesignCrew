@@ -143,6 +143,36 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
     setMsg(result?.ok ? "OpenClaw 비밀키 보안 설정 창을 열었습니다." : `⚠️ ${result?.error || "비밀키 설정 창을 열지 못했습니다."}`);
   };
 
+  const protectOpenClawSecrets = async () => {
+    const desktop = (window as any).veDesktop;
+    if (!desktop?.protectOpenClawSecrets) {
+      setMsg("⚠️ 최신 PC 앱에서만 자동 보호할 수 있습니다.");
+      return;
+    }
+    const proceed = await uiConfirm("평문 공급자 키를 보호할까요?", {
+      message: "GitHub Models·NVIDIA·Brave 키를 OpenClaw의 쓰기 전용 보호 저장소로 옮기고 기존 설정·인증 캐시의 평문을 지웁니다. Gateway 토큰은 실시간 이벤트 기능을 위해 유지합니다.",
+      confirmLabel: "보호 저장소로 이전",
+      cancelLabel: "취소",
+      danger: true,
+    });
+    if (!proceed) return;
+    setBusy(true);
+    setMsg("비밀키를 보호 저장소로 이전하고 감사를 실행하는 중…");
+    try {
+      const result = await desktop.protectOpenClawSecrets();
+      if (!result?.ok) throw new Error(result?.error || "비밀키 보호를 완료하지 못했습니다.");
+      const count = Array.isArray(result.migrated) ? result.migrated.length : 0;
+      setMsg(count > 0
+        ? `🔐 공급자 키 ${count}개를 보호했습니다. Gateway 토큰 1건만 별도 개선 대상으로 남습니다.`
+        : "🔐 이전할 평문 공급자 키가 없습니다.");
+      await refreshReadiness();
+    } catch (error: any) {
+      setMsg(`⚠️ ${String(error?.message || error)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const pullRecommendedModel = async () => {
     setMsg("");
     const desktop = (window as any).veDesktop;
@@ -316,7 +346,8 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
                   <div className="onb-ready-actions">
                     <button className="btn tiny" onClick={() => void startOpenClaw()}>Gateway 시작</button>
                     {!ready.gateway.running && <button className="btn tiny" onClick={() => void onboardOpenClaw()}>OpenClaw 온보딩</button>}
-                    <button className="btn tiny" onClick={() => void configureOpenClawSecrets()}>비밀키 보안 설정</button>
+                    <button className="btn tiny" onClick={() => void protectOpenClawSecrets()} disabled={busy}>평문 키 자동 보호</button>
+                    <button className="btn tiny" onClick={() => void configureOpenClawSecrets()}>고급 비밀키 설정</button>
                   </div>
                 </div>
                 <div className={`onb-ready ${ready.ollama.running && ready.ollama.recommendedInstalled ? "ok" : "warn"}`}>

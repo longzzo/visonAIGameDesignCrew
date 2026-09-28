@@ -20,7 +20,13 @@ const TEMPLATE = path.join(REPO, "config", "openclaw.json");
 const MANIFEST = path.join(REPO, "config", "agents.manifest.json");
 const MODEL_POLICY = path.join(REPO, "config", "model-policy.json");
 
-const isPlaceholder = (s) => typeof s !== "string" || s.includes("{{") || s.includes("—") || s.length === 0;
+const isSecretRef = (value) => value && typeof value === "object"
+  && ["env", "file", "exec", "store"].includes(value.source)
+  && typeof value.provider === "string" && typeof value.id === "string";
+const isPlaceholder = (value) => {
+  if (isSecretRef(value)) return false;
+  return typeof value !== "string" || value.includes("{{") || value.includes("—") || value.length === 0;
+};
 
 // 1) 템플릿 로드 + 경로 치환 ({{REPO}}/{{HOME}} → 실제 경로, JSON 이스케이프 유지)
 let raw = fs.readFileSync(TEMPLATE, "utf-8");

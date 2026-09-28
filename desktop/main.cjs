@@ -95,7 +95,7 @@ async function ensurePackagedOpenclaw(studio) {
   try {
     result = await runUtilityModule(setup, [], {
       cwd: studio.root,
-      env: { ...process.env, VE_AGENT_REPO: desktopDataRoot() },
+      env: externalAiEnv({ VE_AGENT_REPO: desktopDataRoot() }),
       serviceName: "Vision Engine OpenClaw Setup",
     });
   } catch (error) {
@@ -109,6 +109,31 @@ async function ensurePackagedOpenclaw(studio) {
   fs.mkdirSync(path.dirname(marker), { recursive: true });
   fs.writeFileSync(marker, JSON.stringify({ version: app.getVersion(), updatedAt: Date.now() }, null, 2));
   return true;
+}
+
+async function protectOpenClawSecrets() {
+  const studio = packagedStudio();
+  const root = studio?.root || path.resolve(__dirname, "..");
+  const script = path.join(root, "scripts", "migrate-openclaw-secrets.mjs");
+  const entry = findOpenClawEntry();
+  if (!fs.existsSync(script) || !entry) return { ok: false, error: "OpenClaw 또는 비밀키 이전 도구를 찾지 못했습니다." };
+  try {
+    const migration = await runUtilityModule(script, [], {
+      cwd: root,
+      env: externalAiEnv({ VE_RUN_SECRET_MIGRATION: "1", VE_OPENCLAW_ENTRY: entry }),
+      serviceName: "Vision Engine OpenClaw Secret Migration",
+      timeoutMs: 180_000,
+    });
+    const line = String(migration.stdout || "").trim().split(/\r?\n/).filter(Boolean).at(-1);
+    const result = line ? JSON.parse(line) : null;
+    if (migration.code !== 0 || !result?.ok) {
+      return { ok: false, error: safeRuntimeOutput(migration.stderr || migration.stdout || "비밀키 이전 감사가 완료되지 않았습니다.") };
+    }
+    await tryStartOpenClawGateway(true);
+    return result;
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error).slice(0, 500) };
+  }
 }
 
 function runUtilityModule(modulePath, args = [], options = {}) {
@@ -142,6 +167,79 @@ function runUtilityModule(modulePath, args = [], options = {}) {
     child.stdout?.on("data", (chunk) => { stdout = append(stdout, chunk); });
     child.stderr?.on("data", (chunk) => { stderr = append(stderr, chunk); });
     child.once("error", (type, location) => { stderr = append(stderr, `${type}: ${location}`); });
+    child.once("exit", (code) => finish(() => resolve({ code, stdout, stderr })));
+  });
+}
+
+/** OpenClaw는 하위 Node worker를 실행하므로 RunAsNode가 꺼진 Electron UtilityProcess에서 실행하지 않는다. */
+function findNodeRuntime() {
+  const candidates = [
+    process.env.VE_NODE_EXECUTABLE,
+    process.env.ProgramFiles && path.join(process.env.ProgramFiles, "nodejs", "node.exe"),
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Programs", "nodejs", "node.exe"),
+  ].filter(Boolean);
+  const direct = candidates.find((file) => fs.existsSync(file));
+  if (direct) return direct;
+  if (process.platform === "win32") {
+    const found = spawnSync("where.exe", ["node.exe"], { encoding: "utf-8", windowsHide: true });
+    if (found.status === 0) {
+      return String(found.stdout || "").split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "";
+    }
+  }
+  return "";
+}
+
+/** Codex/Claude 샌드박스의 가상 npm 경로가 일반 데스크톱 AI 런타임에 전파되지 않게 한다. */
+function externalAiEnv(extra = {}) {
+  const env = { ...process.env, ...extra };
+  for (const key of Object.keys(env)) {
+    if (/^CODEX_/i.test(key)) delete env[key];
+  }
+  for (const key of ["ELECTRON_RUN_AS_NODE", "NODE_OPTIONS", "NODE_PATH", "NPM_CONFIG_PREFIX"]) delete env[key];
+  if (process.platform === "win32") {
+    env.APPDATA = path.join(os.homedir(), "AppData", "Roaming");
+    env.LOCALAPPDATA = path.join(os.homedir(), "AppData", "Local");
+  }
+  return env;
+}
+
+function runNodeModule(modulePath, args = [], options = {}) {
+  return new Promise((resolve, reject) => {
+    const nodeRuntime = options.nodeRuntime || findNodeRuntime();
+    if (!nodeRuntime) {
+      reject(new Error("OpenClaw 실행에 필요한 Node.js를 찾지 못했습니다."));
+      return;
+    }
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let child;
+    try {
+      child = spawn(nodeRuntime, [modulePath, ...args], {
+        cwd: options.cwd,
+        env: options.env || externalAiEnv(),
+        shell: false,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    const append = (current, chunk) => `${current}${String(chunk || "")}`.slice(-20_000);
+    const finish = (callback) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      callback();
+    };
+    const timeout = setTimeout(() => {
+      try { child.kill(); } catch { /* noop */ }
+      finish(() => reject(new Error(`Node 프로세스 제한 시간 초과 (${options.timeoutMs || 45_000}ms)`)));
+    }, options.timeoutMs || 45_000);
+    child.stdout?.on("data", (chunk) => { stdout = append(stdout, chunk); });
+    child.stderr?.on("data", (chunk) => { stderr = append(stderr, chunk); });
+    child.once("error", (error) => finish(() => reject(error)));
     child.once("exit", (code) => finish(() => resolve({ code, stdout, stderr })));
   });
 }
@@ -186,8 +284,8 @@ function migratePackagedDataIfEmpty(studio) {
 
 function findOpenClawEntry() {
   const candidates = [
-    process.env.APPDATA && path.join(process.env.APPDATA, "npm", "node_modules", "openclaw", "dist", "index.js"),
     path.join(os.homedir(), "AppData", "Roaming", "npm", "node_modules", "openclaw", "dist", "index.js"),
+    process.env.APPDATA && path.join(process.env.APPDATA, "npm", "node_modules", "openclaw", "dist", "index.js"),
     path.join(os.homedir(), "AppData", "Local", "Packages", "Claude_pzs8sxrjxfjjc", "LocalCache", "Roaming", "npm", "node_modules", "openclaw", "dist", "index.js"),
   ].filter(Boolean);
   return candidates.find((file) => fs.existsSync(file)) || "";
@@ -232,6 +330,10 @@ function pipeGatewayDiagnostics(child) {
 function scheduleGatewayRestart(exitCode) {
   if (quitting || gatewayRestartTimer) return;
   gatewayRestartAttempts += 1;
+  if (gatewayRestartAttempts > 6) {
+    console.warn(`⚠️ OpenClaw Gateway 자동 복구를 중단합니다. 앱의 AI 상태에서 다시 시작할 수 있습니다. (code=${exitCode})`);
+    return;
+  }
   const delay = Math.min(30_000, 1_500 * (2 ** Math.min(gatewayRestartAttempts - 1, 5)));
   console.warn(`⚠️ OpenClaw Gateway 자동 복구 예약: ${delay}ms 후 재시작 (code=${exitCode})`);
   gatewayRestartTimer = setTimeout(() => {
@@ -241,14 +343,17 @@ function scheduleGatewayRestart(exitCode) {
 }
 
 function spawnManagedOpenClawGateway(entry) {
-  const child = utilityProcess.fork(entry, ["gateway", "--port", "18789", "--force", "run"], {
+  const nodeRuntime = findNodeRuntime();
+  if (!nodeRuntime) throw new Error("OpenClaw Gateway 실행에 필요한 Node.js를 찾지 못했습니다.");
+  const child = spawn(nodeRuntime, [entry, "gateway", "run", "--port", "18789", "--force"], {
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env },
-    serviceName: "Vision Engine OpenClaw Gateway",
+    env: externalAiEnv(),
+    shell: false,
+    windowsHide: true,
   });
   gatewayChild = child;
   pipeGatewayDiagnostics(child);
-  child.once("error", (type, location) => console.warn("⚠️ OpenClaw Gateway UtilityProcess 오류:", type, location));
+  child.once("error", (error) => console.warn("⚠️ OpenClaw Gateway Node 프로세스 오류:", String(error?.message || error)));
   child.once("exit", (code) => {
     if (gatewayChild !== child) return;
     gatewayChild = null;
@@ -277,36 +382,44 @@ async function startOpenClawGateway(restart = false) {
     try { child.kill(); } catch { /* 이미 종료됨 */ }
   }
 
-  // 기존 OpenClaw 서비스가 설치된 PC에서는 서비스 수명주기를 존중한다.
-  try {
-    const service = await runUtilityModule(entry, ["gateway", restart ? "restart" : "start"], {
-      env: { ...process.env },
-      serviceName: "Vision Engine OpenClaw Service Control",
-      timeoutMs: 15_000,
-    });
-    if (service.code === 0 && await waitForLocalPort(18789, 6_000)) {
-      gatewayRestartAttempts = 0;
-      console.log(`✅ OpenClaw Gateway 서비스 ${restart ? "재시작" : "시작"} 확인`);
-      return { ok: true, mode: "service" };
+  // 이미 떠 있는 예약 작업은 위 포트 검사에서 재사용한다. 기본 시작은 앱 관리 모드로 직행한다.
+  // OpenClaw CLI의 service start가 별도 진단 worker를 남기면 직접 Gateway와 SQLite 잠금을 다투기 때문이다.
+  if (process.env.VE_USE_OPENCLAW_SERVICE === "1") {
+    try {
+      const service = await runNodeModule(entry, ["gateway", restart ? "restart" : "start"], {
+        env: externalAiEnv(),
+        timeoutMs: 45_000,
+      });
+      if (service.code === 0 && await waitForLocalPort(18789, 10_000)) {
+        gatewayRestartAttempts = 0;
+        console.log(`✅ OpenClaw Gateway 서비스 ${restart ? "재시작" : "시작"} 확인`);
+        return { ok: true, mode: "service" };
+      }
+      const detail = safeRuntimeOutput(service.stderr || service.stdout);
+      if (detail) console.warn("⚠️ OpenClaw 서비스 시작 불가, 앱 관리 모드로 전환:", detail);
+    } catch (error) {
+      console.warn("⚠️ OpenClaw 서비스 제어 실패, 앱 관리 모드로 전환:", String(error?.message || error).slice(0, 300));
     }
-    const detail = safeRuntimeOutput(service.stderr || service.stdout);
-    if (detail) console.warn("⚠️ OpenClaw 서비스 시작 불가, 앱 관리 모드로 전환:", detail);
-  } catch (error) {
-    console.warn("⚠️ OpenClaw 서비스 제어 실패, 앱 관리 모드로 전환:", String(error?.message || error).slice(0, 300));
   }
 
   try {
     spawnManagedOpenClawGateway(entry);
-    if (await waitForLocalPort(18789, 15_000)) {
+    if (await waitForLocalPort(18789, 120_000)) {
       gatewayRestartAttempts = 0;
       console.log("✅ OpenClaw Gateway 앱 관리 모드 기동 확인");
       return { ok: true, mode: "managed" };
     }
-    const child = gatewayChild;
-    gatewayChild = null;
-    try { child?.kill(); } catch { /* noop */ }
+    // 초기 DB 정리·플러그인 인덱싱에 2분을 준다. 그 뒤에도 포트가 없으면 자동 triage가
+    // 남아 있는 경우까지 프로세스를 정리하고 새 상태로 재시도한다.
+    if (gatewayChild) {
+      const child = gatewayChild;
+      gatewayChild = null;
+      try { child.kill(); } catch { /* 이미 종료됨 */ }
+      if (!quitting) scheduleGatewayRestart("readiness-timeout");
+      return { ok: false, retrying: true, error: "OpenClaw Gateway 준비 시간이 초과되어 백그라운드에서 다시 시작합니다." };
+    }
     if (!quitting) scheduleGatewayRestart("readiness-timeout");
-    return { ok: false, error: "OpenClaw Gateway가 제한 시간 안에 준비되지 않았습니다. 진단 로그를 확인하세요." };
+    return { ok: false, error: "OpenClaw Gateway 프로세스가 준비 전에 종료되었습니다. 진단 로그를 확인하세요." };
   } catch (error) {
     if (!quitting) scheduleGatewayRestart("spawn-error");
     return { ok: false, error: `OpenClaw Gateway 실행 실패: ${String(error?.message || error).slice(0, 200)}` };
@@ -322,9 +435,9 @@ function tryStartOpenClawGateway(restart = false) {
 function findOpenClawCli() {
   if (process.platform !== "win32") return "openclaw";
   const candidates = [
+    path.join(os.homedir(), "AppData", "Roaming", "npm", "openclaw.cmd"),
     process.env.APPDATA && path.join(process.env.APPDATA, "npm", "openclaw.cmd"),
     process.env.APPDATA && path.join(process.env.APPDATA, "npm", "openclaw.ps1"),
-    path.join(os.homedir(), "AppData", "Roaming", "npm", "openclaw.cmd"),
     path.join(os.homedir(), "AppData", "Local", "Packages", "Claude_pzs8sxrjxfjjc", "LocalCache", "Roaming", "npm", "openclaw.cmd"),
   ].filter(Boolean);
   const direct = candidates.find((file) => fs.existsSync(file));
@@ -382,7 +495,7 @@ function launchOpenClawOnboard() {
     const child = spawn("powershell.exe", [
       "-NoLogo", "-NoProfile", "-NoExit", "-Command",
       "& $env:VE_OPENCLAW_CLI onboard; Write-Host ''; Write-Host '온보딩이 끝나면 이 창을 닫고 Vision Engine에서 Gateway 시작을 누르세요.'",
-    ], { windowsHide: false, detached: true, stdio: "ignore", env: { ...process.env, VE_OPENCLAW_CLI: cli } });
+    ], { windowsHide: false, detached: true, stdio: "ignore", env: externalAiEnv({ VE_OPENCLAW_CLI: cli }) });
     child.unref();
     return { ok: true };
   } catch (error) {
@@ -397,7 +510,7 @@ function launchOpenClawSecrets() {
     const child = spawn("powershell.exe", [
       "-NoLogo", "-NoProfile", "-NoExit", "-Command",
       "& $env:VE_OPENCLAW_CLI secrets configure; Write-Host ''; Write-Host '비밀키 설정이 끝나면 이 창을 닫으세요.'",
-    ], { windowsHide: false, detached: true, stdio: "ignore", env: { ...process.env, VE_OPENCLAW_CLI: cli } });
+    ], { windowsHide: false, detached: true, stdio: "ignore", env: externalAiEnv({ VE_OPENCLAW_CLI: cli }) });
     child.unref();
     return { ok: true };
   } catch (error) {
@@ -436,6 +549,7 @@ let runtimeRestartAttempts = 0;
 let runtimeRestarting = false;
 let runtimeSpawnedAt = 0;
 let win = null;
+let splashWin = null;
 let currentTarget = LOCAL_URL;
 
 function sameOrigin(candidate, expected = currentTarget) {
@@ -772,7 +886,10 @@ async function trySpawnLocalServer() {
   if (packaged) {
     const openclawChanged = await ensurePackagedOpenclaw(packaged);
     migratePackagedDataIfEmpty(packaged);
-    await tryStartOpenClawGateway(openclawChanged);
+    // Gateway 마이그레이션이 길어져도 Studio와 로딩 창은 먼저 사용할 수 있어야 한다.
+    void tryStartOpenClawGateway(openclawChanged).then((result) => {
+      if (!result?.ok) console.warn("⚠️ OpenClaw Gateway 백그라운드 상태:", result?.error || "준비되지 않음");
+    }).catch((error) => console.warn("⚠️ OpenClaw Gateway 백그라운드 기동 실패:", String(error?.message || error)));
     console.log("⏳ 내장 Studio 런타임 기동 중…", packaged.runtime);
     showSplash("Vision Engine Studio를 기동하고 있습니다…");
     try {
@@ -823,8 +940,14 @@ async function trySpawnLocalServer() {
     return false;
   }
   const t0 = Date.now();
+  let lastSplashUpdate = t0;
   while (Date.now() - t0 < 90_000) {
     await new Promise((r) => setTimeout(r, 1200));
+    if (Date.now() - lastSplashUpdate >= 7_000) {
+      const elapsed = Math.max(1, Math.round((Date.now() - t0) / 1000));
+      showSplash(`Vision Engine Studio를 준비하고 있습니다… (${elapsed}초)`);
+      lastSplashUpdate = Date.now();
+    }
     // 우리가 띄운 서버도 tailnet 모드면 127.0.0.1에 안 붙는다 — 후보 전체를 본다
     const found = await findRunningServer();
     if (found) {
@@ -853,33 +976,85 @@ async function resolveTarget() {
 
 function openSettings(message = "") {
   if (!win) return;
-  void win.loadFile(path.join(__dirname, "settings.html"), { query: message ? { msg: message } : undefined });
+  void win.loadFile(path.join(__dirname, "settings.html"), { query: message ? { msg: message } : undefined })
+    .then(() => revealMainWindow())
+    .catch((error) => console.error("❌ 설정 화면 로드 실패:", String(error?.message || error)));
 }
 
 /**
- * 준비 중 화면 — 서버를 찾고/기동하는 동안(최초 실행은 1분 가까이 걸린다) 창이 새까맣게
- * 비어 있으면 "앱이 검은 화면만 뜬다"로 보인다. 곧바로 이 화면을 띄워 진행 상태를 알린다.
+ * 준비 중 화면 — 메인 BrowserWindow와 분리해서 보여준다.
+ * 서버/AI 준비 중 메인 창이 데이터 URL과 앱 URL 사이를 오가며 깜빡이던 문제도 함께 막는다.
  */
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function showSplash(note = "로컬 서버를 찾고 있습니다…") {
-  if (!win) return;
+  if (!splashWin || splashWin.isDestroyed()) {
+    splashWin = new BrowserWindow({
+      width: 520,
+      height: 330,
+      show: false,
+      frame: false,
+      resizable: false,
+      maximizable: false,
+      minimizable: false,
+      alwaysOnTop: true,
+      center: true,
+      backgroundColor: "#10131a",
+      title: "Vision Engine 준비 중",
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        webSecurity: true,
+        devTools: false,
+      },
+    });
+    splashWin.on("closed", () => { splashWin = null; });
+  }
   const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><style>
     html,body{height:100%;margin:0}
-    body{background:#12151c;color:#c3cbdb;display:flex;align-items:center;justify-content:center;
-      font-family:"Malgun Gothic","Segoe UI",system-ui,sans-serif;-webkit-user-select:none}
-    .box{text-align:center;line-height:1.7}
-    .logo{font-size:34px;margin-bottom:10px}
-    .t{font-size:16px;font-weight:700;color:#e8edf5}
-    .s{font-size:12.5px;color:#8b94a7;margin-top:6px}
-    .bar{width:210px;height:3px;border-radius:2px;background:#232838;overflow:hidden;margin:16px auto 0}
-    .bar i{display:block;width:38%;height:100%;border-radius:2px;background:#8b7cf6;animation:slide 1.1s ease-in-out infinite}
+    body{background:radial-gradient(circle at 50% 0,#252044 0,#141824 46%,#10131a 100%);color:#cbd3e4;
+      display:flex;align-items:center;justify-content:center;font-family:"Malgun Gothic","Segoe UI",system-ui,sans-serif;
+      -webkit-user-select:none;border:1px solid #343b51;box-sizing:border-box}
+    .box{width:390px;text-align:center;line-height:1.65}
+    .logo{width:62px;height:62px;margin:0 auto 14px;border-radius:18px;display:grid;place-items:center;
+      font-size:31px;background:linear-gradient(145deg,#7968ef,#4c3e9e);box-shadow:0 10px 30px #5d4bd055}
+    .t{font-size:19px;font-weight:800;color:#f2f4fa;letter-spacing:-.2px}
+    .s{font-size:13px;color:#aab4c9;margin-top:8px;min-height:22px}
+    .steps{display:flex;justify-content:center;gap:18px;margin-top:19px;font-size:11px;color:#707b91}
+    .steps span:first-child{color:#b9abff}.steps i{display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:5px}
+    .bar{width:280px;height:4px;border-radius:4px;background:#252b3b;overflow:hidden;margin:19px auto 0}
+    .bar i{display:block;width:36%;height:100%;border-radius:4px;background:linear-gradient(90deg,#7e6df1,#a999ff);animation:slide 1.15s ease-in-out infinite}
+    .hint{font-size:11px;color:#69748a;margin-top:12px}
     @keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(360%)}}
   </style></head><body><div class="box">
-    <div class="logo">🏢</div><div class="t">Vision Engine 준비 중…</div>
-    <div class="s">${note}</div>
-    <div class="s">최초 실행은 1분 정도 걸릴 수 있습니다</div>
+    <div class="logo">🏢</div><div class="t">Vision Engine을 준비하고 있습니다</div>
+    <div class="s">${escapeHtml(note)}</div>
+    <div class="steps"><span><i></i>앱 엔진</span><span><i></i>프로젝트</span><span><i></i>AI 연결</span></div>
     <div class="bar"><i></i></div>
+    <div class="hint">AI가 늦어져도 Studio는 먼저 열립니다</div>
   </div></body></html>`;
-  void win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
+  void splashWin.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html)).then(() => {
+    if (!splashWin || splashWin.isDestroyed()) return;
+    splashWin.show();
+    splashWin.focus();
+  }).catch((error) => console.warn("⚠️ 로딩 창 표시 실패:", String(error?.message || error)));
+}
+
+function revealMainWindow() {
+  if (!win || win.isDestroyed()) return;
+  if (splashWin && !splashWin.isDestroyed()) splashWin.close();
+  splashWin = null;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
 }
 
 async function connect() {
@@ -899,6 +1074,7 @@ async function connect() {
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       await win.loadURL(target);
+      revealMainWindow();
       return;
     } catch (e) {
       console.warn(`⚠️ 로드 실패 (${attempt}/3):`, String(e?.message ?? e).slice(0, 80));
@@ -916,6 +1092,7 @@ function createWindow() {
     minHeight: 620,
     backgroundColor: "#12151c",
     title: "Vision Engine — 게임 개발 스튜디오",
+    show: false,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -988,6 +1165,11 @@ function showWindow() {
     return;
   }
   try {
+    if (splashWin && !splashWin.isDestroyed() && !win.isVisible()) {
+      splashWin.show();
+      splashWin.focus();
+      return;
+    }
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
@@ -1096,6 +1278,7 @@ handleTrusted("ve:startOpenClaw", async () => {
 });
 handleTrusted("ve:openclawOnboard", async () => launchOpenClawOnboard());
 handleTrusted("ve:openclawSecrets", async () => launchOpenClawSecrets());
+handleTrusted("ve:protectOpenClawSecrets", async () => protectOpenClawSecrets());
 handleTrusted("ve:ollamaPull", async (_event, model) => launchOllamaPull(String(model || "qwen3.5:4b")));
 handleTrusted("ve:exportSupportReport", async () => exportSupportReport());
 handleTrusted("ve:getUpdateState", async () => publicUpdateState());

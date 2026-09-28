@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { WebSocket } from "ws";
 
-const OPENCLAW_CFG = path.join(os.homedir(), ".openclaw", "openclaw.json");
+const OPENCLAW_CFG = path.resolve(process.env.OPENCLAW_CONFIG_PATH || path.join(os.homedir(), ".openclaw", "openclaw.json"));
 const EVENT_ALLOW = new Set(["agent", "chat"]);
 
 function readConfig() {

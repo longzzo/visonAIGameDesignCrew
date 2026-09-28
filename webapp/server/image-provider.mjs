@@ -11,7 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const OPENCLAW_CFG = path.join(os.homedir(), ".openclaw", "openclaw.json");
+const OPENCLAW_CFG = path.resolve(process.env.OPENCLAW_CONFIG_PATH || path.join(os.homedir(), ".openclaw", "openclaw.json"));
 
 function readKey() {
   try {

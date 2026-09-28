@@ -14,16 +14,39 @@
 - [x] ASAR 무결성·RunAsNode·Node 옵션/디버거·file:// 추가 권한 제한
 - [x] 앱 내부 자동 업데이트 확인·다운로드·재시작 설치 흐름
 - [x] 로컬 격리 포트에서 압축 해제본 기동·내장 런타임·두 번째 실행 E2E
+- [x] 신규 공급자 키 보호 저장소 등록 및 기존 평문 키의 명시적 SecretRef 이전 흐름
 - [ ] 실제 지원 이메일 확정
 - [ ] Windows 코드 서명 인증서 연결 및 서명 검증
 - [ ] GitHub Release에 설치 EXE·blockmap·`latest.yml` 업로드 후 업데이트 왕복 검증
-- [ ] OpenClaw 평문 자격증명 SecretRef 이전 및 감사 0건
+- [ ] Gateway 릴레이 SecretRef 지원 및 OpenClaw 평문 자격증명 감사 0건
 - [ ] 결제 상품·환불 정책·세금 처리·고객 지원 SLA 확정
 - [ ] 클린 Windows VM 설치/업데이트/제거 E2E 통과
 
 `node scripts/release-check.mjs --strict`가 자동 검증 가능한 출시 차단 항목을 검사합니다. 빈 제품 메타데이터나 서명 자격증명이 있으면 정식 배포를 실패시킵니다.
 
 GitHub Actions의 `Windows release` 수동 실행은 새 Windows runner에서 설치·실행·보안 헤더·단일 인스턴스·제거를 자동 검증합니다. `vX.Y.Z` 태그 실행은 여기에 유효한 Authenticode 서명과 GitHub Release 게시까지 추가합니다. 설정 방법은 [상용 릴리스 운영서](COMMERCIAL-RELEASE.md)를 따릅니다.
+
+## 4.2.3 로컬 검증 기록 (2026-09-28)
+
+- Ollama `0.34.4`, OpenClaw `2026.9.6` 업데이트와 OpenClaw 상태 DB·에이전트 DB·검색 플러그인 마이그레이션 완료
+- 손상되지 않은 DB를 막던 0바이트 잔여 Gateway lock만 복구 폴더로 격리하고 `openclaw doctor --fix --non-interactive` 통과
+- 독립 로딩 창, 숨겨진 메인 창, Studio 우선 실행, OpenClaw 앱 관리 직행·백그라운드 자동 복구·잔여 진단 프로세스 정리·재시도 상한 회귀 검사 추가
+- 전체 37개 테스트·TypeScript·프로덕션 빌드·독립 런타임 smoke 통과
+- 웹앱·데스크톱의 프로덕션 및 전체 빌드 npm 보안 감사 4종 모두 취약점 0건
+- 기존 `🖥️ 비전엔진 데스크톱 앱.lnk` 실행에서 Studio 5199를 먼저 준비하고 OpenClaw 18789 자동 복구 성공, 기존 프로젝트 5개 보존 확인
+- Ollama 사용자 컨텍스트 `32768` 적용 후 설치본 `/api/agent` → OpenClaw → `ollama/qwen3.5:4b` 실제 요청 `OK` 응답(24.049초)
+- NSIS 패키지 `305,166,124`바이트, blockmap·`latest.yml` 일치, 패키지 비밀정보 검사 0건
+- 설치본 SHA-256: `d6f0e49acececf5fdef5e27f18b351acd24f4985fa7dc2758f91edc7bd0a86b6`
+- 설치 파일과 앱 본체는 아직 상용 코드서명 전이므로 고객 배포 금지
+
+## 4.2.0 로컬 검증 기록 (2026-09-11)
+
+- GitHub Models·NVIDIA 모델 경로 2건을 가짜 환경값과 격리 OpenClaw 상태에서 설정 변경 없는 공식 plan dry-run으로 통과하고, 계획 파일 비밀값 미포함을 검사
+- 설치된 Brave 플러그인의 `plugins.entries.brave.config.webSearch.apiKey` SecretRef 경로를 가짜 환경값과 무변경 dry-run으로 통과
+- 신규 키 등록 API는 평문 설정 기록을 제거하고, 기존 키 이전은 Electron의 명시적 확인 UI에서만 실행
+- OpenClaw 공식 적용 실패 시 기존 설정을 유지하며, Gateway 토큰은 이벤트 릴레이 호환 때문에 자동 이전에서 제외
+- 전체 34개 테스트·TypeScript·프로덕션 빌드·독립 런타임 smoke 통과
+- NSIS 패키지·설치본 검증과 최종 SHA-256은 아래 배포 전 검증에서 추가 기록
 
 ## 4.1.4 로컬 검증 기록 (2026-09-11)
 

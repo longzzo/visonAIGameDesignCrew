@@ -1,11 +1,11 @@
-# Vision Engine 4.0 업그레이드 안내
+# Vision Engine 4.2.3 업그레이드 안내
 
-기준일: 2026-09-10
+기준일: 2026-09-28
 
 ## 적용된 업데이트
 
-- Ollama 0.33.3 및 RTX 4060 Laptop 8GB용 `qwen3.5:4b`
-- OpenClaw 2026.9.3, 공식 Windows Gateway 서비스 재등록
+- Ollama 0.34.4 및 RTX 4060 Laptop 8GB용 `qwen3.5:4b`
+- OpenClaw 2026.9.6, 상태 DB·31개 에이전트 DB·검색 플러그인 마이그레이션과 Windows Gateway 서비스 재등록
 - OpenClaw 최신 `agents.entries` 설정과 구형 `agents.list` 동시 호환
 - 준비 화면에서 Ollama/OpenClaw 버전, 에이전트 수, 설치 모델을 한 번에 진단
 - 추천 모델 다운로드 및 Gateway 시작 버튼
@@ -17,6 +17,10 @@
 - GitHub Releases 기반 자동 업데이트 확인·동의 다운로드·재시작 설치 기반
 - EULA·개인정보·보안 정책·594개 패키지 오픈소스 고지와 출시 사전검사
 - 화면별 지연 로딩으로 초기 JS 약 581KB → 약 460KB
+- GitHub Models·NVIDIA·Brave 신규 키 보호 저장소 등록과 기존 평문 키의 명시적 SecretRef 이전
+- 메인 창과 분리된 전용 로딩 창, AI 준비와 무관한 Studio 우선 실행
+- 느린 OpenClaw 초기화를 위한 120초 준비 유예와 자동 재시작 6회 상한
+- Ollama 사용자 컨텍스트 `32768` 적용으로 7K 이상 시스템 프롬프트를 쓰는 전문 에이전트의 4K 초과 오류 해소
 
 ## 새로 사용할 수 있는 기능
 
@@ -35,11 +39,11 @@
 
 ## 다음 개편 우선순위
 
-1. 앱의 ‘비밀키 보안 설정’에서 OpenClaw 평문 토큰을 SecretRef로 이전
+1. Gateway 이벤트 릴레이가 SecretRef를 직접 해석하게 바꾸고 OpenClaw 평문 감사 0건 달성
 2. Codex App Server를 내장해 로그인·승인·진행 이벤트·작업 이력을 앱 안에서 표시
-3. MCP 2026-07-28 Tasks 기반 장기 작업 재개 및 취소 UI
-4. 4,900줄 규모 `vite.config.ts`를 API 모듈별로 분리
-5. 로컬/클라우드 모델 평가 세트와 회귀 테스트 추가
+3. MCP Tasks 기반 장기 작업 재개 및 취소 UI
+4. 대형 `vite.config.ts`를 프로젝트·AI·내보내기 API 모듈로 분리
+5. 로컬/클라우드 모델 평가 세트와 자동 회귀 테스트 추가
 
 ## 정식 판매 전에 오너가 제공해야 하는 값
 

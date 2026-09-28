@@ -13,6 +13,7 @@ import { jobStorePlugin } from "./server/job-store.mjs";
 import { readinessApiPlugin } from "./server/readiness.mjs";
 import { backupApiPlugin } from "./server/backup-store.mjs";
 import { applySecurityHeaders, hostnameAllowed, originMatchesRequest } from "./server/request-security.mjs";
+import { isSecretRef, protectOpenClawValues } from "../scripts/migrate-openclaw-secrets.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = process.env.VE_REPO_ROOT ? path.resolve(process.env.VE_REPO_ROOT) : path.resolve(__dirname, "..");
@@ -1408,7 +1409,7 @@ function chatsApiPlugin(): Plugin {
 
 /* ── OpenClaw 설정 공용 헬퍼 ──────────────────────────── */
 
-const OPENCLAW_CFG = path.join(os.homedir(), ".openclaw", "openclaw.json");
+const OPENCLAW_CFG = path.resolve(process.env.OPENCLAW_CONFIG_PATH || path.join(os.homedir(), ".openclaw", "openclaw.json"));
 
 /**
  * 이 PC 자신의 Tailscale IPv4 목록 (100.x). 30초 캐시.
@@ -1773,8 +1774,9 @@ function braveKeyPlugin(): Plugin {
           try {
             if (req.method === "GET") {
               const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
-              const key = cfg?.tools?.web?.search?.apiKey ?? "";
-              res.end(JSON.stringify({ configured: typeof key === "string" && key.length > 10 }));
+              const key = cfg?.plugins?.entries?.brave?.config?.webSearch?.apiKey
+                ?? cfg?.tools?.web?.search?.apiKey ?? "";
+              res.end(JSON.stringify({ configured: isSecretRef(key) || (typeof key === "string" && key.length > 10) }));
               return;
             }
             if (req.method === "POST") {
@@ -1793,8 +1795,36 @@ function braveKeyPlugin(): Plugin {
               cfg.tools = cfg.tools || {};
               cfg.tools.web = cfg.tools.web || {};
               // provider를 명시하지 않으면 게이트웨이가 다른 검색 프로바이더(MiniMax 등)로 기본 설정될 수 있다
-              cfg.tools.web.search = { ...(cfg.tools.web.search || {}), enabled: true, provider: "brave", apiKey: key.trim() };
+              cfg.tools.web.search = { ...(cfg.tools.web.search || {}), enabled: true, provider: "brave" };
+              cfg.plugins ||= {};
+              cfg.plugins.entries ||= {};
+              cfg.plugins.entries.brave ||= {};
+              cfg.plugins.entries.brave.enabled = true;
+              cfg.plugins.entries.brave.config ||= {};
+              cfg.plugins.entries.brave.config.webSearch ||= {};
+              if (!("apiKey" in cfg.plugins.entries.brave.config.webSearch)) {
+                cfg.plugins.entries.brave.config.webSearch.apiKey = "";
+              }
               fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), "utf-8");
+              await protectOpenClawValues([{
+                name: "BRAVE_SEARCH_API_KEY",
+                value: key.trim(),
+                type: "plugins.entries.brave.config.webSearch.apiKey",
+                path: "plugins.entries.brave.config.webSearch.apiKey",
+                pathSegments: ["plugins", "entries", "brave", "config", "webSearch", "apiKey"],
+              }]);
+              // SecretRef 적용이 성공한 뒤 최신 설정을 다시 읽어 레거시 평문 경로를 제거한다.
+              // 적용 전까지는 기존 키를 유지하므로 실패해도 검색 기능이 끊기지 않는다.
+              const protectedConfig = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+              protectedConfig.tools ||= {};
+              protectedConfig.tools.web ||= {};
+              protectedConfig.tools.web.search = {
+                ...(protectedConfig.tools.web.search || {}),
+                enabled: true,
+                provider: "brave",
+              };
+              delete protectedConfig.tools.web.search.apiKey;
+              fs.writeFileSync(cfgPath, JSON.stringify(protectedConfig, null, 2), "utf-8");
               restartGateway(); // 키 반영
               res.end(JSON.stringify({ ok: true }));
               return;
@@ -4364,7 +4394,7 @@ const isStaticallyRetiredModel = (model: unknown): boolean =>
 
 function hasProviderKey(cfg: any, provider: string): boolean {
   const key = cfg?.models?.providers?.[provider]?.apiKey;
-  return typeof key === "string" && key.length > 10;
+  return isSecretRef(key) || (typeof key === "string" && key.length > 10);
 }
 
 /**
@@ -4477,10 +4507,25 @@ function modelsApiPlugin(): Plugin {
                   res.end(JSON.stringify({ ok: false, error: "provider/key 확인 필요" }));
                   return;
                 }
-                cfg.models = cfg.models || {};
-                cfg.models.providers = cfg.models.providers || {};
-                cfg.models.providers[provider] = { ...PROVIDER_TEMPLATES[provider], apiKey: key };
-                fs.writeFileSync(OPENCLAW_CFG, JSON.stringify(cfg, null, 2), "utf-8");
+                cfg.models ||= {};
+                cfg.models.providers ||= {};
+                if (!cfg.models.providers[provider]) {
+                  cfg.models.providers[provider] = { ...PROVIDER_TEMPLATES[provider], apiKey: "" };
+                  fs.writeFileSync(OPENCLAW_CFG, JSON.stringify(cfg, null, 2), "utf-8");
+                }
+                const secretName = provider === "github" ? "GITHUB_MODELS_API_KEY" : "NVIDIA_API_KEY";
+                await protectOpenClawValues([{
+                  name: secretName,
+                  value: key,
+                  type: "models.providers.apiKey",
+                  path: `models.providers.${provider}.apiKey`,
+                  pathSegments: ["models", "providers", provider, "apiKey"],
+                  providerId: provider,
+                }]);
+                const protectedConfig = JSON.parse(fs.readFileSync(OPENCLAW_CFG, "utf-8"));
+                const protectedKey = protectedConfig?.models?.providers?.[provider]?.apiKey;
+                protectedConfig.models.providers[provider] = { ...PROVIDER_TEMPLATES[provider], apiKey: protectedKey };
+                fs.writeFileSync(OPENCLAW_CFG, JSON.stringify(protectedConfig, null, 2), "utf-8");
                 restartGateway();
                 res.end(JSON.stringify({ ok: true }));
                 return;

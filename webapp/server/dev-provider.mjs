@@ -10,7 +10,7 @@ import { resolveCodexWorkdir } from "./readiness.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = process.env.VE_REPO_ROOT ? path.resolve(process.env.VE_REPO_ROOT) : path.resolve(__dirname, "..", "..");
-const OPENCLAW_CFG = path.join(os.homedir(), ".openclaw", "openclaw.json");
+const OPENCLAW_CFG = path.resolve(process.env.OPENCLAW_CONFIG_PATH || path.join(os.homedir(), ".openclaw", "openclaw.json"));
 
 function readCfg() {
   try {
