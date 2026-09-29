@@ -32,9 +32,9 @@ button { font-family: inherit; }
 .dim { color: var(--text-dim); font-size: 0.85em; }
 
 .app { display: flex; flex-direction: column; height: 100vh; }
-.app-body { display: grid; grid-template-columns: 250px 1fr 400px; flex: 1; min-height: 0; }
+.app-body { display: grid; grid-template-columns: 316px 1fr 400px; flex: 1; min-height: 0; }
 /* 마스터 GDD 사이드 제거 모드 — 오너 요청: GDD는 📄 GDD 탭에서만 (사이드 3번째 컬럼 없음) */
-.app-body.no-side-gdd { grid-template-columns: 250px 1fr; }
+.app-body.no-side-gdd { grid-template-columns: 316px 1fr; }
 .main-panel .gdd-panel.gdd-main { border-left: none; flex: 1; min-height: 0; }
 .gdd-panel.gdd-main .gdd-content { max-width: 900px; margin: 0 auto; width: 100%; }
 
@@ -88,9 +88,9 @@ button { font-family: inherit; }
 .conn-label { display: none; } /* title 툴팁으로 문구는 그대로 확인된다 */
 .model-badge { max-width: 110px; }
 
-/* ② 배지 글자를 접고 아이콘만 남긴다 (이름은 title 툴팁) + 모델 배지 제거 */
-/* 1900px — 실측 임계는 약 1896px이다(1890에서 6px 넘쳤다). 여유를 두고 여기서 접는다. */
-@media (max-width: 1900px) {
+/* ② 배지 글자를 접고 아이콘만 남긴다 (이름은 title 툴팁) + 모델 배지 제거
+   사이드바 확장과 Windows 표시 배율까지 고려해 2,140px부터 여유 있게 접는다. */
+@media (max-width: 2140px) {
   /* 사용량은 제외 — 숫자가 실시간 정보라 더 오래 남긴다 */
   .topbar-right .badge:not(.usage-badge) .lbl { display: none; }
   .topbar-right { gap: 7px; }
@@ -122,7 +122,7 @@ button { font-family: inherit; }
 }
 .view-tabs button:hover { color: var(--text); background: var(--panel); }
 .view-tabs button.active { background: var(--accent-soft); color: var(--accent-2); border-color: rgba(139, 124, 246, 0.4); font-weight: 600; }
-.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .badge {
   background: var(--panel); border: 1px solid var(--border); border-radius: 999px;
   padding: 4px 11px; font-size: 12px; color: var(--text-dim); white-space: nowrap;
@@ -1128,10 +1128,16 @@ button { font-family: inherit; }
 ::-webkit-scrollbar-thumb:hover { background: #3a4557; }
 ::-webkit-scrollbar-track { background: transparent; }
 
+/* 중간 화면에서는 본문 폭을 우선하고, 1,180px 아래에서 한 번 더 줄인다. */
+@media (max-width: 1500px) {
+  .app-body { grid-template-columns: 250px 1fr 360px; }
+  .app-body.no-side-gdd { grid-template-columns: 250px 1fr; }
+}
+
 /* 좁은 화면 대응 */
 @media (max-width: 1180px) {
-  .app-body { grid-template-columns: 210px 1fr 320px; }
-  .app-body.no-side-gdd { grid-template-columns: 210px 1fr; }
+  .app-body { grid-template-columns: 220px 1fr 320px; }
+  .app-body.no-side-gdd { grid-template-columns: 220px 1fr; }
   .project-name { width: 140px; }
 }
 
@@ -1202,36 +1208,86 @@ button { font-family: inherit; }
   .conn-label { display: none; }
 }
 
-/* ── v0.3: 에이전트 대화 피드 ─────────────────────── */
+/* ── 에이전트 대화 피드 ───────────────────────────── */
+.feed-section-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px;
+  background: linear-gradient(105deg, rgba(139,124,246,0.13), rgba(33,43,64,0.72) 48%, rgba(96,165,250,0.07));
+  box-shadow: 0 7px 22px rgba(0,0,0,0.14); flex-shrink: 0;
+}
+.feed-section-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.feed-section-icon {
+  width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 10px; background: rgba(139,124,246,0.16); border: 1px solid rgba(139,124,246,0.35);
+}
+.feed-section-title > span:last-child { display: flex; flex-direction: column; gap: 2px; }
+.feed-section-title b { font-size: 13.5px; letter-spacing: 0.1px; }
+.feed-section-title small { color: var(--text-dim); font-size: 10.5px; }
+.feed-legend { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
+.feed-legend span {
+  padding: 3px 8px; border-radius: 999px; background: rgba(255,255,255,0.035);
+  border: 1px solid var(--border-soft); font-size: 10.5px; font-weight: 700;
+}
+.feed-legend i { color: var(--text-mute); font-size: 10px; font-style: normal; }
+.feed-legend .k-instruction { color: #c4b5fd; }
+.feed-legend .k-draft { color: #7dd3fc; }
+.feed-legend .k-review { color: #fcd34d; }
+.feed-legend .k-revision { color: #86efac; }
+.feed-legend .k-summary { color: #c4b5fd; border-color: rgba(167,139,250,0.38); }
 .feed-scroll {
   flex: 1; min-height: 200px; overflow-y: auto; display: flex; flex-direction: column;
-  gap: 10px; padding: 12px 4px;
+  gap: 12px; padding: 12px 6px 16px; overscroll-behavior: contain;
 }
-.feed-msg { display: flex; gap: 10px; align-items: flex-start; max-width: 90%; }
-.feed-msg.from-user { align-self: flex-end; flex-direction: row-reverse; }
+.feed-msg { display: flex; gap: 10px; align-items: flex-start; width: min(96%, 1180px); }
+.feed-msg.from-user { align-self: flex-end; flex-direction: row-reverse; width: auto; max-width: 88%; }
 .feed-avatar {
-  width: 34px; height: 34px; border-radius: 11px; border: 1.5px solid; flex-shrink: 0;
-  display: inline-flex; align-items: center; justify-content: center; font-size: 17px; margin-top: 2px;
+  width: 38px; height: 38px; border-radius: 12px; border: 1.5px solid; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 18px; margin-top: 2px;
+  box-shadow: 0 5px 14px rgba(0,0,0,0.18);
 }
 .feed-body {
-  background: var(--panel); border: 1px solid var(--border-soft); border-radius: 13px;
-  padding: 9px 13px; min-width: 0; line-height: 1.55;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  flex: 1; background: linear-gradient(120deg, rgba(33,43,64,0.97), rgba(26,34,51,0.98));
+  border: 1px solid var(--border-soft); border-left: 3px solid var(--border); border-radius: 13px;
+  padding: 11px 15px 12px; min-width: 0; line-height: 1.6;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16); transition: border-color 0.16s, transform 0.16s, box-shadow 0.16s;
 }
+.feed-msg:hover .feed-body { border-color: #465573; transform: translateY(-1px); box-shadow: 0 8px 22px rgba(0,0,0,0.22); }
+.feed-msg.agent-link .feed-body { background: linear-gradient(120deg, rgba(38,48,70,0.98), rgba(27,35,53,0.98)); }
+.feed-msg.k-instruction .feed-body { border-left-color: #a78bfa; }
+.feed-msg.k-draft .feed-body { border-left-color: #60a5fa; }
+.feed-msg.k-review .feed-body { border-left-color: #fbbf24; }
+.feed-msg.k-revision .feed-body { border-left-color: #4ade80; }
+.feed-msg.k-summary .feed-body { border-left-color: #c084fc; background: linear-gradient(120deg, rgba(66,49,104,0.42), rgba(28,36,55,0.98)); }
+.feed-msg.k-talk .feed-body { border-left-color: #22d3ee; }
 .feed-msg.from-user .feed-body { background: var(--accent-soft); border-color: rgba(139, 124, 246, 0.35); }
-.feed-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 3px; font-size: 12px; }
-.feed-to { color: var(--text-dim); }
-.feed-kind { padding: 1px 7px; border-radius: 999px; font-size: 10.5px; background: var(--panel-2); color: var(--text-dim); }
-.feed-kind.k-draft { color: #60a5fa; }
-.feed-kind.k-review { color: var(--warn); }
-.feed-kind.k-revision { color: var(--ok); }
-.feed-kind.k-summary { color: var(--accent); }
-.feed-kind.k-instruction { color: var(--text-dim); }
+.feed-body > .md { font-size: 14px; line-height: 1.68; }
+.feed-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 7px; font-size: 12.5px; }
+.feed-to {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px 2px 5px;
+  color: var(--text-dim); background: rgba(8,12,21,0.38); border: 1px solid var(--border-soft); border-radius: 999px;
+}
+.feed-to b { font-size: 11.5px; }
+.feed-arrow {
+  display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
+  border-radius: 50%; color: #d8d1ff; background: rgba(139,124,246,0.22); font-weight: 800;
+}
+.feed-kind { padding: 2px 8px; border: 1px solid transparent; border-radius: 999px; font-size: 10.5px; font-weight: 700; background: var(--panel-2); color: var(--text-dim); }
+.feed-kind.k-draft { color: #7dd3fc; background: rgba(96,165,250,0.11); border-color: rgba(96,165,250,0.24); }
+.feed-kind.k-review { color: #fcd34d; background: rgba(251,191,36,0.1); border-color: rgba(251,191,36,0.24); }
+.feed-kind.k-revision { color: #86efac; background: rgba(74,222,128,0.1); border-color: rgba(74,222,128,0.24); }
+.feed-kind.k-summary { color: #d8b4fe; background: rgba(192,132,252,0.12); border-color: rgba(192,132,252,0.28); }
+.feed-kind.k-instruction { color: #c4b5fd; background: rgba(167,139,250,0.11); border-color: rgba(167,139,250,0.24); }
+.feed-kind.k-talk { color: #67e8f9; background: rgba(34,211,238,0.1); border-color: rgba(34,211,238,0.24); }
 .feed-time { color: var(--text-dim); font-size: 10.5px; margin-left: auto; }
-.feed-long summary { cursor: pointer; list-style: none; }
+.feed-long summary { cursor: pointer; list-style: none; display: flex; flex-direction: column; align-items: flex-start; gap: 9px; }
 .feed-long summary::-webkit-details-marker { display: none; }
-.feed-preview { color: var(--text); }
-.feed-long[open] .feed-preview, .feed-long[open] summary .dim { display: none; }
+.feed-preview { color: var(--text); white-space: pre-wrap; line-height: 1.68; font-size: 14px; }
+.feed-expand {
+  color: #d8d1ff; background: rgba(139,124,246,0.14); border: 1px solid rgba(139,124,246,0.3);
+  border-radius: 8px; padding: 4px 9px; font-size: 11px; font-weight: 700;
+}
+.feed-long summary:hover .feed-expand { background: rgba(139,124,246,0.24); border-color: rgba(139,124,246,0.5); }
+.feed-long[open] .feed-preview, .feed-long[open] .feed-expand { display: none; }
 .feed-status {
   align-self: center; display: flex; gap: 7px; align-items: center; flex-wrap: wrap; justify-content: center;
   font-size: 11.5px; color: var(--text-dim); background: var(--bg-2); border: 1px solid var(--border);
@@ -1240,6 +1296,12 @@ button { font-family: inherit; }
 .feed-status.error { color: #ffb0ab; border-color: var(--err); }
 .feed-status-from { font-weight: 600; }
 .feed-foot { display: flex; align-items: center; gap: 10px; padding: 4px 2px; }
+
+@media (max-width: 1180px) {
+  .feed-legend { display: none; }
+  .feed-msg { width: 100%; }
+  .feed-msg.from-user { max-width: 94%; }
+}
 
 /* 진행 상태 스트립 */
 .status-strip { display: flex; flex-wrap: wrap; gap: 6px; }

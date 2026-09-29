@@ -133,7 +133,7 @@ export function Sidebar() {
               key={a.id}
               className={`agent-item ${active ? "active" : ""}`}
               onClick={() => selectAgent(a.id)}
-              title={a.role}
+              title={`${a.name} · ${a.role}`}
             >
               <span className="agent-emoji" style={{ background: a.color + "22", borderColor: a.color + "55" }}>
                 {a.emoji}

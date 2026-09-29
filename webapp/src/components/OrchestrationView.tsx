@@ -89,7 +89,7 @@ function who(id: string): { name: string; emoji: string; color: string } {
   return a ? { name: a.name, emoji: a.emoji, color: a.color } : { name: id, emoji: "❔", color: "#9aa5b5" };
 }
 
-/** 말풍선 하나 — 긴 내용은 접어서 표시 */
+/** 말풍선 하나 — 짧은 실무 대화는 바로 읽히게 두고, 정말 긴 전문만 접는다. */
 function FeedBubble({ m }: { m: FeedMsg }) {
   const f = who(m.from);
   const t = m.to ? who(m.to) : null;
@@ -109,10 +109,12 @@ function FeedBubble({ m }: { m: FeedMsg }) {
     );
   }
 
-  const long = m.text.length > 350;
+  const collapseAt = m.kind === "summary" ? 1_200 : 900;
+  const long = m.text.length > collapseAt;
   const isUser = m.from === "user";
+  const isAgentConversation = !isUser && m.from !== "system" && Boolean(m.to && m.to !== "user");
   return (
-    <div className={`feed-msg ${isUser ? "from-user" : ""}`}>
+    <div className={`feed-msg k-${m.kind} ${isUser ? "from-user" : ""} ${isAgentConversation ? "agent-link" : ""}`}>
       <span className="feed-avatar" style={{ background: f.color + "22", borderColor: f.color + "66" }}>
         {f.emoji}
       </span>
@@ -121,7 +123,8 @@ function FeedBubble({ m }: { m: FeedMsg }) {
           <b style={{ color: f.color }}>{f.name}</b>
           {t && (
             <span className="feed-to">
-              → {t.emoji} {t.name}
+              <span className="feed-arrow">→</span>
+              <b style={{ color: t.color }}>{t.emoji} {t.name}</b>
             </span>
           )}
           {KIND_LABEL[m.kind] && <span className={`feed-kind k-${m.kind}`}>{KIND_LABEL[m.kind]}</span>}
@@ -130,8 +133,8 @@ function FeedBubble({ m }: { m: FeedMsg }) {
         {long ? (
           <details className="feed-long">
             <summary>
-              <span className="feed-preview">{m.text.slice(0, 180).replace(/\n/g, " ")}…</span>
-              <span className="dim"> (펼치기, {m.text.length.toLocaleString()}자)</span>
+              <span className="feed-preview">{m.text.slice(0, 420)}…</span>
+              <span className="feed-expand">전문 펼치기 · {m.text.length.toLocaleString()}자</span>
             </summary>
             <Markdown text={m.text} />
           </details>
@@ -574,6 +577,26 @@ export function OrchestrationView() {
       )}
 
       {/* 에이전트 대화 피드 */}
+      <div className="feed-section-head">
+        <div className="feed-section-title">
+          <span className="feed-section-icon">💬</span>
+          <span>
+            <b>에이전트 대화</b>
+            <small>{orchRunning ? "실시간 협업 진행 중" : `${feed.length}개의 대화 기록`}</small>
+          </span>
+        </div>
+        <div className="feed-legend" aria-label="대화 단계 안내">
+          <span className="k-instruction">지시</span>
+          <i>→</i>
+          <span className="k-draft">초안</span>
+          <i>→</i>
+          <span className="k-review">검토</span>
+          <i>→</i>
+          <span className="k-revision">수정</span>
+          <i>→</i>
+          <span className="k-summary">통합</span>
+        </div>
+      </div>
       <div
         className="feed-scroll"
         ref={feedRef}
