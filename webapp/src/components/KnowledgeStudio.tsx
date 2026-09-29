@@ -2,6 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { AGENT_MAP } from "../lib/agents";
 import { uiConfirm } from "../lib/dialog";
 import { searchObsidian, type ObsidianSearchHit } from "../lib/obsidian";
+import {
+  DEFAULT_CONTEXT_POLICY,
+  getContextSnapshot,
+  saveContextPolicy,
+  type ContextPolicy,
+  type ContextSnapshot,
+} from "../lib/context";
 import { useVE } from "../store";
 import { Markdown } from "./Markdown";
 
@@ -23,6 +30,7 @@ export function KnowledgeStudio({ onClose }: { onClose: () => void }) {
     obsidianNotes,
     loadObsidian,
     learnFromObsidian,
+    activeProject,
   } = useVE();
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -32,6 +40,38 @@ export function KnowledgeStudio({ onClose }: { onClose: () => void }) {
   const [libQ, setLibQ] = useState("");
   const [libHits, setLibHits] = useState<ObsidianSearchHit[] | null>(null);
   const [libBusy, setLibBusy] = useState(false);
+  const [contextInfo, setContextInfo] = useState<ContextSnapshot | null>(null);
+  const [contextPolicy, setContextPolicy] = useState<ContextPolicy>(DEFAULT_CONTEXT_POLICY);
+  const [contextBusy, setContextBusy] = useState(false);
+  const [contextError, setContextError] = useState("");
+  const loadContext = async (rebuild = false) => {
+    if (!activeProject || contextBusy) return;
+    setContextBusy(true);
+    setContextError("");
+    try {
+      const info = await getContextSnapshot(activeProject, rebuild);
+      setContextInfo(info);
+      setContextPolicy(info.policy);
+    } catch (e: any) {
+      setContextError(String(e?.message ?? e));
+    } finally {
+      setContextBusy(false);
+    }
+  };
+  const applyContextPolicy = async () => {
+    if (!activeProject || contextBusy) return;
+    setContextBusy(true);
+    setContextError("");
+    try {
+      const info = await saveContextPolicy(activeProject, contextPolicy);
+      setContextInfo(info);
+      setContextPolicy(info.policy);
+    } catch (e: any) {
+      setContextError(String(e?.message ?? e));
+    } finally {
+      setContextBusy(false);
+    }
+  };
   const runLibSearch = async () => {
     if (!libQ.trim() || libBusy) return;
     setLibBusy(true);
@@ -52,6 +92,11 @@ export function KnowledgeStudio({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (activeProject) void loadContext();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProject]);
 
   const pk = pendingKnowledge;
   const busy = pk?.status === "running";
@@ -123,6 +168,76 @@ export function KnowledgeStudio({ onClose }: { onClose: () => void }) {
             </button>
           </div>
         </div>
+
+        <section className="context-manager" aria-label="AI 컨텍스트 관리자">
+          <div className="context-manager-head">
+            <div>
+              <b>🧠 AI 컨텍스트 관리자</b>
+              <div className="dim">전체 원문은 보존하고, AI에는 예산 안의 관련 기억만 전달합니다.</div>
+            </div>
+            <span className={`context-status ${contextInfo?.stale ? "stale" : ""}`}>
+              {contextBusy ? "갱신 중" : contextInfo?.stale ? "갱신 필요" : contextInfo ? "체크포인트 최신" : "준비 중"}
+            </span>
+          </div>
+
+          <div className="context-metrics">
+            <div><span>원문 추정</span><strong>{(contextInfo?.sourceTokens ?? 0).toLocaleString()}</strong><small>tokens</small></div>
+            <div><span>압축 체크포인트</span><strong>{(contextInfo?.packetTokens ?? 0).toLocaleString()}</strong><small>tokens</small></div>
+            <div className="saved"><span>예상 절감</span><strong>{contextInfo?.reductionPercent ?? 0}%</strong><small>{(contextInfo?.savedTokens ?? 0).toLocaleString()} tokens</small></div>
+          </div>
+
+          <div className="context-policy-row">
+            <label>
+              회의 공유 기억 예산
+              <select
+                value={contextPolicy.budgetTokens}
+                onChange={(e) => setContextPolicy((p) => ({ ...p, budgetTokens: Number(e.target.value) }))}
+                disabled={contextBusy}
+              >
+                <option value={1200}>절약 · 1,200 토큰</option>
+                <option value={2400}>균형 · 2,400 토큰</option>
+                <option value={4000}>심층 · 4,000 토큰</option>
+                <option value={6000}>최대 · 6,000 토큰</option>
+              </select>
+            </label>
+            <label className="context-check">
+              <input
+                type="checkbox"
+                checked={contextPolicy.autoSnapshot}
+                onChange={(e) => setContextPolicy((p) => ({ ...p, autoSnapshot: e.target.checked }))}
+              />
+              변경 시 자동 압축
+            </label>
+            <label className="context-check">
+              <input
+                type="checkbox"
+                checked={contextPolicy.obsidianMirror}
+                onChange={(e) => setContextPolicy((p) => ({ ...p, obsidianMirror: e.target.checked }))}
+              />
+              Obsidian에 장기 기억 저장
+            </label>
+          </div>
+
+          <div className="context-actions">
+            <button className="btn primary small" onClick={() => void applyContextPolicy()} disabled={!activeProject || contextBusy}>
+              설정 저장
+            </button>
+            <button className="btn small" onClick={() => void loadContext(true)} disabled={!activeProject || contextBusy}>
+              ↻ 지금 다시 압축
+            </button>
+            {contextInfo?.notePath && <span className="dim context-path" title={contextInfo.notePath}>🗃️ {contextInfo.notePath}</span>}
+          </div>
+          {contextError && <div className="art-phase error">⚠️ {contextError}</div>}
+          {contextInfo?.packet && (
+            <details className="context-preview">
+              <summary>압축된 체크포인트 미리보기</summary>
+              <Markdown text={contextInfo.packet} />
+            </details>
+          )}
+          <div className="context-note dim">
+            정본 수치와 현재 담당 섹션은 별도 필수 영역으로 유지합니다. 절약 예산은 결정·과거 기록·Obsidian 노트·조사 자료의 중복을 줄이는 데 적용됩니다.
+          </div>
+        </section>
 
         {/* 옵시디안 볼트 — #ve-학습 태그 노트를 학습 후보로 */}
         {obsidian?.connected && (

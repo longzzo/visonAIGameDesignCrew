@@ -19,7 +19,7 @@
 | NVIDIA NIM API 키 | 선택 | [build.nvidia.com](https://build.nvidia.com) 무료 발급 — 회의 품질·속도가 크게 좋아짐 |
 | Stable Diffusion (Forge) | 선택 | 아트 인턴이 컨셉 아트·사무실 배경을 그림 (GPU 필요) |
 | [Tailscale](https://tailscale.com) | 선택 | 폰/노트북에서 접속하고 싶을 때 |
-| [Obsidian](https://obsidian.md) | 선택 | 노트로 지식 학습 + 산출물 자동 아카이브 |
+| [Obsidian](https://obsidian.md) | 선택 | 노트 학습 + 산출물 아카이브 + 프로젝트 AI 컨텍스트 체크포인트 |
 
 ---
 
@@ -137,7 +137,11 @@ cd ..
 
 ### 💻 데스크톱 앱 & 다른 PC에서 쓰기
 
-**Windows 설치형 앱으로 쓰기**: `desktop/dist-installer/VisionEngine-Setup-4.4.0.exe`를 설치하고 바탕화면의 **Vision Engine**을 실행합니다. 별도 로딩 창이 먼저 뜬 뒤 Studio가 열립니다. 웹앱 서버와 Codex CLI는 설치본에 포함돼 있어 Node.js나 저장소 없이도 창이 열립니다. 기본 구독 모드는 OpenClaw/Ollama 없이도 Codex의 ChatGPT 로그인으로 동작합니다.
+**Windows 설치형 앱으로 쓰기**: `desktop/dist-installer/VisionEngine-Setup-4.4.1.exe`를 설치하고 바탕화면의 **Vision Engine**을 실행합니다. 별도 로딩 창이 먼저 뜬 뒤 Studio가 열립니다. 웹앱 서버와 Codex CLI는 설치본에 포함돼 있어 Node.js나 저장소 없이도 창이 열립니다. 기본 구독 모드는 OpenClaw/Ollama 없이도 Codex의 ChatGPT 로그인으로 동작합니다.
+
+### Obsidian으로 컨텍스트와 토큰 관리
+
+왼쪽의 **🧠 컨텍스트·지식**을 열면 프로젝트별 공유 기억 예산을 설정할 수 있습니다. 기본 `균형 · 2,400 토큰`은 확정 결정과 관련 Obsidian 노트를 우선 보존하면서 중복 설명을 압축합니다. GDD·결정사항·보고서가 바뀌면 로컬 `context-pack.md`와 볼트의 `VisionEngine/<프로젝트>/AI 컨텍스트.md`가 자동 갱신됩니다. 체크포인트는 탐색·세션 복구용 압축본이며 GDD와 결정사항 원장은 계속 정본으로 유지됩니다.
 
 첫 실행에서는 **🖥️ PC 앱 준비 확인**을 누릅니다.
 
@@ -152,7 +156,7 @@ cd ..
 
 **다른 PC에 설치해서 쓰기** (서버는 노트북에 그대로 두고):
 1. 서버 PC에서 `VisionEngine-Start.bat` 실행 (Tailscale 주소로 서버가 열립니다 — 창에 주소 표시)
-2. 다른 PC에 `desktop/dist-installer/VisionEngine-Setup-4.4.0.exe`를 복사해 설치 (바탕화면 바로가기 생성)
+2. 다른 PC에 `desktop/dist-installer/VisionEngine-Setup-4.4.1.exe`를 복사해 설치 (바탕화면 바로가기 생성)
 3. 첫 실행 시 서버 주소 입력: `http://100.x.x.x:5199` (서버 PC의 Tailscale 주소) → 🔌 연결 테스트 → 저장
 4. 두 PC 모두 [Tailscale](https://tailscale.com)에 같은 계정으로 로그인돼 있어야 합니다
 

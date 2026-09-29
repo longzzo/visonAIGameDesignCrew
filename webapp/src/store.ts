@@ -77,6 +77,7 @@ import {
 } from "./lib/agents";
 import { fetchGrowth, postGrowth, setGrowthCache, XP_RULES, type GrowthMap } from "./lib/growth";
 import { semanticRecallBlock } from "./lib/memory";
+import { buildBudgetedContext, DEFAULT_CONTEXT_POLICY, getContextSnapshot } from "./lib/context";
 import { designRecallBlock } from "./lib/designIntel";
 import { emptyUsageSummary, loadUsage, recordUsage, type UsageSummary } from "./lib/usage";
 import {
@@ -1932,6 +1933,14 @@ export const useVE = create<VEState>()((set, get) => {
 
       // 전체 조감도(비-LLM 요약) + 결정사항 원장 — 에이전트가 조각이 아닌 전체 그림을 보고 쓴다
       const panorama = buildGddPanorama(baseMd);
+      // 🧠 프로젝트별 공유 기억 예산. 체크포인트 조회는 로컬 파일 기반이며 LLM 호출이 없다.
+      let contextBudget = DEFAULT_CONTEXT_POLICY.budgetTokens;
+      try {
+        const checkpoint = await getContextSnapshot(project);
+        contextBudget = checkpoint.policy.budgetTokens;
+      } catch {
+        /* 정책을 못 읽으면 안전한 기본 예산 사용 */
+      }
       // 📚 옵시디언 사서 — 오너 볼트에서 지시와 관련된 노트를 찾아 회의에 주입 (볼트 없거나 무관하면 빈 문자열)
       let librarian = "";
       try {
@@ -2074,9 +2083,26 @@ export const useVE = create<VEState>()((set, get) => {
         : "";
       // canonBlock은 여기 합치지 않는다 — specialistPrompt가 decisions를 1800자로 자르므로
       // 9KB 정본이 통째로 날아간다. 별도 인자로 넘겨 온전히 주입한다.
-      const decisionsText = [decisionsBlock(get().decisions), recall, designIntel, style, librarian, naverBlock]
-        .filter(Boolean)
-        .join("\n\n");
+      const packedContext = buildBudgetedContext(
+        [
+          { id: "decisions", label: "확정 결정·기각 원장", text: decisionsBlock(get().decisions), priority: 100, maxTokens: 700 },
+          { id: "recall", label: "관련 과거 기록", text: recall, priority: 95, maxTokens: 450 },
+          { id: "obsidian", label: "옵시디안 관련 노트", text: librarian, priority: 90, maxTokens: 650 },
+          { id: "research", label: "이번 회의 조사 근거", text: naverBlock, priority: 85, maxTokens: 550 },
+          { id: "design", label: "디자인 인텔리전스", text: designIntel, priority: 75, maxTokens: 400 },
+          { id: "style", label: "톤앤매너", text: style, priority: 70, maxTokens: 350 },
+        ],
+        contextBudget
+      );
+      const decisionsText = packedContext.text;
+      if (packedContext.sourceTokens > 0) {
+        const omitted = packedContext.omitted.length ? ` · 제외 ${packedContext.omitted.join(", ")}` : "";
+        pushFeed({
+          from: "system",
+          kind: "status",
+          text: `🧠 컨텍스트 관리자 — 공유 기억 ${packedContext.sourceTokens.toLocaleString()}→${packedContext.usedTokens.toLocaleString()} 토큰 추정치로 압축 (${Math.max(0, packedContext.savedTokens).toLocaleString()} 절약)${omitted}`,
+        });
+      }
       // 회의 전 스냅샷 — 끝난 뒤 "🔍 변경 확인"(diff)과 "⏪ 되돌리기"의 기준이 된다
       set({ orchBaseline: baseMd, meetingDiffOpen: false });
 

@@ -265,9 +265,9 @@ export function Sidebar() {
         <button
           className="btn small"
           onClick={() => setKnowledgeOpen(true)}
-          title={`게임 기획 이론을 제출하면 PM이 필요성을 검증하고, 승인된 것만 학습합니다${obsidianNew > 0 ? ` — 옵시디안 볼트에 학습 대기 노트 ${obsidianNew}건` : ""}`}
+          title={`프로젝트 컨텍스트 토큰 예산·Obsidian 장기 기억·게임 기획 지식을 관리합니다${obsidianNew > 0 ? ` — 옵시디안 볼트에 학습 대기 노트 ${obsidianNew}건` : ""}`}
         >
-          📚 지식 학습{knowledge.length > 0 ? ` (${knowledge.length})` : ""}
+          🧠 컨텍스트·지식{knowledge.length > 0 ? ` (${knowledge.length})` : ""}
           {obsidianNew > 0 && <span className="report-badge">🗃️{obsidianNew}</span>}
         </button>
         <button

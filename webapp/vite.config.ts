@@ -1115,6 +1115,260 @@ function exportToVault(projectId: string, kind: "gdd" | "report", data: { agent?
   }
 }
 
+/* ── 프로젝트 컨텍스트 체크포인트 ────────────────────────
+ *
+ * GDD·결정·미결 안건·최근 산출물 전체를 매번 모델에 넣지 않고, 프로젝트별
+ * 토큰 예산 안에서 무료(비-LLM) 체크포인트를 만든다. 체크포인트는 앱 내부
+ * context-pack.md와 옵시디안 AI 컨텍스트.md에 함께 남겨 장기 기억으로 쓴다.
+ */
+
+type ProjectContextPolicy = {
+  budgetTokens: number;
+  autoSnapshot: boolean;
+  obsidianMirror: boolean;
+};
+
+const DEFAULT_CONTEXT_POLICY: ProjectContextPolicy = {
+  budgetTokens: 2400,
+  autoSnapshot: true,
+  obsidianMirror: true,
+};
+
+const contextPolicyPath = (id: string) => path.join(projectDir(id), "context-policy.json");
+const contextSnapshotPath = (id: string) => path.join(projectDir(id), "context-pack.json");
+const contextMarkdownPath = (id: string) => path.join(projectDir(id), "context-pack.md");
+
+function estimateContextTokens(text: string): number {
+  return text.trim() ? Math.max(1, Math.ceil(text.length / 2.5)) : 0;
+}
+
+function normalizeContextPolicy(raw: any): ProjectContextPolicy {
+  return {
+    budgetTokens: Math.max(400, Math.min(8000, Math.round(Number(raw?.budgetTokens) || DEFAULT_CONTEXT_POLICY.budgetTokens))),
+    autoSnapshot: raw?.autoSnapshot !== false,
+    obsidianMirror: raw?.obsidianMirror !== false,
+  };
+}
+
+function loadContextPolicy(id: string): ProjectContextPolicy {
+  try {
+    return normalizeContextPolicy(JSON.parse(fs.readFileSync(contextPolicyPath(id), "utf-8")));
+  } catch {
+    return { ...DEFAULT_CONTEXT_POLICY };
+  }
+}
+
+function saveContextPolicyFile(id: string, policy: ProjectContextPolicy): void {
+  fs.writeFileSync(contextPolicyPath(id), JSON.stringify(normalizeContextPolicy(policy), null, 2), "utf-8");
+}
+
+function readJsonArray(file: string): any[] {
+  try {
+    const value = JSON.parse(fs.readFileSync(file, "utf-8"));
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
+function clipContextText(text: string, maxChars: number): string {
+  const clean = text.trim();
+  if (clean.length <= maxChars) return clean;
+  const raw = clean.slice(0, Math.max(0, maxChars - 20));
+  const newline = raw.lastIndexOf("\n");
+  return `${raw.slice(0, newline > raw.length * 0.55 ? newline : raw.length).trimEnd()}\n… [체크포인트 예산에 맞춰 압축]`;
+}
+
+/** 섹션마다 제목과 결정 밀도가 높은 줄만 뽑는 무료 구조 압축. */
+function digestGddForContext(markdown: string, maxChars: number): string {
+  const clean = markdown
+    .replace(/^---[\s\S]*?---\s*/m, "")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/```[\s\S]*?```/g, "[코드 블록 생략]");
+  const headings = [...clean.matchAll(/^##\s+(.+)$/gm)];
+  if (!headings.length) return clipContextText(clean.replace(/\s+/g, " "), maxChars);
+  const out: string[] = [];
+  for (let i = 0; i < headings.length; i++) {
+    const title = headings[i][1].trim();
+    const start = (headings[i].index ?? 0) + headings[i][0].length;
+    const end = i + 1 < headings.length ? headings[i + 1].index ?? clean.length : clean.length;
+    const candidates = clean
+      .slice(start, end)
+      .split(/\r?\n/)
+      .map((line, index) => ({ line: line.trim(), index }))
+      .filter(({ line }) => line && !/^\|?\s*[-:]{3,}/.test(line) && !/아직 작성되지 않음/.test(line))
+      .map(({ line, index }) => {
+        let score = 0;
+        if (/^###\s/.test(line)) score += 7;
+        if (/확정|결정|핵심|목표|MVP|금지|필수|리스크|미결|승인|TODO|주의|⚠️|⛔|✅/.test(line)) score += 8;
+        if (/\*\*|\d+(?:\.\d+)?%|\d+초|\d+분|\d+일|P[0-2]/.test(line)) score += 4;
+        if (/^[-*]\s/.test(line)) score += 2;
+        if (line.startsWith("|")) score -= 2;
+        return { line: line.replace(/\s+/g, " ").slice(0, 260), index, score };
+      });
+    const picked = candidates
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .slice(0, 3)
+      .sort((a, b) => a.index - b.index);
+    if (!picked.length) continue;
+    out.push(`### ${title}`);
+    for (const item of picked) out.push(item.line.startsWith("-") ? item.line : `- ${item.line.replace(/^#+\s*/, "")}`);
+    if (out.join("\n").length >= maxChars) break;
+  }
+  return clipContextText(out.join("\n"), maxChars);
+}
+
+function latestContextSourceMtime(id: string): number {
+  const files = [
+    path.join(projectDir(id), "GDD.md"),
+    path.join(projectDir(id), "decisions.json"),
+    path.join(projectDir(id), "approvals.json"),
+  ];
+  const reports = path.join(projectDir(id), "reports");
+  if (fs.existsSync(reports)) {
+    for (const name of fs.readdirSync(reports).filter((f) => f.endsWith(".json"))) files.push(path.join(reports, name));
+  }
+  let latest = 0;
+  for (const file of files) {
+    try {
+      latest = Math.max(latest, fs.statSync(file).mtimeMs);
+    } catch {
+      /* 없는 소스는 제외 */
+    }
+  }
+  return latest;
+}
+
+function loadContextSnapshot(id: string): any | null {
+  try {
+    return JSON.parse(fs.readFileSync(contextSnapshotPath(id), "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+function rebuildProjectContext(id: string, policyInput?: ProjectContextPolicy): any {
+  if (!isSafeId(id) || !fs.existsSync(projectDir(id))) throw new Error("프로젝트 확인 필요");
+  const policy = normalizeContextPolicy(policyInput ?? loadContextPolicy(id));
+  const meta = (() => {
+    try {
+      return JSON.parse(fs.readFileSync(path.join(projectDir(id), "project.json"), "utf-8"));
+    } catch {
+      return {};
+    }
+  })();
+  const projectName = String(meta.name ?? id);
+  const gddFile = path.join(projectDir(id), "GDD.md");
+  const gdd = fs.existsSync(gddFile) ? fs.readFileSync(gddFile, "utf-8") : "";
+  const decisions = readJsonArray(path.join(projectDir(id), "decisions.json"));
+  const approvals = readJsonArray(path.join(projectDir(id), "approvals.json")).filter((a) => a?.status === "pending");
+  const reportDir = path.join(projectDir(id), "reports");
+  const reports: any[] = [];
+  if (fs.existsSync(reportDir)) {
+    // 체크포인트는 최근 산출물의 인덱스만 필요하다. 오래된 보고서 수백 개를 GDD 저장마다
+    // 다시 읽는 것은 토큰 절약과 무관한 디스크 낭비이므로 파일명(ts) 기준 최근 12개만 읽는다.
+    const recentFiles = fs
+      .readdirSync(reportDir)
+      .filter((f) => /^\d+\.json$/.test(f))
+      .sort((a, b) => Number(b.replace(".json", "")) - Number(a.replace(".json", "")))
+      .slice(0, 12);
+    for (const name of recentFiles) {
+      try {
+        const item = JSON.parse(fs.readFileSync(path.join(reportDir, name), "utf-8"));
+        reports.push(item);
+      } catch {
+        /* 손상 보고서는 제외 */
+      }
+    }
+  }
+  reports.sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0));
+
+  const maxChars = Math.floor(policy.budgetTokens * 2.5);
+  const fixedReserve = Math.min(650, Math.floor(maxChars * 0.12));
+  const bodyBudget = Math.max(500, maxChars - fixedReserve);
+  const gddDigest = digestGddForContext(gdd, Math.floor(bodyBudget * 0.58));
+  const decisionLines = decisions
+    .slice(-18)
+    .map((d) => `- ${String(d.text ?? "").replace(/\s+/g, " ").slice(0, 220)}`)
+    .join("\n");
+  const approvalLines = approvals
+    .slice(-8)
+    .map((a) => `- ${String(a.title ?? "미결 안건").replace(/\s+/g, " ").slice(0, 160)}`)
+    .join("\n");
+  const reportLines = reports
+    .slice(0, 8)
+    .map((r) => `- ${String(r.title ?? "보고서").replace(/\s+/g, " ").slice(0, 150)} (${r.agent ?? "담당 미상"})`)
+    .join("\n");
+  const generatedAt = Date.now();
+  const packet = clipContextText(
+    [
+      `# AI 컨텍스트 체크포인트 — ${projectName}`,
+      `> ${new Date(generatedAt).toISOString()} 자동 생성 · 원문 대신 빠른 복구와 관련 기억 조회에 사용하는 압축본`,
+      ``,
+      `## 프로젝트 핵심`,
+      gddDigest || "- 아직 작성된 GDD가 없습니다.",
+      ``,
+      `## 최근 확정 결정`,
+      clipContextText(decisionLines || "- 적립된 결정 없음", Math.floor(bodyBudget * 0.24)),
+      ``,
+      `## 미결·오너 승인 대기`,
+      clipContextText(approvalLines || "- 없음", Math.floor(bodyBudget * 0.1)),
+      ``,
+      `## 최근 산출물 인덱스`,
+      clipContextText(reportLines || "- 없음", Math.floor(bodyBudget * 0.08)),
+      ``,
+      `> 세부 수치·최종 문구는 GDD와 결정사항 원장을 다시 확인한다. 이 문서는 탐색용 압축본이며 정본을 덮어쓰지 않는다.`,
+    ].join("\n"),
+    maxChars
+  );
+  const sourceText = [gdd, JSON.stringify(decisions), JSON.stringify(approvals), ...reports.map((r) => `${r.title ?? ""}\n${r.markdown ?? ""}`)].join("\n");
+  const sourceTokens = estimateContextTokens(sourceText);
+  const packetTokens = estimateContextTokens(packet);
+  const localPath = contextMarkdownPath(id);
+  fs.writeFileSync(localPath, packet + "\n", "utf-8");
+
+  let notePath: string | null = null;
+  if (policy.obsidianMirror) {
+    try {
+      const vault = resolveVault();
+      if (vault) {
+        const base = path.join(vault, OBSIDIAN_EXPORT_DIR, sanitizeFileName(projectName));
+        fs.mkdirSync(base, { recursive: true });
+        notePath = path.join(base, "AI 컨텍스트.md");
+        const fm = `---\nsource: vision-engine\ntype: AI 컨텍스트\nproject: "${projectName.replace(/"/g, "'")}"\nupdated: ${new Date(generatedAt).toISOString()}\ntags: [vision-engine, context-checkpoint]\n---\n\n`;
+        fs.writeFileSync(notePath, fm + packet + "\n", "utf-8");
+      }
+    } catch (e) {
+      console.warn("[context] 옵시디안 체크포인트 미러 실패:", e);
+    }
+  }
+  const snapshot = {
+    ok: true,
+    project: id,
+    generatedAt,
+    stale: false,
+    sourceTokens,
+    packetTokens,
+    savedTokens: Math.max(0, sourceTokens - packetTokens),
+    reductionPercent: sourceTokens > 0 ? Math.max(0, Math.round((1 - packetTokens / sourceTokens) * 100)) : 0,
+    notePath,
+    localPath,
+    packet,
+    policy,
+  };
+  fs.writeFileSync(contextSnapshotPath(id), JSON.stringify(snapshot, null, 2), "utf-8");
+  return snapshot;
+}
+
+function refreshProjectContextIfEnabled(id: string): void {
+  try {
+    const policy = loadContextPolicy(id);
+    if (policy.autoSnapshot) rebuildProjectContext(id, policy);
+  } catch (e) {
+    console.warn("[context] 자동 체크포인트 갱신 실패:", e);
+  }
+}
+
 /* ── 플러그인: 프로젝트 CRUD ──────────────────────────── */
 
 function projectsApiPlugin(): Plugin {
@@ -1280,6 +1534,7 @@ function gddApiPlugin(): Plugin {
               fs.writeFileSync(GDD_PATH, old, "utf-8");
               if (project) exportToVault(project, "gdd", { markdown: old });
               if (project) notionAutoPublish(project);
+              if (project) refreshProjectContextIfEnabled(project);
               res.end(JSON.stringify({ ok: true, markdown: old, mtime: fs.statSync(GDD_PATH).mtimeMs }));
               return;
             }
@@ -1305,6 +1560,7 @@ function gddApiPlugin(): Plugin {
               fs.writeFileSync(GDD_PATH, markdown, "utf-8");
               if (project) exportToVault(project, "gdd", { markdown });
               if (project) notionAutoPublish(project);
+              if (project) refreshProjectContextIfEnabled(project);
               res.end(JSON.stringify({ ok: true, mtime: fs.statSync(GDD_PATH).mtimeMs }));
               return;
             }
@@ -1921,6 +2177,7 @@ function reportsApiPlugin(): Plugin {
               );
               exportToVault(project, "report", { agent, title, markdown });
               notionAutoPublish(project);
+              refreshProjectContextIfEnabled(project);
               res.end(JSON.stringify({ ok: true, ts }));
               return;
             }
@@ -1935,6 +2192,7 @@ function reportsApiPlugin(): Plugin {
                 return;
               }
               trashFile(f);
+              refreshProjectContextIfEnabled(project);
               res.end(JSON.stringify({ ok: true }));
               return;
             }
@@ -2075,6 +2333,48 @@ function obsidianApiPlugin(): Plugin {
                   learnTag: OBSIDIAN_LEARN_TAG,
                 })
               );
+              return;
+            }
+            // 🧠 컨텍스트 관리자 — 볼트가 없어도 로컬 체크포인트는 동작해야 하므로
+            // 아래의 vault 연결 실패 처리보다 먼저 라우팅한다.
+            if (sub === "/context") {
+              if (req.method === "GET") {
+                const project = url.searchParams.get("project") ?? "";
+                if (!isSafeId(project) || !fs.existsSync(projectDir(project))) {
+                  res.statusCode = 400;
+                  res.end(JSON.stringify({ ok: false, error: "프로젝트 확인 필요" }));
+                  return;
+                }
+                const policy = loadContextPolicy(project);
+                let snapshot = loadContextSnapshot(project);
+                const stale = !snapshot || latestContextSourceMtime(project) > Number(snapshot.generatedAt || 0);
+                if (url.searchParams.get("rebuild") === "1" || !snapshot || (policy.autoSnapshot && stale)) {
+                  snapshot = rebuildProjectContext(project, policy);
+                } else {
+                  snapshot = { ...snapshot, ok: true, policy, stale };
+                }
+                res.end(JSON.stringify(snapshot));
+                return;
+              }
+              if (req.method === "POST") {
+                if (blockRemoteWrite(req, res)) return;
+                const body = JSON.parse((await readBody(req)) || "{}");
+                const project = String(body.project ?? "");
+                if (!isSafeId(project) || !fs.existsSync(projectDir(project))) {
+                  res.statusCode = 400;
+                  res.end(JSON.stringify({ ok: false, error: "프로젝트 확인 필요" }));
+                  return;
+                }
+                let policy = loadContextPolicy(project);
+                if (body.action === "policy") {
+                  policy = normalizeContextPolicy(body.policy);
+                  saveContextPolicyFile(project, policy);
+                }
+                res.end(JSON.stringify(rebuildProjectContext(project, policy)));
+                return;
+              }
+              res.statusCode = 405;
+              res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
               return;
             }
             if (!vault) {
@@ -2760,6 +3060,7 @@ function decisionsApiPlugin(): Plugin {
                 const items = load().filter((it: any) => it.text !== j.remove);
                 fs.writeFileSync(f, JSON.stringify(items, null, 1), "utf-8");
                 exportDecisionsToVault(project, items);
+                refreshProjectContextIfEnabled(project);
                 res.end(JSON.stringify({ ok: true, items }));
                 return;
               }
@@ -2778,6 +3079,7 @@ function decisionsApiPlugin(): Plugin {
               // 원장은 최근 200개까지 유지
               fs.writeFileSync(f, JSON.stringify(items.slice(-200), null, 1), "utf-8");
               exportDecisionsToVault(project, items.slice(-200)); // 옵시디안 볼트 미러 (실패해도 무시)
+              refreshProjectContextIfEnabled(project);
               res.end(JSON.stringify({ ok: true, added: texts.length }));
               return;
             }

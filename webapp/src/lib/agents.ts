@@ -284,8 +284,9 @@ export function specialistPrompt(
     parts.push(`[전체 기획 조감도 — 모든 섹션의 현재 요약. 다른 파트와 모순되게 쓰지 마라]`, panorama.trim().slice(0, 2600), ``);
   }
   if (decisions.trim()) {
-    // 1800자 — 기각 원장이 확정 목록 뒤에 오므로, 900자면 "다시 제안하지 마라" 블록이 통째로 잘렸다.
-    parts.push(decisions.trim().slice(0, 1800), ``);
+    // 호출부의 컨텍스트 관리자가 우선순위와 프로젝트별 토큰 예산에 맞춰 이미 압축했다.
+    // 여기서 다시 고정 길이로 자르면 뒤쪽 옵시디안 근거가 조용히 사라진다.
+    parts.push(decisions.trim(), ``);
   }
   if (knowledge.trim()) {
     parts.push(`[스튜디오가 학습한 이론 — 판단에 활용해라]`, knowledge.trim().slice(0, 1200), ``);

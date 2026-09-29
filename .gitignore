@@ -14,6 +14,10 @@ workspace/**/.trash/
 workspace/projects/*/deck/
 # 의미 기억 색인 — 임베딩 캐시(재생성 가능, 수 MB)
 workspace/projects/*/memory-index.json
+# AI 컨텍스트 관리자 체크포인트·프로젝트별 토큰 정책 (로컬/옵시디안에서 자동 재생성)
+workspace/projects/*/context-pack.json
+workspace/projects/*/context-pack.md
+workspace/projects/*/context-policy.json
 # 디자인 인텔리전스 벤더 데이터의 파이썬 캐시 (재생성)
 webapp/assets/design-intel/**/__pycache__/
 # 탐색기 표시 이름 파일 — 서버가 project.json 이름으로 자동 생성(로컬 편의)
