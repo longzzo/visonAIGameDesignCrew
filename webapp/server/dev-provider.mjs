@@ -286,28 +286,86 @@ export async function runClaudeTask({ agentId, task, onStep, allowReadTools = tr
   }));
 }
 
-/** 일반 기획 에이전트 호출: Claude 구독 우선, 미로그인/한도 시 Codex 구독 읽기 전용 폴백. */
+/** 구독 한도·로그인 실패 시 사용할 키 없는 로컬 모델. */
+export function localFallbackModel() {
+  try {
+    const policy = JSON.parse(fs.readFileSync(path.join(REPO, "config", "model-policy.json"), "utf-8"));
+    return String(policy.localFallback || "ollama/qwen3.5:4b").replace(/^ollama\//, "");
+  } catch {
+    return "qwen3.5:4b";
+  }
+}
+
+/** OpenClaw 게이트웨이와 무관하게 로컬 Ollama를 직접 호출한다. */
+export async function runLocalFallbackAgent({ agentId, task, signal, failures = [] }) {
+  const model = localFallbackModel();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 240_000);
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  try {
+    const messages = [
+      { role: "system", content: `${personaOf(agentId)}\n\n구독 AI를 사용할 수 없어 로컬 폴백으로 실행 중이다. 파일을 직접 읽었다고 가장하지 말고, 주어진 내용만 근거로 한국어로 답해라.` },
+      { role: "user", content: task },
+    ];
+    const call = async (cpuOnly = false) => {
+      const response = await fetch("http://127.0.0.1:11434/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({ model, stream: false, messages, ...(cpuOnly ? { options: { num_gpu: 0 } } : {}) }),
+      });
+      return { response, body: await response.json().catch(() => null) };
+    };
+    let { response, body } = await call(false);
+    // 일부 Windows GPU 드라이버에서 llama-server가 0xc0000005로 종료된다. 이때만 CPU로 안전 재시도한다.
+    if (!response.ok && /(?:llama-server process has terminated|0xc0000005|gpu)/i.test(String(body?.error || ""))) {
+      ({ response, body } = await call(true));
+    }
+    if (!response.ok) throw new Error(`Ollama ${response.status}: ${String(body?.error || "응답 오류").slice(0, 200)}`);
+    const text = String(body?.message?.content || body?.response || "").trim();
+    if (!text) throw new Error("Ollama가 빈 응답을 반환했습니다.");
+    const why = failures.length ? ` (${failures.map((item) => item.split(":")[0]).join("·")} 사용 불가)` : "";
+    return {
+      ok: true,
+      transcript: [],
+      engine: "ollama-local-fallback",
+      final: `> ℹ️ 구독 AI 대신 로컬 ${model}로 자동 전환했습니다${why}.\n\n${text}`,
+    };
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error(signal?.aborted ? "로컬 AI 작업이 중단되었습니다." : "로컬 AI 응답 시간이 초과됐습니다.");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
+  }
+}
+
+/** 일반 기획 에이전트 호출: Claude 구독 → Codex 구독 → 로컬 Ollama 순서. */
 export async function runSubscriptionAgent({ agentId, task, signal }) {
   const status = await getSubscriptionStatus({ maxAgeMs: 2_000 });
   const failures = [];
   if (status.claude.subscription) {
     try {
-      return await runClaudeTask({ agentId, task, allowReadTools: false, signal });
+      return { ...(await runClaudeTask({ agentId, task, allowReadTools: false, signal })), engine: "claude-subscription" };
     } catch (error) {
       failures.push(`Claude: ${String(error?.message || error)}`);
     }
   }
   if (status.codex.subscription) {
     try {
-      return await runCodexTask({ agentId, task, readOnly: true, signal });
+      return { ...(await runCodexTask({ agentId, task, readOnly: true, signal })), engine: "codex-subscription" };
     } catch (error) {
       failures.push(`Codex: ${String(error?.message || error)}`);
     }
   }
-  const detail = failures.length
-    ? failures.join(" / ")
-    : `Claude(${status.claude.detail}) / Codex(${status.codex.detail})`;
-  throw new Error(`구독 AI를 실행할 수 없습니다. 시스템 상태센터에서 로그인하세요. ${detail}`);
+  if (!status.claude.subscription) failures.push(`Claude: ${status.claude.detail}`);
+  if (!status.codex.subscription) failures.push(`Codex: ${status.codex.detail}`);
+  try {
+    return await runLocalFallbackAgent({ agentId, task, signal, failures });
+  } catch (localError) {
+    throw new Error(`구독 AI와 로컬 폴백을 모두 실행할 수 없습니다. ${failures.join(" / ")} / 로컬: ${String(localError?.message || localError)}`);
+  }
 }
 
 /** Claude가 계획하고 Codex가 구현하는 기본 구독 작업. */

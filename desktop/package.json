@@ -1,6 +1,6 @@
 {
   "name": "vision-engine-desktop",
-  "version": "4.3.1",
+  "version": "4.4.0",
   "private": true,
   "description": "Vision Engine — 게임 개발 멀티에이전트 스튜디오 (데스크톱 셸)",
   "author": "Vision Engine",
@@ -60,6 +60,10 @@
       {
         "from": "../webapp/dist-server",
         "to": "vision-engine/webapp/dist-server"
+      },
+      {
+        "from": "../webapp/server/mcp-canon.mjs",
+        "to": "vision-engine/webapp/server/mcp-canon.mjs"
       },
       {
         "from": "../webapp/.desktop-runtime/node_modules",

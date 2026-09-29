@@ -102,19 +102,25 @@ export function Sidebar() {
   const onSwitchModel = async (id: string) => {
     if (!models || id === models.current || switching) return;
     const opt = models.options.find((o) => o.id === id);
-    const ok = await uiConfirm(`모든 에이전트를 "${opt?.label ?? id}"(으)로 전환할까요?`, {
-      message: "게이트웨이가 재시작됩니다(약 10초).",
+    const subscription = id === "subscription/auto";
+    const ok = await uiConfirm(subscription ? "구독 우선 자동 실행으로 전환할까요?" : `모든 에이전트를 "${opt?.label ?? id}"(으)로 전환할까요?`, {
+      message: subscription
+        ? "Claude 구독을 먼저 쓰고, 사용할 수 없으면 Codex 구독과 로컬 Qwen 순서로 자동 전환합니다."
+        : "OpenClaw 고급 모드로 전환하고 게이트웨이를 재시작합니다(약 10초).",
       confirmLabel: "전환",
     });
     if (!ok) return;
     setSwitching(true);
     void switchModel(id)
-      .then(() => {
+      .then(async () => {
         setModelName(id);
-        const agents = Object.fromEntries(AGENTS.map((a) => [a.id, id]));
-        setModels({ ...models, current: id, agents });
+        const agents = subscription ? models.agents : Object.fromEntries(AGENTS.map((a) => [a.id, id]));
+        setModels({ ...models, current: id, runtime: subscription ? "subscription" : "openclaw", agents });
         setAgentDraft(agents);
-        void uiAlert("모델 전환 완료", "게이트웨이 재시작 중입니다. 10초 뒤 🩺 전원 점검으로 확인해 보세요.");
+        await reconnect();
+        void uiAlert("모델 전환 완료", subscription
+          ? "구독 우선 자동 경로가 활성화됐습니다. 별도 API 키는 쓰지 않습니다."
+          : "OpenClaw 게이트웨이 재시작 중입니다. 잠시 뒤 🩺 전원 점검으로 확인해 보세요.");
       })
       .catch((e) => void uiAlert("전환 실패", e.message))
       .finally(() => setSwitching(false));
@@ -204,7 +210,13 @@ export function Sidebar() {
                   </option>
                 ))}
               </select>
-              <details className="agent-models">
+              {models.runtime === "subscription" && (
+                <div className="subscription-route" title="구독 한도·로그인 문제 시 다음 경로로 자동 전환합니다.">
+                  <div><span className={models.subscription?.claude ? "ok" : "off"}>1 Claude</span><i>→</i><span className={models.subscription?.codex ? "ok" : "off"}>2 Codex</span><i>→</i><span className="ok">3 로컬 Qwen</span></div>
+                  <small>API 키 없이 기존 구독 사용량 우선</small>
+                </div>
+              )}
+              {models.runtime !== "subscription" && <details className="agent-models">
                 <summary title="PM은 헤드급 모델, 팀원은 경량 모델처럼 역할마다 다른 모델을 배정할 수 있습니다">
                   ⚙️ 역할별 모델 (PM만 강하게 등)
                 </summary>
@@ -219,7 +231,7 @@ export function Sidebar() {
                       disabled={switching}
                       onChange={(e) => setAgentDraft((d) => ({ ...d, [a.id]: e.target.value }))}
                     >
-                      {models.options.map((o) => (
+                      {models.options.filter((o) => o.id !== "subscription/auto").map((o) => (
                         <option key={o.id} value={o.id} title={o.note}>
                           {o.label}
                         </option>
@@ -230,7 +242,7 @@ export function Sidebar() {
                 <button className="btn small" onClick={() => void onApplyAgentModels()} disabled={!draftDirty || switching}>
                   {switching ? "적용 중…" : draftDirty ? "✅ 적용 (게이트웨이 재시작)" : "변경 없음"}
                 </button>
-              </details>
+              </details>}
               <button className="btn small" onClick={() => window.dispatchEvent(new CustomEvent("ve:open-api-keys"))} title="사용자가 GitHub Models·NVIDIA·Brave 키를 직접 입력하고 보호 저장소에 등록합니다">
                 🔐 AI·검색 키 관리 ({Number(models.providers.github) + Number(models.providers.nvidia) + Number(braveOk)}/3)
               </button>

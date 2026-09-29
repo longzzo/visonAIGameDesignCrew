@@ -30,6 +30,7 @@ export class GatewayClient {
   private runErrorListeners = new Set<(msg: string) => void>();
   status: ConnStatus = "idle";
   detail = "";
+  private runtimeMode: "subscription" | "openclaw" = "openclaw";
 
   onEvent(fn: (f: EventFrame) => void): () => void {
     this.eventListeners.add(fn);
@@ -54,7 +55,32 @@ export class GatewayClient {
 
   async connect(): Promise<boolean> {
     if (this.status === "connected") return true;
-    this.setStatus("connecting", "서버 릴레이 확인 중");
+    this.setStatus("connecting", "AI 실행 경로 확인 중");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CONNECT_TIMEOUT);
+    try {
+      const readiness = await fetch("/api/readiness", { signal: controller.signal, cache: "no-store" }).then((r) => r.json());
+      this.runtimeMode = readiness?.aiRuntime === "subscription" ? "subscription" : "openclaw";
+      if (this.runtimeMode === "subscription") {
+        this.events?.close();
+        this.events = null;
+        const providers = [readiness?.claude?.subscription && "Claude", readiness?.codex?.subscription && "Codex"].filter(Boolean);
+        const local = readiness?.ollama?.running && readiness?.ollama?.recommendedInstalled;
+        const ok = providers.length > 0 || !!local;
+        const detail = providers.length
+          ? `${providers.join(" · ")} 구독 연결됨${local ? " · 로컬 폴백 준비" : ""}`
+          : local
+            ? "구독 미로그인 · 로컬 Ollama 폴백 준비"
+            : "Claude/Codex 구독 로그인 또는 로컬 Ollama가 필요합니다";
+        this.setStatus(ok ? "connected" : "error", detail);
+        return ok;
+      }
+    } catch {
+      // 구버전/원격 서버에서 readiness를 못 읽으면 기존 OpenClaw 릴레이 점검을 계속한다.
+      this.runtimeMode = "openclaw";
+    } finally {
+      clearTimeout(timer);
+    }
     if (!this.events) {
       const events = new EventSource("/api/gateway/events");
       this.events = events;
@@ -71,12 +97,14 @@ export class GatewayClient {
           /* 잘못된 릴레이 프레임은 무시 */
         }
       };
-      events.onerror = () => this.setStatus("closed", "게이트웨이 이벤트 릴레이 연결이 끊겼습니다");
+      events.onerror = () => {
+        if (this.runtimeMode === "openclaw") this.setStatus("closed", "게이트웨이 이벤트 릴레이 연결이 끊겼습니다");
+      };
     }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), CONNECT_TIMEOUT);
+    const gatewayController = new AbortController();
+    const gatewayTimer = setTimeout(() => gatewayController.abort(), CONNECT_TIMEOUT);
     try {
-      const response = await fetch("/api/gateway/status", { signal: controller.signal });
+      const response = await fetch("/api/gateway/status", { signal: gatewayController.signal });
       const result = await response.json();
       const ok = !!result?.connected;
       this.setStatus(ok ? "connected" : "error", String(result?.detail ?? "게이트웨이 연결 실패"));
@@ -85,7 +113,7 @@ export class GatewayClient {
       this.setStatus("error", "Vision Engine 서버의 게이트웨이 릴레이에 연결할 수 없습니다");
       return false;
     } finally {
-      clearTimeout(timer);
+      clearTimeout(gatewayTimer);
     }
   }
 

@@ -40,7 +40,9 @@ export function readUnityDir() {
 export function setUnityDir(dir) {
   const d = String(dir ?? "").trim();
   fs.mkdirSync(path.dirname(UNITY_CONFIG), { recursive: true });
-  fs.writeFileSync(UNITY_CONFIG, JSON.stringify({ dir: d }, null, 2), "utf-8");
+  let current = {};
+  try { current = JSON.parse(fs.readFileSync(UNITY_CONFIG, "utf-8")); } catch { /* 새 설정 */ }
+  fs.writeFileSync(UNITY_CONFIG, JSON.stringify({ ...current, dir: d }, null, 2), "utf-8");
   return { dir: d, exists: d ? fs.existsSync(d) : false };
 }
 

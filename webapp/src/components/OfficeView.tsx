@@ -440,7 +440,7 @@ export function OfficeView() {
 
   const [protoStudioOpen, setProtoStudioOpen] = useState(false);
   const [devTaskAgent, setDevTaskAgent] = useState<string | null>(null);
-  const [devTaskInit, setDevTaskInit] = useState<{ task?: string; meeting?: boolean }>({});
+  const [devTaskInit, setDevTaskInit] = useState<{ task?: string; meeting?: boolean; unity?: boolean }>({});
   const openDevTask = (id: string) => {
     setDevTaskInit({});
     setDevTaskAgent(id);
@@ -451,6 +451,7 @@ export function OfficeView() {
         "unity-project 도구로 등록된 기존 유니티 프로젝트를 훑어봐라. Assets/Scripts 위주로 주요 스크립트를 읽고, " +
         "아키텍처·코드 품질·성능·구조 관점에서 보완점을 찾아 우선순위와 함께 정리해라. 파일을 직접 읽어 근거를 대라.",
       meeting: true,
+      unity: true,
     });
     setDevTaskAgent("td");
   };
@@ -557,25 +558,25 @@ export function OfficeView() {
       </span>
       {orchRunning && <span className="office-live">● 진행 중</span>}
       <button className="os-abtn" onClick={() => setMobilePanel("agents")} title="모바일 인력 로스터 열기">
-        👥 인력
+        👥 <span className="os-abtn-label">인력</span>
       </button>
       <button className="os-abtn" onClick={() => setBoardOpen(true)} title="라이브 프로세스 — 전사 워크스트림 현황">
-        📋 보드
+        📋 <span className="os-abtn-label">보드</span>
       </button>
       <button className="os-abtn" onClick={() => openDocViewer("gdd")} title="마스터 GDD를 큰 화면으로">
-        📄 GDD
+        📄 <span className="os-abtn-label">GDD</span>
       </button>
       <button className="os-abtn" onClick={() => openDocViewer("reports")} title="보고서함">
-        📑 보고서{reports.length > 0 ? ` ${reports.length}` : ""}
+        📑 <span className="os-abtn-label">보고서{reports.length > 0 ? ` ${reports.length}` : ""}</span>
       </button>
       <button className="os-abtn" onClick={() => openDocViewer("art")} title="아트 보관함">
-        🖼️ 아트
+        🖼️ <span className="os-abtn-label">아트</span>
       </button>
       <button className="os-abtn" onClick={() => setArtStudioOpen(true)} title="아트 인턴 — 컨셉 아트 생성">
-        🖌️ 인턴
+        🖌️ <span className="os-abtn-label">인턴</span>
       </button>
       <button className="os-abtn" onClick={() => setProtoStudioOpen(true)} title="시뮬레이터 — 플레이 가능한 그레이박스·와이어프레임 프로토타입">
-        🕹️ 시뮬
+        🕹️ <span className="os-abtn-label">시뮬</span>
       </button>
       <button
         className="os-abtn"
@@ -583,7 +584,7 @@ export function OfficeView() {
         disabled={briefingBusy || orchRunning}
         title="PM 오늘의 브리핑 — 현황·추천 작업·리스크"
       >
-        {briefingBusy ? "…" : "☀️"} 브리핑
+        {briefingBusy ? "…" : "☀️"} <span className="os-abtn-label">브리핑</span>
       </button>
       <button
         className="os-abtn"
@@ -598,10 +599,10 @@ export function OfficeView() {
         disabled={planReviewBusy || orchRunning}
         title="기존 기획 팀 리뷰 — PM 분배로 전원 학습·평가"
       >
-        {planReviewBusy ? "…" : "📥"} 기획리뷰
+        {planReviewBusy ? "…" : "📥"} <span className="os-abtn-label">기획리뷰</span>
       </button>
-      <button className="os-abtn" onClick={startUnityReview} title="유니티 프로젝트 리뷰 (개발 회의)">
-        🎮 유니티
+      <button className="os-abtn unity-entry" onClick={startUnityReview} title="Unity 개발 로그와 WebGL 실행 화면을 함께 엽니다">
+        🎮 <span className="os-abtn-label">Unity 작업실</span>
       </button>
       {artStatus?.connected && (
         <button
@@ -610,7 +611,7 @@ export function OfficeView() {
           disabled={officeBgBusy}
           title="아트 인턴에게 새 사무실 배경을 그리게 합니다 (아트 디렉터가 게임 분위기 반영)"
         >
-          {officeBgBusy ? "…" : "🌄"} 배경
+          {officeBgBusy ? "…" : "🌄"} <span className="os-abtn-label">배경</span>
         </button>
       )}
       <button
@@ -618,10 +619,10 @@ export function OfficeView() {
         onClick={() => setOfficeTheme(officeTheme === "day" ? "night" : officeTheme === "night" ? "auto" : "day")}
         title={`테마: ${officeTheme === "day" ? "낮" : officeTheme === "night" ? "밤" : "자동(시간)"} — 클릭해 전환`}
       >
-        {officeTheme === "day" ? "☀" : officeTheme === "night" ? "🌙" : "🌗"} 테마
+        {officeTheme === "day" ? "☀" : officeTheme === "night" ? "🌙" : "🌗"} <span className="os-abtn-label">테마</span>
       </button>
       <button className="os-abtn" onClick={toggleMode3d} title={mode3d ? "2D 사무실로 전환" : "3D 사무실로 전환"}>
-        {mode3d ? "🟦 2D" : "🧊 3D"}
+        {mode3d ? "🟦" : "🧊"} <span className="os-abtn-label">{mode3d ? "2D" : "3D"}</span>
       </button>
     </div>
   );
@@ -818,6 +819,7 @@ export function OfficeView() {
             agentId={devTaskAgent}
             initialTask={devTaskInit.task}
             autoMeeting={devTaskInit.meeting}
+            unityMode={devTaskInit.unity}
             onClose={() => {
               setDevTaskAgent(null);
               setDevTaskInit({});
@@ -952,6 +954,7 @@ export function OfficeView() {
           agentId={devTaskAgent}
           initialTask={devTaskInit.task}
           autoMeeting={devTaskInit.meeting}
+          unityMode={devTaskInit.unity}
           onClose={() => {
             setDevTaskAgent(null);
             setDevTaskInit({});

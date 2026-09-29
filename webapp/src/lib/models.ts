@@ -10,9 +10,11 @@ export interface ModelOption {
 
 export interface ModelsInfo {
   current: string;
+  runtime?: "subscription" | "openclaw";
   /** 에이전트별 현재 모델 — 역할별 배정 UI용 (예: pm은 헤드급, 나머지는 경량) */
   agents: Record<string, string>;
   providers: { ollama: boolean; github: boolean; nvidia: boolean };
+  subscription?: { claude: boolean; codex: boolean; localFallback: string };
   options: ModelOption[];
   /** 제공자가 내려서 목록에서 제외된 모델 id (서버가 실제 카탈로그와 대조해 채운다) */
   retired?: string[];

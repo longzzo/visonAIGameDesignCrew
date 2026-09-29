@@ -10,7 +10,9 @@ import zlib from "node:zlib";
 import { gatewayRelayPlugin } from "./server/gateway-relay.mjs";
 import { usageStorePlugin } from "./server/usage-store.mjs";
 import { jobStorePlugin } from "./server/job-store.mjs";
-import { readinessApiPlugin, resolveAiRuntime } from "./server/readiness.mjs";
+import { invalidateReadinessCache, readinessApiPlugin, resolveAiRuntime, setAiRuntime } from "./server/readiness.mjs";
+import { getSubscriptionStatus } from "./server/subscription-agents.mjs";
+import { getUnityPreviewStatus, resolveUnityPreviewFile, setUnityWebglDir } from "./server/unity-preview.mjs";
 import { backupApiPlugin } from "./server/backup-store.mjs";
 import { applySecurityHeaders, hostnameAllowed, originMatchesRequest } from "./server/request-security.mjs";
 import { isSecretRef, protectOpenClawValues } from "../scripts/migrate-openclaw-secrets.mjs";
@@ -4448,17 +4450,24 @@ function modelsApiPlugin(): Plugin {
             const agentRoster = readOpenClawAgents(cfg);
 
             if (req.method === "GET") {
-              const current =
+              const openclawCurrent =
                 cfg?.agents?.defaults?.model?.primary ?? agentRoster[0]?.model ?? "ollama/qwen3.5:4b";
+              const runtime = resolveAiRuntime();
+              const subscriptions = await getSubscriptionStatus({ maxAgeMs: 5_000 });
+              const current = runtime === "subscription" ? "subscription/auto" : openclawCurrent;
               // 에이전트별 현재 모델 (역할별 배정 UI용)
               const agents: Record<string, string> = {};
-              for (const a of agentRoster) agents[a.id] = a.model ?? current;
+              for (const a of agentRoster) agents[a.id] = a.model ?? openclawCurrent;
               const providers = {
                 ollama: true,
                 github: hasProviderKey(cfg, "github"),
                 nvidia: hasProviderKey(cfg, "nvidia"),
               };
-              const options: { id: string; label: string; note?: string }[] = [];
+              const options: { id: string; label: string; note?: string }[] = [{
+                id: "subscription/auto",
+                label: "구독 우선 자동",
+                note: `Claude → Codex → 로컬 Qwen · ${subscriptions.ready ? "구독 연결됨" : "구독 미로그인"}`,
+              }];
               for (const m of cfg?.models?.providers?.ollama?.models ?? []) {
                 const id = `ollama/${m.id}`;
                 if (isStaticallyRetiredModel(id)) continue;
@@ -4486,7 +4495,20 @@ function modelsApiPlugin(): Plugin {
               // 지금 배정된 모델이 내려갔다면 반드시 알린다 — 이게 없으면 증상이 "게이트웨이 끊김"으로만 보인다.
               const retiredSet = new Set(retired);
               const deadAssigned = [...new Set(Object.values(agents).filter((model) => retiredSet.has(model)))];
-              res.end(JSON.stringify({ current, agents, providers, options, retired: [...retiredSet], deadAssigned }));
+              res.end(JSON.stringify({
+                current,
+                runtime,
+                agents,
+                providers,
+                options,
+                subscription: {
+                  claude: subscriptions.claude.subscription,
+                  codex: subscriptions.codex.subscription,
+                  localFallback: "ollama/qwen3.5:4b",
+                },
+                retired: [...retiredSet],
+                deadAssigned,
+              }));
               return;
             }
 
@@ -4570,6 +4592,8 @@ function modelsApiPlugin(): Plugin {
                 }
                 writeOpenClawAgents(cfg, agentRoster);
                 fs.writeFileSync(OPENCLAW_CFG, JSON.stringify(cfg, null, 2), "utf-8");
+                setAiRuntime("openclaw");
+                invalidateReadinessCache();
                 restartGateway();
                 res.end(JSON.stringify({ ok: true }));
                 return;
@@ -4578,6 +4602,12 @@ function modelsApiPlugin(): Plugin {
               // ③ 전 에이전트 모델 전환
               if (typeof j.model === "string" && j.model) {
                 const model = j.model.trim();
+                if (model === "subscription/auto") {
+                  setAiRuntime("subscription");
+                  invalidateReadinessCache();
+                  res.end(JSON.stringify({ ok: true, model, runtime: "subscription" }));
+                  return;
+                }
                 if (isStaticallyRetiredModel(model)) {
                   res.statusCode = 400;
                   res.end(JSON.stringify({ ok: false, error: `제공이 종료된 모델입니다: ${model}` }));
@@ -4603,6 +4633,8 @@ function modelsApiPlugin(): Plugin {
                 for (const a of agentRoster) a.model = model;
                 writeOpenClawAgents(cfg, agentRoster);
                 fs.writeFileSync(OPENCLAW_CFG, JSON.stringify(cfg, null, 2), "utf-8");
+                setAiRuntime("openclaw");
+                invalidateReadinessCache();
                 restartGateway();
                 res.end(JSON.stringify({ ok: true, model }));
                 return;
@@ -4735,7 +4767,7 @@ function agentBridgePlugin(): Plugin {
                     status: "ok",
                     result: {
                       payloads: [{ text: result.final }],
-                      meta: { agentMeta: { engine: "official-cli-subscription", usage: null } },
+                      meta: { agentMeta: { engine: result.engine || "official-cli-subscription", usage: null } },
                     },
                   },
                 }));
@@ -4898,6 +4930,77 @@ function mcpApiPlugin(): Plugin {
   };
 }
 
+/* ── 플러그인: Unity WebGL 미리보기 ───────────────────── */
+
+const UNITY_PREVIEW_MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".wasm": "application/wasm",
+  ".data": "application/octet-stream",
+  ".symbols": "application/octet-stream",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".css": "text/css; charset=utf-8",
+};
+
+function unityPreviewApiPlugin(): Plugin {
+  return {
+    name: "vision-engine-unity-preview-api",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use("/api/unity-preview", (req, res) => {
+        void (async () => {
+          try {
+            const url = new URL(req.url ?? "/", "http://local");
+            const sub = url.pathname.replace(/\/+$/, "") || "/";
+            if (sub === "/status" && req.method === "GET") {
+              res.setHeader("Content-Type", "application/json; charset=utf-8");
+              res.setHeader("Cache-Control", "no-store");
+              res.end(JSON.stringify(getUnityPreviewStatus()));
+              return;
+            }
+            if (sub === "/config" && req.method === "POST") {
+              if (blockRemoteWrite(req, res)) return;
+              const body = JSON.parse((await readBody(req)) || "{}");
+              const status = setUnityWebglDir(String(body.dir ?? ""));
+              res.setHeader("Content-Type", "application/json; charset=utf-8");
+              res.end(JSON.stringify({ ok: true, ...status }));
+              return;
+            }
+            if (sub.startsWith("/files/") && req.method === "GET") {
+              const file = resolveUnityPreviewFile(sub.slice("/files/".length));
+              const lower = file.toLowerCase();
+              const encoded = lower.endsWith(".br") ? "br" : lower.endsWith(".gz") ? "gzip" : "";
+              const logical = encoded ? file.slice(0, file.lastIndexOf(".")) : file;
+              res.setHeader("Content-Type", UNITY_PREVIEW_MIME[path.extname(logical).toLowerCase()] || "application/octet-stream");
+              if (encoded) res.setHeader("Content-Encoding", encoded);
+              res.setHeader("Cache-Control", "no-cache");
+              res.setHeader("X-Frame-Options", "SAMEORIGIN");
+              res.setHeader(
+                "Content-Security-Policy",
+                "default-src 'self' data: blob:; script-src 'self' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' data: blob:; worker-src 'self' blob:; frame-ancestors 'self'; object-src 'none'; base-uri 'self'"
+              );
+              res.setHeader("Content-Length", String(fs.statSync(file).size));
+              fs.createReadStream(file).pipe(res);
+              return;
+            }
+            res.statusCode = 404;
+            res.setHeader("Content-Type", "application/json; charset=utf-8");
+            res.end(JSON.stringify({ ok: false, error: "Unity WebGL 미리보기 경로를 찾을 수 없습니다." }));
+          } catch (error: any) {
+            res.statusCode = 500;
+            res.setHeader("Content-Type", "application/json; charset=utf-8");
+            res.end(JSON.stringify({ ok: false, error: String(error?.message || error).slice(0, 300) }));
+          }
+        })();
+      });
+    },
+  };
+}
+
 /* ── 플러그인: 개발 작업 (다이렉트 프로바이더 + MCP 툴 루프) ── */
 function devTaskApiPlugin(): Plugin {
   let mod: any = null;
@@ -5013,6 +5116,7 @@ export function visionApiPlugins(): Plugin[] {
     modelsApiPlugin(),
     agentBridgePlugin(),
     mcpApiPlugin(),
+    unityPreviewApiPlugin(),
     devTaskApiPlugin(),
   ];
 }

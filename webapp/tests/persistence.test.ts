@@ -4,9 +4,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { appendUsage, summarizeUsage } from "../server/usage-store.mjs";
 import { createJob, latestRecoverableJob, updateJob } from "../server/job-store.mjs";
-import { resolveProvider } from "../server/dev-provider.mjs";
+import { localFallbackModel, resolveProvider } from "../server/dev-provider.mjs";
 import { importLegacyData, openClawAgentCount, resolveAiRuntime, resolveCodexWorkdir, setAiRuntime, setCodexWorkdir } from "../server/readiness.mjs";
 import { subscriptionEnvironment } from "../server/subscription-agents.mjs";
+import { getUnityPreviewStatus, resolveUnityPreviewFile, setUnityWebglDir } from "../server/unity-preview.mjs";
 
 const tempDirs: string[] = [];
 const tempDir = () => {
@@ -18,6 +19,7 @@ const tempDir = () => {
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
   delete process.env.VE_DATA_ROOT;
+  delete process.env.VE_UNITY_DIR;
 });
 
 describe("개발 모델 제공자 어댑터", () => {
@@ -48,6 +50,10 @@ describe("개발 모델 제공자 어댑터", () => {
       models: { providers: { ollama: { baseUrl: "http://127.0.0.1:11434", api: "ollama", models: [] } } },
     });
     expect(provider).toMatchObject({ baseUrl: "http://127.0.0.1:11434/v1", key: "ollama-local", modelId: "qwen3.5:4b" });
+  });
+
+  it("구독 실패 뒤에는 정책에 지정된 로컬 무료 모델을 사용한다", () => {
+    expect(localFallbackModel()).toBe("qwen3.5:4b");
   });
 });
 
@@ -132,5 +138,31 @@ describe("PC 앱 데이터 이전과 Codex 작업 폴더", () => {
     expect(setAiRuntime("openclaw")).toBe("openclaw");
     expect(resolveAiRuntime()).toBe("openclaw");
     expect(setAiRuntime("subscription")).toBe("subscription");
+  });
+});
+
+describe("Unity WebGL 미리보기", () => {
+  it("Unity 프로젝트의 표준 WebGL 빌드 폴더를 자동으로 찾는다", () => {
+    const data = tempDir();
+    const unity = tempDir();
+    const build = path.join(unity, "Builds", "WebGL");
+    process.env.VE_DATA_ROOT = data;
+    fs.mkdirSync(path.join(data, "config"), { recursive: true });
+    fs.mkdirSync(build, { recursive: true });
+    fs.writeFileSync(path.join(build, "index.html"), "<title>Game</title>");
+    fs.writeFileSync(path.join(data, "config", "unity.local.json"), JSON.stringify({ dir: unity }));
+
+    expect(getUnityPreviewStatus()).toMatchObject({ ready: true, projectDir: unity, buildDir: build });
+    expect(resolveUnityPreviewFile("index.html")).toBe(path.join(build, "index.html"));
+  });
+
+  it("사용자가 고른 빌드 폴더를 저장하고 폴더 밖 경로는 거부한다", () => {
+    const data = tempDir();
+    const build = tempDir();
+    process.env.VE_DATA_ROOT = data;
+    fs.writeFileSync(path.join(build, "index.html"), "<title>Game</title>");
+
+    expect(setUnityWebglDir(build)).toMatchObject({ ready: true, configuredBuild: build });
+    expect(() => resolveUnityPreviewFile("../secret.txt")).toThrow("허용되지 않은");
   });
 });

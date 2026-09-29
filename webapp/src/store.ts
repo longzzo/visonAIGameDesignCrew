@@ -1492,6 +1492,7 @@ export const useVE = create<VEState>()((set, get) => {
     },
 
     reconnect: async () => {
+      gateway.disconnect();
       await gateway.connect();
     },
 

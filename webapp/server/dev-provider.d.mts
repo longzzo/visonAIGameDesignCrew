@@ -28,7 +28,14 @@ export function runSubscriptionAgent(opts: {
   agentId: string;
   task: string;
   signal?: AbortSignal;
-}): Promise<{ ok: boolean; final: string }>;
+}): Promise<{ ok: boolean; final: string; engine?: string }>;
+export function localFallbackModel(): string;
+export function runLocalFallbackAgent(opts: {
+  agentId: string;
+  task: string;
+  signal?: AbortSignal;
+  failures?: string[];
+}): Promise<{ ok: boolean; final: string; engine: string }>;
 export function runSubscriptionTask(opts: {
   agentId: string;
   task: string;
